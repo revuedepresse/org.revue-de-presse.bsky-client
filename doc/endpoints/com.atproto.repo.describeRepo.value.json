@@ -1,0 +1,90 @@
+{
+  "get": {
+    "tags": [
+      "com.atproto.repo"
+    ],
+    "summary": "Get information about an account and repository, including the list of collections. Does not require auth.",
+    "operationId": "com.atproto.repo.describeRepo",
+    "parameters": [
+      {
+        "name": "repo",
+        "in": "query",
+        "description": "The handle or DID of the repo.",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "The handle or DID of the repo.",
+          "format": "at-identifier"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "handle",
+                "did",
+                "didDoc",
+                "collections",
+                "handleIsCorrect"
+              ],
+              "properties": {
+                "handle": {
+                  "type": "string",
+                  "format": "handle"
+                },
+                "did": {
+                  "type": "string",
+                  "format": "did"
+                },
+                "didDoc": {},
+                "collections": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "nsid"
+                  }
+                },
+                "handleIsCorrect": {
+                  "type": "boolean",
+                  "description": "Indicates if handle is currently valid (resolves bi-directionally)"
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

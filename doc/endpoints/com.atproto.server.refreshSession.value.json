@@ -1,0 +1,119 @@
+{
+  "post": {
+    "tags": [
+      "com.atproto.server"
+    ],
+    "summary": "Refresh an authentication session. Requires auth using the 'refreshJwt' (not the 'accessJwt').",
+    "operationId": "com.atproto.server.refreshSession",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "accessJwt",
+                "refreshJwt",
+                "handle",
+                "did"
+              ],
+              "properties": {
+                "accessJwt": {
+                  "type": "string"
+                },
+                "refreshJwt": {
+                  "type": "string"
+                },
+                "handle": {
+                  "type": "string",
+                  "format": "handle"
+                },
+                "did": {
+                  "type": "string",
+                  "format": "did"
+                },
+                "didDoc": {},
+                "active": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "type": "string",
+                  "description": "Hosting status of the account. If not specified, then assume 'active'.",
+                  "enum": [
+                    "takendown",
+                    "suspended",
+                    "deactivated"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    },
+                    {
+                      "const": "AccountTakedown"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

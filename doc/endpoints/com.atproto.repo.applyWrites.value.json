@@ -1,0 +1,152 @@
+{
+  "post": {
+    "tags": [
+      "com.atproto.repo"
+    ],
+    "summary": "Apply a batch transaction of repository creates, updates, and deletes. Requires auth, implemented by PDS.",
+    "operationId": "com.atproto.repo.applyWrites",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "repo",
+              "writes"
+            ],
+            "properties": {
+              "repo": {
+                "type": "string",
+                "description": "The handle or DID of the repo (aka, current account).",
+                "format": "at-identifier"
+              },
+              "validate": {
+                "type": "boolean",
+                "description": "Can be set to 'false' to skip Lexicon schema validation of record data across all operations, 'true' to require it, or leave unset to validate only for known Lexicons."
+              },
+              "writes": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/com.atproto.repo.applyWrites.create"
+                    },
+                    {
+                      "$ref": "#/components/schemas/com.atproto.repo.applyWrites.update"
+                    },
+                    {
+                      "$ref": "#/components/schemas/com.atproto.repo.applyWrites.delete"
+                    }
+                  ]
+                }
+              },
+              "swapCommit": {
+                "type": "string",
+                "description": "If provided, the entire operation will fail if the current repo commit CID does not match this value. Used to prevent conflicting repo mutations.",
+                "format": "cid"
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [],
+              "properties": {
+                "commit": {
+                  "$ref": "#/components/schemas/com.atproto.repo.defs.commitMeta"
+                },
+                "results": {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/com.atproto.repo.applyWrites.createResult"
+                      },
+                      {
+                        "$ref": "#/components/schemas/com.atproto.repo.applyWrites.updateResult"
+                      },
+                      {
+                        "$ref": "#/components/schemas/com.atproto.repo.applyWrites.deleteResult"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    },
+                    {
+                      "const": "InvalidSwap"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

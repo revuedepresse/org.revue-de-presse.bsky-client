@@ -1,0 +1,124 @@
+{
+  "post": {
+    "tags": [
+      "com.atproto.server"
+    ],
+    "summary": "Create an authentication session.",
+    "operationId": "com.atproto.server.createSession",
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "identifier",
+              "password"
+            ],
+            "properties": {
+              "identifier": {
+                "type": "string",
+                "description": "Handle or other identifier supported by the server for the authenticating user."
+              },
+              "password": {
+                "type": "string"
+              },
+              "authFactorToken": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "accessJwt",
+                "refreshJwt",
+                "handle",
+                "did"
+              ],
+              "properties": {
+                "accessJwt": {
+                  "type": "string"
+                },
+                "refreshJwt": {
+                  "type": "string"
+                },
+                "handle": {
+                  "type": "string",
+                  "format": "handle"
+                },
+                "did": {
+                  "type": "string",
+                  "format": "did"
+                },
+                "didDoc": {},
+                "email": {
+                  "type": "string"
+                },
+                "emailConfirmed": {
+                  "type": "boolean"
+                },
+                "emailAuthFactor": {
+                  "type": "boolean"
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "type": "string",
+                  "description": "If active=false, this optional field indicates a possible reason for why the account is not active. If active=false and no status is supplied, then the host makes no claim for why the repository is no longer being hosted.",
+                  "enum": [
+                    "takendown",
+                    "suspended",
+                    "deactivated"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "AccountTakedown"
+                    },
+                    {
+                      "const": "AuthFactorTokenRequired"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,112 @@
+{
+  "get": {
+    "tags": [
+      "app.bsky.feed"
+    ],
+    "summary": "Get information about a feed generator. Implemented by AppView.",
+    "operationId": "app.bsky.feed.getFeedGenerator",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "feed",
+        "in": "query",
+        "description": "AT-URI of the feed generator record.",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "AT-URI of the feed generator record.",
+          "format": "at-uri"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "view",
+                "isOnline",
+                "isValid"
+              ],
+              "properties": {
+                "view": {
+                  "$ref": "#/components/schemas/app.bsky.feed.defs.generatorView"
+                },
+                "isOnline": {
+                  "type": "boolean",
+                  "description": "Indicates whether the feed generator service has been online recently, or else seems to be inactive."
+                },
+                "isValid": {
+                  "type": "boolean",
+                  "description": "Indicates whether the feed generator service is compatible with the record declaration."
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

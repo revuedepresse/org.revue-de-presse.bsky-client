@@ -1,0 +1,149 @@
+{
+  "post": {
+    "tags": [
+      "com.atproto.admin"
+    ],
+    "summary": "Take a moderation action on an actor.",
+    "operationId": "com.atproto.admin.takeModerationAction",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "action",
+              "subject",
+              "reason",
+              "createdBy"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "com.atproto.admin.defs#takedown",
+                  "com.atproto.admin.defs#flag",
+                  "com.atproto.admin.defs#acknowledge"
+                ]
+              },
+              "subject": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/com.atproto.admin.defs.repoRef"
+                  },
+                  {
+                    "$ref": "#/components/schemas/com.atproto.repo.strongRef"
+                  }
+                ]
+              },
+              "subjectBlobCids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "cid"
+                }
+              },
+              "createLabelVals": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "negateLabelVals": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "reason": {
+                "type": "string"
+              },
+              "durationInHours": {
+                "type": "integer"
+              },
+              "createdBy": {
+                "type": "string",
+                "format": "did"
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/com.atproto.admin.defs.actionView"
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    },
+                    {
+                      "const": "SubjectHasAction"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

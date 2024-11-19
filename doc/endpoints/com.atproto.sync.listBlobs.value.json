@@ -1,0 +1,150 @@
+{
+  "get": {
+    "tags": [
+      "com.atproto.sync"
+    ],
+    "summary": "List blob CIDs for an account, since some repo revision. Does not require auth; implemented by PDS.",
+    "operationId": "com.atproto.sync.listBlobs",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "did",
+        "in": "query",
+        "description": "The DID of the repo.",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "The DID of the repo.",
+          "format": "did"
+        }
+      },
+      {
+        "name": "since",
+        "in": "query",
+        "description": "Optional revision of the repo to list blobs since.",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Optional revision of the repo to list blobs since."
+        }
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 500
+        }
+      },
+      {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "cids"
+              ],
+              "properties": {
+                "cursor": {
+                  "type": "string"
+                },
+                "cids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "cid"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    },
+                    {
+                      "const": "RepoNotFound"
+                    },
+                    {
+                      "const": "RepoTakendown"
+                    },
+                    {
+                      "const": "RepoSuspended"
+                    },
+                    {
+                      "const": "RepoDeactivated"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

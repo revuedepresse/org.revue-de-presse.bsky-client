@@ -1,0 +1,70 @@
+{
+  "get": {
+    "tags": [
+      "com.atproto.identity"
+    ],
+    "summary": "Resolves a handle (domain name) to a DID.",
+    "operationId": "com.atproto.identity.resolveHandle",
+    "parameters": [
+      {
+        "name": "handle",
+        "in": "query",
+        "description": "The handle to resolve.",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "The handle to resolve.",
+          "format": "handle"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "did"
+              ],
+              "properties": {
+                "did": {
+                  "type": "string",
+                  "format": "did"
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

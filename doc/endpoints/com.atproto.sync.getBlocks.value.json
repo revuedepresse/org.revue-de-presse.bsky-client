@@ -1,0 +1,117 @@
+{
+  "get": {
+    "tags": [
+      "com.atproto.sync"
+    ],
+    "summary": "Get data blocks from a given repo, by CID. For example, intermediate MST nodes, or records. Does not require auth; implemented by PDS.",
+    "operationId": "com.atproto.sync.getBlocks",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "did",
+        "in": "query",
+        "description": "The DID of the repo.",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "The DID of the repo.",
+          "format": "did"
+        }
+      },
+      {
+        "name": "cids",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "cid"
+          }
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/vnd.ipld.car": {}
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    },
+                    {
+                      "const": "BlockNotFound"
+                    },
+                    {
+                      "const": "RepoNotFound"
+                    },
+                    {
+                      "const": "RepoTakendown"
+                    },
+                    {
+                      "const": "RepoSuspended"
+                    },
+                    {
+                      "const": "RepoDeactivated"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
