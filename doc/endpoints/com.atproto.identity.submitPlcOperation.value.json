@@ -1,0 +1,90 @@
+{
+  "post": {
+    "tags": [
+      "com.atproto.identity"
+    ],
+    "summary": "Validates a PLC operation to ensure that it doesn't violate a service's constraints or get the identity into a bad state, then submits it to the PLC registry",
+    "operationId": "com.atproto.identity.submitPlcOperation",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "operation"
+            ],
+            "properties": {
+              "operation": {}
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "OK"
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "post": {
+    "tags": [
+      "tools.ozone.setting"
+    ],
+    "summary": "Create or update setting option",
+    "operationId": "tools.ozone.setting.upsertOption",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "key",
+              "scope",
+              "value"
+            ],
+            "properties": {
+              "key": {
+                "type": "string",
+                "format": "nsid"
+              },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "instance",
+                  "personal"
+                ]
+              },
+              "value": {},
+              "description": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "managerRole": {
+                "type": "string",
+                "enum": [
+                  "tools.ozone.team.defs#roleModerator",
+                  "tools.ozone.team.defs#roleTriage",
+                  "tools.ozone.team.defs#roleAdmin"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "option"
+              ],
+              "properties": {
+                "option": {
+                  "$ref": "#/components/schemas/tools.ozone.setting.defs.option"
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

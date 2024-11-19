@@ -1,0 +1,74 @@
+{
+  "post": {
+    "tags": [
+      "com.atproto.server"
+    ],
+    "summary": "Delete the current session. Requires auth.",
+    "operationId": "com.atproto.server.deleteSession",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK"
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

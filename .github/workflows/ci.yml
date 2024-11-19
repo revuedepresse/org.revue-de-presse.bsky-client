@@ -1,0 +1,51 @@
+name: org-revue-de-presse-bsky
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore cache
+        uses: actions/cache/restore@v4
+        id: restore-dependencies
+        with:
+          path: |
+            ./scryer-prolog/target/release/scryer-prolog
+          key: org-revue-de-presse-bsky-${{ hashFiles('deps') }}
+
+      - if: ${{ steps.restore-dependencies.outputs.cache-hit != 'true' }}
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - if: ${{ steps.restore-dependencies.outputs.cache-hit != 'true' }}
+        name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -yq wget git
+          git clone https://github.com/thierrymarianne/contrib-scryer-prolog \
+          scryer-prolog \
+          -b "$(\cat ./deps | head -n1)"
+          cd scryer-prolog
+          cargo build --bin scryer-prolog --release
+
+      - if: ${{ steps.restore-dependencies.outputs.cache-hit != 'true' }}
+        name: Cache dependencies
+        uses: actions/cache/save@v4
+        id: cache-dependencies
+        with:
+          path: |
+            ./scryer-prolog/target/release/scryer-prolog
+          key: org-revue-de-presse-bsky-${{ hashFiles('deps') }}
+
+      # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
+      - name: Add scryer-prolog to system path
+        run: |
+          chmod +x ./scryer-prolog/target/release/scryer-prolog
+          echo "$PWD/scryer-prolog/target/release" >> "$GITHUB_PATH"
+
+      - name: Run tests
+        run: |
+          echo $PATH
+          make test

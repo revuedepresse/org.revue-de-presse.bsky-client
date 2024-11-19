@@ -1,0 +1,98 @@
+{
+  "get": {
+    "tags": [
+      "tools.ozone.server"
+    ],
+    "summary": "Get details about ozone's server configuration.",
+    "operationId": "tools.ozone.server.getConfig",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "appview": {
+                  "$ref": "#/components/schemas/tools.ozone.server.getConfig.serviceConfig"
+                },
+                "pds": {
+                  "$ref": "#/components/schemas/tools.ozone.server.getConfig.serviceConfig"
+                },
+                "blobDivert": {
+                  "$ref": "#/components/schemas/tools.ozone.server.getConfig.serviceConfig"
+                },
+                "chat": {
+                  "$ref": "#/components/schemas/tools.ozone.server.getConfig.serviceConfig"
+                },
+                "viewer": {
+                  "$ref": "#/components/schemas/tools.ozone.server.getConfig.viewerConfig"
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

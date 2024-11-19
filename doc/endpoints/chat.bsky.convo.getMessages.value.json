@@ -1,0 +1,130 @@
+{
+  "get": {
+    "tags": [
+      "chat.bsky.convo"
+    ],
+    "operationId": "chat.bsky.convo.getMessages",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "convoId",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      },
+      {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "messages"
+              ],
+              "properties": {
+                "cursor": {
+                  "type": "string"
+                },
+                "messages": {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/chat.bsky.convo.defs.messageView"
+                      },
+                      {
+                        "$ref": "#/components/schemas/chat.bsky.convo.defs.deletedMessageView"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

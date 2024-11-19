@@ -1,0 +1,152 @@
+{
+  "post": {
+    "tags": [
+      "com.atproto.moderation"
+    ],
+    "summary": "Submit a moderation report regarding an atproto account or record. Implemented by moderation services (with PDS proxying), and requires auth.",
+    "operationId": "com.atproto.moderation.createReport",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "reasonType",
+              "subject"
+            ],
+            "properties": {
+              "reasonType": {
+                "$ref": "#/components/schemas/com.atproto.moderation.defs.reasonType"
+              },
+              "reason": {
+                "type": "string",
+                "description": "Additional context about the content and violation.",
+                "maxLength": 20000
+              },
+              "subject": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/com.atproto.admin.defs.repoRef"
+                  },
+                  {
+                    "$ref": "#/components/schemas/com.atproto.repo.strongRef"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "id",
+                "reasonType",
+                "subject",
+                "reportedBy",
+                "createdAt"
+              ],
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "reasonType": {
+                  "$ref": "#/components/schemas/com.atproto.moderation.defs.reasonType"
+                },
+                "reason": {
+                  "type": "string",
+                  "maxLength": 20000
+                },
+                "subject": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/com.atproto.admin.defs.repoRef"
+                    },
+                    {
+                      "$ref": "#/components/schemas/com.atproto.repo.strongRef"
+                    }
+                  ]
+                },
+                "reportedBy": {
+                  "type": "string",
+                  "format": "did"
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "get": {
+    "tags": [
+      "app.bsky.graph"
+    ],
+    "summary": "Gets a 'view' (with additional context) of a specified list.",
+    "operationId": "app.bsky.graph.getList",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "list",
+        "in": "query",
+        "description": "Reference (AT-URI) of the list record to hydrate.",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "Reference (AT-URI) of the list record to hydrate.",
+          "format": "at-uri"
+        }
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      },
+      {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "list",
+                "items"
+              ],
+              "properties": {
+                "cursor": {
+                  "type": "string"
+                },
+                "list": {
+                  "$ref": "#/components/schemas/app.bsky.graph.defs.listView"
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/app.bsky.graph.defs.listItemView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

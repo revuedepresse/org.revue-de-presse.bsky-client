@@ -1,0 +1,143 @@
+{
+  "get": {
+    "tags": [
+      "app.bsky.unspecced"
+    ],
+    "summary": "Get a skeleton of suggested actors. Intended to be called and then hydrated through app.bsky.actor.getSuggestions",
+    "operationId": "app.bsky.unspecced.getSuggestionsSkeleton",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "viewer",
+        "in": "query",
+        "description": "DID of the account making the request (not included for public/unauthenticated queries). Used to boost followed accounts in ranking.",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "DID of the account making the request (not included for public/unauthenticated queries). Used to boost followed accounts in ranking.",
+          "format": "did"
+        }
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      },
+      {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "relativeToDid",
+        "in": "query",
+        "description": "DID of the account to get suggestions relative to. If not provided, suggestions will be based on the viewer.",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "DID of the account to get suggestions relative to. If not provided, suggestions will be based on the viewer.",
+          "format": "did"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "actors"
+              ],
+              "properties": {
+                "cursor": {
+                  "type": "string"
+                },
+                "actors": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/app.bsky.unspecced.defs.skeletonSearchActor"
+                  }
+                },
+                "relativeToDid": {
+                  "type": "string",
+                  "description": "DID of the account these suggestions are relative to. If this is returned undefined, suggestions are based on the viewer.",
+                  "format": "did"
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

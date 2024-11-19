@@ -1,0 +1,104 @@
+{
+  "get": {
+    "tags": [
+      "tools.ozone.moderation"
+    ],
+    "summary": "Get details about a record.",
+    "operationId": "tools.ozone.moderation.getRecord",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "uri",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "at-uri"
+        }
+      },
+      {
+        "name": "cid",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "cid"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/tools.ozone.moderation.defs.recordViewDetail"
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    },
+                    {
+                      "const": "RecordNotFound"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "post": {
+    "tags": [
+      "tools.ozone.communication"
+    ],
+    "summary": "Administrative action to create a new, re-usable communication (email for now) template.",
+    "operationId": "tools.ozone.communication.createTemplate",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "subject",
+              "contentMarkdown",
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Name of the template."
+              },
+              "contentMarkdown": {
+                "type": "string",
+                "description": "Content of the template, markdown supported, can contain variable placeholders."
+              },
+              "subject": {
+                "type": "string",
+                "description": "Subject of the message, used in emails."
+              },
+              "lang": {
+                "type": "string",
+                "description": "Message language.",
+                "format": "language"
+              },
+              "createdBy": {
+                "type": "string",
+                "description": "DID of the user who is creating the template.",
+                "format": "did"
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/tools.ozone.communication.defs.templateView"
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    },
+                    {
+                      "const": "DuplicateTemplateName"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

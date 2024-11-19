@@ -1,0 +1,388 @@
+{
+  "get": {
+    "tags": [
+      "tools.ozone.moderation"
+    ],
+    "summary": "View moderation statuses of subjects (record or repo).",
+    "operationId": "tools.ozone.moderation.queryStatuses",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "includeAllUserRecords",
+        "in": "query",
+        "description": "All subjects, or subjects from given 'collections' param, belonging to the account specified in the 'subject' param will be returned.",
+        "required": false,
+        "schema": {
+          "type": "boolean",
+          "description": "All subjects, or subjects from given 'collections' param, belonging to the account specified in the 'subject' param will be returned."
+        }
+      },
+      {
+        "name": "subject",
+        "in": "query",
+        "description": "The subject to get the status for.",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "The subject to get the status for.",
+          "format": "uri"
+        }
+      },
+      {
+        "name": "comment",
+        "in": "query",
+        "description": "Search subjects by keyword from comments",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Search subjects by keyword from comments"
+        }
+      },
+      {
+        "name": "reportedAfter",
+        "in": "query",
+        "description": "Search subjects reported after a given timestamp",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Search subjects reported after a given timestamp",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "reportedBefore",
+        "in": "query",
+        "description": "Search subjects reported before a given timestamp",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Search subjects reported before a given timestamp",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "reviewedAfter",
+        "in": "query",
+        "description": "Search subjects reviewed after a given timestamp",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Search subjects reviewed after a given timestamp",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "hostingDeletedAfter",
+        "in": "query",
+        "description": "Search subjects where the associated record/account was deleted after a given timestamp",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Search subjects where the associated record/account was deleted after a given timestamp",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "hostingDeletedBefore",
+        "in": "query",
+        "description": "Search subjects where the associated record/account was deleted before a given timestamp",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Search subjects where the associated record/account was deleted before a given timestamp",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "hostingUpdatedAfter",
+        "in": "query",
+        "description": "Search subjects where the associated record/account was updated after a given timestamp",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Search subjects where the associated record/account was updated after a given timestamp",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "hostingUpdatedBefore",
+        "in": "query",
+        "description": "Search subjects where the associated record/account was updated before a given timestamp",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Search subjects where the associated record/account was updated before a given timestamp",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "hostingStatuses",
+        "in": "query",
+        "description": "Search subjects by the status of the associated record/account",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      {
+        "name": "reviewedBefore",
+        "in": "query",
+        "description": "Search subjects reviewed before a given timestamp",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Search subjects reviewed before a given timestamp",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "includeMuted",
+        "in": "query",
+        "description": "By default, we don't include muted subjects in the results. Set this to true to include them.",
+        "required": false,
+        "schema": {
+          "type": "boolean",
+          "description": "By default, we don't include muted subjects in the results. Set this to true to include them."
+        }
+      },
+      {
+        "name": "onlyMuted",
+        "in": "query",
+        "description": "When set to true, only muted subjects and reporters will be returned.",
+        "required": false,
+        "schema": {
+          "type": "boolean",
+          "description": "When set to true, only muted subjects and reporters will be returned."
+        }
+      },
+      {
+        "name": "reviewState",
+        "in": "query",
+        "description": "Specify when fetching subjects in a certain state",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Specify when fetching subjects in a certain state"
+        }
+      },
+      {
+        "name": "ignoreSubjects",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      {
+        "name": "lastReviewedBy",
+        "in": "query",
+        "description": "Get all subject statuses that were reviewed by a specific moderator",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Get all subject statuses that were reviewed by a specific moderator",
+          "format": "did"
+        }
+      },
+      {
+        "name": "sortField",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "default": "lastReportedAt"
+        }
+      },
+      {
+        "name": "sortDirection",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "default": "desc"
+        }
+      },
+      {
+        "name": "takendown",
+        "in": "query",
+        "description": "Get subjects that were taken down",
+        "required": false,
+        "schema": {
+          "type": "boolean",
+          "description": "Get subjects that were taken down"
+        }
+      },
+      {
+        "name": "appealed",
+        "in": "query",
+        "description": "Get subjects in unresolved appealed status",
+        "required": false,
+        "schema": {
+          "type": "boolean",
+          "description": "Get subjects in unresolved appealed status"
+        }
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      },
+      {
+        "name": "tags",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      {
+        "name": "excludeTags",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "collections",
+        "in": "query",
+        "description": "If specified, subjects belonging to the given collections will be returned. When subjectType is set to 'account', this will be ignored.",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "nsid"
+          },
+          "maxItems": 20
+        }
+      },
+      {
+        "name": "subjectType",
+        "in": "query",
+        "description": "If specified, subjects of the given type (account or record) will be returned. When this is set to 'account' the 'collections' parameter will be ignored. When includeAllUserRecords or subject is set, this will be ignored.",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "If specified, subjects of the given type (account or record) will be returned. When this is set to 'account' the 'collections' parameter will be ignored. When includeAllUserRecords or subject is set, this will be ignored.",
+          "enum": [
+            "account",
+            "record"
+          ]
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "subjectStatuses"
+              ],
+              "properties": {
+                "cursor": {
+                  "type": "string"
+                },
+                "subjectStatuses": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/tools.ozone.moderation.defs.subjectStatusView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

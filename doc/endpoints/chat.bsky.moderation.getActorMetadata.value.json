@@ -1,0 +1,107 @@
+{
+  "get": {
+    "tags": [
+      "chat.bsky.moderation"
+    ],
+    "operationId": "chat.bsky.moderation.getActorMetadata",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "actor",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "did"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "day",
+                "month",
+                "all"
+              ],
+              "properties": {
+                "day": {
+                  "$ref": "#/components/schemas/chat.bsky.moderation.getActorMetadata.metadata"
+                },
+                "month": {
+                  "$ref": "#/components/schemas/chat.bsky.moderation.getActorMetadata.metadata"
+                },
+                "all": {
+                  "$ref": "#/components/schemas/chat.bsky.moderation.getActorMetadata.metadata"
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

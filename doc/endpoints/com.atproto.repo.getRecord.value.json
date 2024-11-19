@@ -1,0 +1,111 @@
+{
+  "get": {
+    "tags": [
+      "com.atproto.repo"
+    ],
+    "summary": "Get a single record from a repository. Does not require auth.",
+    "operationId": "com.atproto.repo.getRecord",
+    "parameters": [
+      {
+        "name": "repo",
+        "in": "query",
+        "description": "The handle or DID of the repo.",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "The handle or DID of the repo.",
+          "format": "at-identifier"
+        }
+      },
+      {
+        "name": "collection",
+        "in": "query",
+        "description": "The NSID of the record collection.",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "The NSID of the record collection.",
+          "format": "nsid"
+        }
+      },
+      {
+        "name": "rkey",
+        "in": "query",
+        "description": "The Record Key.",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "The Record Key."
+        }
+      },
+      {
+        "name": "cid",
+        "in": "query",
+        "description": "The CID of the version of the record. If not specified, then return the most recent version.",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "The CID of the version of the record. If not specified, then return the most recent version.",
+          "format": "cid"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "uri",
+                "value"
+              ],
+              "properties": {
+                "uri": {
+                  "type": "string",
+                  "format": "at-uri"
+                },
+                "cid": {
+                  "type": "string",
+                  "format": "cid"
+                },
+                "value": {}
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "RecordNotFound"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

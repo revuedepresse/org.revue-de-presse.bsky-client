@@ -1,0 +1,128 @@
+{
+  "get": {
+    "tags": [
+      "com.atproto.sync"
+    ],
+    "summary": "Gets the path of repo commits",
+    "operationId": "com.atproto.sync.getCommitPath",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "did",
+        "in": "query",
+        "description": "The DID of the repo.",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "The DID of the repo.",
+          "format": "did"
+        }
+      },
+      {
+        "name": "latest",
+        "in": "query",
+        "description": "The most recent commit",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "The most recent commit",
+          "format": "cid"
+        }
+      },
+      {
+        "name": "earliest",
+        "in": "query",
+        "description": "The earliest commit to start from",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "The earliest commit to start from",
+          "format": "cid"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "commits"
+              ],
+              "properties": {
+                "commits": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "cid"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

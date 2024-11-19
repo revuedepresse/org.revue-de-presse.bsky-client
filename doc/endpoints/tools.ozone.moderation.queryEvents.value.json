@@ -1,0 +1,296 @@
+{
+  "get": {
+    "tags": [
+      "tools.ozone.moderation"
+    ],
+    "summary": "List moderation events related to a subject.",
+    "operationId": "tools.ozone.moderation.queryEvents",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "types",
+        "in": "query",
+        "description": "The types of events (fully qualified string in the format of tools.ozone.moderation.defs#modEvent<name>) to filter by. If not specified, all events are returned.",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      {
+        "name": "createdBy",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "did"
+        }
+      },
+      {
+        "name": "sortDirection",
+        "in": "query",
+        "description": "Sort direction for the events. Defaults to descending order of created at timestamp.",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Sort direction for the events. Defaults to descending order of created at timestamp.",
+          "default": "desc"
+        }
+      },
+      {
+        "name": "createdAfter",
+        "in": "query",
+        "description": "Retrieve events created after a given timestamp",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Retrieve events created after a given timestamp",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "createdBefore",
+        "in": "query",
+        "description": "Retrieve events created before a given timestamp",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Retrieve events created before a given timestamp",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "subject",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      {
+        "name": "collections",
+        "in": "query",
+        "description": "If specified, only events where the subject belongs to the given collections will be returned. When subjectType is set to 'account', this will be ignored.",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "nsid"
+          },
+          "maxItems": 20
+        }
+      },
+      {
+        "name": "subjectType",
+        "in": "query",
+        "description": "If specified, only events where the subject is of the given type (account or record) will be returned. When this is set to 'account' the 'collections' parameter will be ignored. When includeAllUserRecords or subject is set, this will be ignored.",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "If specified, only events where the subject is of the given type (account or record) will be returned. When this is set to 'account' the 'collections' parameter will be ignored. When includeAllUserRecords or subject is set, this will be ignored.",
+          "enum": [
+            "account",
+            "record"
+          ]
+        }
+      },
+      {
+        "name": "includeAllUserRecords",
+        "in": "query",
+        "description": "If true, events on all record types (posts, lists, profile etc.) or records from given 'collections' param, owned by the did are returned.",
+        "required": false,
+        "schema": {
+          "type": "boolean",
+          "description": "If true, events on all record types (posts, lists, profile etc.) or records from given 'collections' param, owned by the did are returned."
+        }
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      },
+      {
+        "name": "hasComment",
+        "in": "query",
+        "description": "If true, only events with comments are returned",
+        "required": false,
+        "schema": {
+          "type": "boolean",
+          "description": "If true, only events with comments are returned"
+        }
+      },
+      {
+        "name": "comment",
+        "in": "query",
+        "description": "If specified, only events with comments containing the keyword are returned",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "If specified, only events with comments containing the keyword are returned"
+        }
+      },
+      {
+        "name": "addedLabels",
+        "in": "query",
+        "description": "If specified, only events where all of these labels were added are returned",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      {
+        "name": "removedLabels",
+        "in": "query",
+        "description": "If specified, only events where all of these labels were removed are returned",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      {
+        "name": "addedTags",
+        "in": "query",
+        "description": "If specified, only events where all of these tags were added are returned",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      {
+        "name": "removedTags",
+        "in": "query",
+        "description": "If specified, only events where all of these tags were removed are returned",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      {
+        "name": "reportTypes",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "events"
+              ],
+              "properties": {
+                "cursor": {
+                  "type": "string"
+                },
+                "events": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/tools.ozone.moderation.defs.modEventView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

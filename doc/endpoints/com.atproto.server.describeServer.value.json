@@ -1,0 +1,78 @@
+{
+  "get": {
+    "tags": [
+      "com.atproto.server"
+    ],
+    "summary": "Describes the server's account creation requirements and capabilities. Implemented by PDS.",
+    "operationId": "com.atproto.server.describeServer",
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "did",
+                "availableUserDomains"
+              ],
+              "properties": {
+                "inviteCodeRequired": {
+                  "type": "boolean",
+                  "description": "If true, an invite code must be supplied to create an account on this instance."
+                },
+                "phoneVerificationRequired": {
+                  "type": "boolean",
+                  "description": "If true, a phone verification token must be supplied to create an account on this instance."
+                },
+                "availableUserDomains": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "links": {
+                  "$ref": "#/components/schemas/com.atproto.server.describeServer.links"
+                },
+                "contact": {
+                  "$ref": "#/components/schemas/com.atproto.server.describeServer.contact"
+                },
+                "did": {
+                  "type": "string",
+                  "format": "did"
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

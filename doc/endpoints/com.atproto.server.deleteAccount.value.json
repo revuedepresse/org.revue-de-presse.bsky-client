@@ -1,0 +1,74 @@
+{
+  "post": {
+    "tags": [
+      "com.atproto.server"
+    ],
+    "summary": "Delete an actor's account with a token and password. Can only be called after requesting a deletion token. Requires auth.",
+    "operationId": "com.atproto.server.deleteAccount",
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "did",
+              "password",
+              "token"
+            ],
+            "properties": {
+              "did": {
+                "type": "string",
+                "format": "did"
+              },
+              "password": {
+                "type": "string"
+              },
+              "token": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "OK"
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

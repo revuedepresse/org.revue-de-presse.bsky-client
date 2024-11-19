@@ -1,0 +1,282 @@
+{
+  "get": {
+    "tags": [
+      "com.atproto.admin"
+    ],
+    "summary": "View moderation statuses of subjects (record or repo).",
+    "operationId": "com.atproto.admin.queryModerationStatuses",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "subject",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      {
+        "name": "comment",
+        "in": "query",
+        "description": "Search subjects by keyword from comments",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Search subjects by keyword from comments"
+        }
+      },
+      {
+        "name": "reportedAfter",
+        "in": "query",
+        "description": "Search subjects reported after a given timestamp",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Search subjects reported after a given timestamp",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "reportedBefore",
+        "in": "query",
+        "description": "Search subjects reported before a given timestamp",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Search subjects reported before a given timestamp",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "reviewedAfter",
+        "in": "query",
+        "description": "Search subjects reviewed after a given timestamp",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Search subjects reviewed after a given timestamp",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "reviewedBefore",
+        "in": "query",
+        "description": "Search subjects reviewed before a given timestamp",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Search subjects reviewed before a given timestamp",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "includeMuted",
+        "in": "query",
+        "description": "By default, we don't include muted subjects in the results. Set this to true to include them.",
+        "required": false,
+        "schema": {
+          "type": "boolean",
+          "description": "By default, we don't include muted subjects in the results. Set this to true to include them."
+        }
+      },
+      {
+        "name": "reviewState",
+        "in": "query",
+        "description": "Specify when fetching subjects in a certain state",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Specify when fetching subjects in a certain state"
+        }
+      },
+      {
+        "name": "ignoreSubjects",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      {
+        "name": "lastReviewedBy",
+        "in": "query",
+        "description": "Get all subject statuses that were reviewed by a specific moderator",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Get all subject statuses that were reviewed by a specific moderator",
+          "format": "did"
+        }
+      },
+      {
+        "name": "sortField",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "default": "lastReportedAt"
+        }
+      },
+      {
+        "name": "sortDirection",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "default": "desc"
+        }
+      },
+      {
+        "name": "takendown",
+        "in": "query",
+        "description": "Get subjects that were taken down",
+        "required": false,
+        "schema": {
+          "type": "boolean",
+          "description": "Get subjects that were taken down"
+        }
+      },
+      {
+        "name": "appealed",
+        "in": "query",
+        "description": "Get subjects in unresolved appealed status",
+        "required": false,
+        "schema": {
+          "type": "boolean",
+          "description": "Get subjects in unresolved appealed status"
+        }
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      },
+      {
+        "name": "tags",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      {
+        "name": "excludeTags",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "subjectStatuses"
+              ],
+              "properties": {
+                "cursor": {
+                  "type": "string"
+                },
+                "subjectStatuses": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/com.atproto.admin.defs.subjectStatusView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
