@@ -56,7 +56,7 @@ send_request(Actor, Pairs, StatusCode) :-
     log_debug(Options),
 
     read_stream(Stream, [], BodyChars),
-    % atom_chars(BodyCharsAtm, BodyChars),
+    log_info(['body ', BodyChars]),
 
     phrase(json_chars(pairs(Pairs)), BodyChars),
 
