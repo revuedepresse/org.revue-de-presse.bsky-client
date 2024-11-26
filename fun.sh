@@ -69,7 +69,7 @@ function app__bsky__actor__getProfile() {
 function list_endpoints() {
     \cat ./doc/api.json | \
     jq '.paths' | \
-    jq keys | \
+    jq 'keys[]' | \
     grep -v 'unspecced\|ozone' | \
     grep '"/' | \
     tr -d ',' | \
@@ -94,6 +94,25 @@ function list_accessors() {
 
   make list-endpoints | \
   xargs -I{} sh -c "${cmd}" shell {}
+}
+
+function list_keys() {
+  local cmd
+  cmd='echo ${1} > $(echo ${1}'
+  cmd="${cmd}"' | sed -E "s#/#./#g"'
+  cmd="sed -E "s#(.*)#\1.key.json#g")'
+
+  \cat ./doc/api.json | \
+  jq '.paths | to_entries | .[] | .key' | \
+  xargs -I{} sh -c ${cmd} shell {}
+}
+
+function list_accessors_descriptions() {
+  for i in $(ls -1 ./doc/endpoints/* | head -n1);
+  do
+      jq ".paths | $(echo '."'"$(\cat $i)"'"')" ./doc/api.json \
+      > "$(echo $i | sed -E 's#key#value#')";
+  done
 }
 
 set +Eeuo pipefail
