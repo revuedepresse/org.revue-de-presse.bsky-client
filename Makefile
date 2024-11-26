@@ -20,3 +20,12 @@ com__atproto__repo__createRecord: ### com.atproto.repo.createRecord
 
 com__atproto__server__createSession: ### com.atproto.server.createSession
 	@/bin/bash -c '. fun.sh && com__atproto__server__createSession'
+
+list-endpoints: ### List endpoints from Bluesky API documentation
+	@/bin/bash -c '. fun.sh && list_endpoints'
+
+list-namespaces: ### List endpoints namespaces
+	@/bin/bash -c '. fun.sh && list_namespaces'
+
+list-accessors: ### List endpoints accessors
+	@/bin/bash -c '. fun.sh && list_accessors'
