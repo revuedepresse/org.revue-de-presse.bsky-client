@@ -1,0 +1,122 @@
+{
+  "get": {
+    "tags": [
+      "com.atproto.server"
+    ],
+    "summary": "Returns the status of an account, especially as pertaining to import or recovery. Can be called many times over the course of an account migration. Requires auth and can only be called pertaining to oneself.",
+    "operationId": "com.atproto.server.checkAccountStatus",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "activated",
+                "validDid",
+                "repoCommit",
+                "repoRev",
+                "repoBlocks",
+                "indexedRecords",
+                "privateStateValues",
+                "expectedBlobs",
+                "importedBlobs"
+              ],
+              "properties": {
+                "activated": {
+                  "type": "boolean"
+                },
+                "validDid": {
+                  "type": "boolean"
+                },
+                "repoCommit": {
+                  "type": "string",
+                  "format": "cid"
+                },
+                "repoRev": {
+                  "type": "string"
+                },
+                "repoBlocks": {
+                  "type": "integer"
+                },
+                "indexedRecords": {
+                  "type": "integer"
+                },
+                "privateStateValues": {
+                  "type": "integer"
+                },
+                "expectedBlobs": {
+                  "type": "integer"
+                },
+                "importedBlobs": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

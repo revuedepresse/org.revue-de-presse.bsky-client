@@ -1,0 +1,119 @@
+{
+  "get": {
+    "tags": [
+      "com.atproto.sync"
+    ],
+    "summary": "Get the current commit CID & revision of the specified repo. Does not require auth.",
+    "operationId": "com.atproto.sync.getLatestCommit",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "did",
+        "in": "query",
+        "description": "The DID of the repo.",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "The DID of the repo.",
+          "format": "did"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "cid",
+                "rev"
+              ],
+              "properties": {
+                "cid": {
+                  "type": "string",
+                  "format": "cid"
+                },
+                "rev": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    },
+                    {
+                      "const": "RepoNotFound"
+                    },
+                    {
+                      "const": "RepoTakendown"
+                    },
+                    {
+                      "const": "RepoSuspended"
+                    },
+                    {
+                      "const": "RepoDeactivated"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

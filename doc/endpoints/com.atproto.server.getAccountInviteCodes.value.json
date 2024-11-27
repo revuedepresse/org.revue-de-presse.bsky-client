@@ -1,0 +1,117 @@
+{
+  "get": {
+    "tags": [
+      "com.atproto.server"
+    ],
+    "summary": "Get all invite codes for the current account. Requires auth.",
+    "operationId": "com.atproto.server.getAccountInviteCodes",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "includeUsed",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      {
+        "name": "createAvailable",
+        "in": "query",
+        "description": "Controls whether any new 'earned' but not 'created' invites should be created.",
+        "required": false,
+        "schema": {
+          "type": "boolean",
+          "description": "Controls whether any new 'earned' but not 'created' invites should be created.",
+          "default": true
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "codes"
+              ],
+              "properties": {
+                "codes": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/com.atproto.server.defs.inviteCode"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    },
+                    {
+                      "const": "DuplicateCreate"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

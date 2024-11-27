@@ -1,0 +1,142 @@
+{
+  "get": {
+    "tags": [
+      "app.bsky.feed"
+    ],
+    "summary": "Get posts in a thread. Does not require auth, but additional metadata and filtering will be applied for authed requests.",
+    "operationId": "app.bsky.feed.getPostThread",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "uri",
+        "in": "query",
+        "description": "Reference (AT-URI) to post record.",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "Reference (AT-URI) to post record.",
+          "format": "at-uri"
+        }
+      },
+      {
+        "name": "depth",
+        "in": "query",
+        "description": "How many levels of reply depth should be included in response.",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "default": 6
+        }
+      },
+      {
+        "name": "parentHeight",
+        "in": "query",
+        "description": "How many levels of parent (and grandparent, etc) post to include.",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "default": 80
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "thread"
+              ],
+              "properties": {
+                "thread": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/app.bsky.feed.defs.threadViewPost"
+                    },
+                    {
+                      "$ref": "#/components/schemas/app.bsky.feed.defs.notFoundPost"
+                    },
+                    {
+                      "$ref": "#/components/schemas/app.bsky.feed.defs.blockedPost"
+                    }
+                  ]
+                },
+                "threadgate": {
+                  "$ref": "#/components/schemas/app.bsky.feed.defs.threadgateView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    },
+                    {
+                      "const": "NotFound"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

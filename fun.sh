@@ -96,22 +96,25 @@ function list_accessors() {
   xargs -I{} sh -c "${cmd}" shell {}
 }
 
-function list_keys() {
+function list_api_spec_keys() {
   local cmd
   cmd='echo ${1} > $(echo ${1}'
+  # shellcheck disable=SC2089
   cmd="${cmd}"' | sed -E "s#/#./#g"'
-  cmd="sed -E "s#(.*)#\1.key.json#g")'
+  cmd="${cmd}"' | sed -E "s#(.*)#doc/endpoints/\1.key.json#g")'
 
   \cat ./doc/api.json | \
   jq '.paths | to_entries | .[] | .key' | \
-  xargs -I{} sh -c ${cmd} shell {}
+  xargs -I{} sh -c "${cmd}" shell {}
 }
 
-function list_accessors_descriptions() {
-  for i in $(ls -1 ./doc/endpoints/* | head -n1);
+function list_api_spec_values() {
+  local value
+  for i in $(ls -1 ./doc/endpoints/*);
   do
+      value="$(echo $i | sed -E 's#key#value#')"
       jq ".paths | $(echo '."'"$(\cat $i)"'"')" ./doc/api.json \
-      > "$(echo $i | sed -E 's#key#value#')";
+      > "${value}";
   done
 }
 

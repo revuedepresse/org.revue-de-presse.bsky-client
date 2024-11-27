@@ -1,0 +1,125 @@
+{
+  "get": {
+    "tags": [
+      "com.atproto.server"
+    ],
+    "summary": "Get a signed token on behalf of the requesting DID for the requested service.",
+    "operationId": "com.atproto.server.getServiceAuth",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "aud",
+        "in": "query",
+        "description": "The DID of the service that the token will be used to authenticate with",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "The DID of the service that the token will be used to authenticate with",
+          "format": "did"
+        }
+      },
+      {
+        "name": "exp",
+        "in": "query",
+        "description": "The time in Unix Epoch seconds that the JWT expires. Defaults to 60 seconds in the future. The service may enforce certain time bounds on tokens depending on the requested scope.",
+        "required": false,
+        "schema": {
+          "type": "integer"
+        }
+      },
+      {
+        "name": "lxm",
+        "in": "query",
+        "description": "Lexicon (XRPC) method to bind the requested token to",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "description": "Lexicon (XRPC) method to bind the requested token to",
+          "format": "nsid"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "token"
+              ],
+              "properties": {
+                "token": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    },
+                    {
+                      "const": "BadExpiration"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "get": {
+    "tags": [
+      "com.atproto.sync"
+    ],
+    "summary": "Get a blob associated with a given account. Returns the full blob as originally uploaded. Does not require auth; implemented by PDS.",
+    "operationId": "com.atproto.sync.getBlob",
+    "parameters": [
+      {
+        "name": "did",
+        "in": "query",
+        "description": "The DID of the account.",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "The DID of the account.",
+          "format": "did"
+        }
+      },
+      {
+        "name": "cid",
+        "in": "query",
+        "description": "The CID of the blob to fetch",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "The CID of the blob to fetch",
+          "format": "cid"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "*/*": {}
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "BlobNotFound"
+                    },
+                    {
+                      "const": "RepoNotFound"
+                    },
+                    {
+                      "const": "RepoTakendown"
+                    },
+                    {
+                      "const": "RepoSuspended"
+                    },
+                    {
+                      "const": "RepoDeactivated"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

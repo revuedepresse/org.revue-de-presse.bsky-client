@@ -1,0 +1,150 @@
+{
+  "post": {
+    "tags": [
+      "com.atproto.repo"
+    ],
+    "summary": "Create a single new repository record. Requires auth, implemented by PDS.",
+    "operationId": "com.atproto.repo.createRecord",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "repo",
+              "collection",
+              "record"
+            ],
+            "properties": {
+              "repo": {
+                "type": "string",
+                "description": "The handle or DID of the repo (aka, current account).",
+                "format": "at-identifier"
+              },
+              "collection": {
+                "type": "string",
+                "description": "The NSID of the record collection.",
+                "format": "nsid"
+              },
+              "rkey": {
+                "type": "string",
+                "description": "The Record Key.",
+                "maxLength": 512
+              },
+              "validate": {
+                "type": "boolean",
+                "description": "Can be set to 'false' to skip Lexicon schema validation of record data, 'true' to require it, or leave unset to validate only for known Lexicons."
+              },
+              "record": {},
+              "swapCommit": {
+                "type": "string",
+                "description": "Compare and swap with the previous commit by CID.",
+                "format": "cid"
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "uri",
+                "cid"
+              ],
+              "properties": {
+                "uri": {
+                  "type": "string",
+                  "format": "at-uri"
+                },
+                "cid": {
+                  "type": "string",
+                  "format": "cid"
+                },
+                "commit": {
+                  "$ref": "#/components/schemas/com.atproto.repo.defs.commitMeta"
+                },
+                "validationStatus": {
+                  "type": "string",
+                  "enum": [
+                    "valid",
+                    "unknown"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    },
+                    {
+                      "const": "InvalidSwap"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "post": {
+    "tags": [
+      "com.atproto.repo"
+    ],
+    "summary": "Simple rebase of repo that deletes history",
+    "operationId": "com.atproto.repo.rebaseRepo",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "repo"
+            ],
+            "properties": {
+              "repo": {
+                "type": "string",
+                "description": "The handle or DID of the repo.",
+                "format": "at-identifier"
+              },
+              "swapCommit": {
+                "type": "string",
+                "description": "Compare and swap with the previous commit by cid.",
+                "format": "cid"
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "OK"
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    },
+                    {
+                      "const": "InvalidSwap"
+                    },
+                    {
+                      "const": "ConcurrentWrites"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

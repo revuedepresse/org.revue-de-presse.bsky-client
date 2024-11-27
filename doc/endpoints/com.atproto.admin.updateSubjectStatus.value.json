@@ -1,0 +1,136 @@
+{
+  "post": {
+    "tags": [
+      "com.atproto.admin"
+    ],
+    "summary": "Update the service-specific admin status of a subject (account, record, or blob).",
+    "operationId": "com.atproto.admin.updateSubjectStatus",
+    "security": [
+      {
+        "Bearer": []
+      }
+    ],
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "subject"
+            ],
+            "properties": {
+              "subject": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/com.atproto.admin.defs.repoRef"
+                  },
+                  {
+                    "$ref": "#/components/schemas/com.atproto.repo.strongRef"
+                  },
+                  {
+                    "$ref": "#/components/schemas/com.atproto.admin.defs.repoBlobRef"
+                  }
+                ]
+              },
+              "takedown": {
+                "$ref": "#/components/schemas/com.atproto.admin.defs.statusAttr"
+              },
+              "deactivated": {
+                "$ref": "#/components/schemas/com.atproto.admin.defs.statusAttr"
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "subject"
+              ],
+              "properties": {
+                "subject": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/com.atproto.admin.defs.repoRef"
+                    },
+                    {
+                      "$ref": "#/components/schemas/com.atproto.repo.strongRef"
+                    },
+                    {
+                      "$ref": "#/components/schemas/com.atproto.admin.defs.repoBlobRef"
+                    }
+                  ]
+                },
+                "takedown": {
+                  "$ref": "#/components/schemas/com.atproto.admin.defs.statusAttr"
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "Bad Request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "InvalidRequest"
+                    },
+                    {
+                      "const": "ExpiredToken"
+                    },
+                    {
+                      "const": "InvalidToken"
+                    }
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error",
+                "message"
+              ],
+              "properties": {
+                "error": {
+                  "const": "AuthMissing"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

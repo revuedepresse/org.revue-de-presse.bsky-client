@@ -29,3 +29,9 @@ list-namespaces: ### List endpoints namespaces
 
 list-accessors: ### List endpoints accessors
 	@/bin/bash -c '. fun.sh && list_accessors'
+
+list-api-spec-keys: ### List API spec keys
+	@/bin/bash -c '. fun.sh && list_api_spec_keys'
+
+list-api-spec-values: ### List API spec values
+	@/bin/bash -c '. fun.sh && list_api_spec_values'
