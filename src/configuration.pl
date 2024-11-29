@@ -3,6 +3,7 @@
     credentials_bluesky_handle/1,
     credentials_access_jwt/1,
     credentials_refresh_jwt/1,
+    environment/1,
     log_level/1,
     personal_data_server_host/1,
     public_bluesky_app_view_api_host/1,
