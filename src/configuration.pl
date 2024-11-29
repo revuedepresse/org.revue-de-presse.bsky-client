@@ -56,6 +56,11 @@ credentials_refresh_jwt(RefreshJwt) :-
     assert_env_var_is_declared("REFRESH_JWT", RefreshJwt, missing_access_jwt('Please export REFRESH_JWT environment variable.')),
     assert_env_var_non_empty("REFRESH_JWT", RefreshJwt).
 
+% environment(-Environment).
+environment(Environment) :-
+    assert_env_var_is_declared("ENVIRONMENT", Environment, missing_environment('Please export ENVIRONMENT environment variable.')),
+    assert_env_var_non_empty("ENVIRONMENT", Environment).
+
 % log_level(-LogLevel).
 log_level(LogLevel) :-
     assert_env_var_is_declared("LOG_LEVEL", LogLevel, missing_log_level('Please export LOG_LEVEL environment variable.')),
