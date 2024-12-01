@@ -47,6 +47,15 @@ test(Spec) :-
     ).
 
 test(Spec) :-
+    Spec = '.',
+    assert(
+        Spec,
+        split_subject(".", '.', ActualLabels),
+        [""],
+        ActualLabels
+     ).
+
+test(Spec) :-
     Spec = 'jay',
     assert(
         Spec,
@@ -397,6 +406,7 @@ test(Spec) :-
 main :-
     Specs = [
         'requires_ground_subject',
+        '.',
         'jay',
         'jay.bsky',
         'jay.bsky.social',

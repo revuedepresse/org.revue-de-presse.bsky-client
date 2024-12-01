@@ -150,9 +150,18 @@ split_subject(Subject, Separator, LabelAcc, AccIn, AccOut) :-
     ),
     split_subject(Rest, Separator, NextLabelAcc, NextAccIn, AccOut).
 
+:- dynamic(split_subject_memoized/3).
+
 % split_subject(+Subject, +Separator, -Labels).
 split_subject(Subject, Separator, Labels) :-
-    split_subject(Subject, Separator, "", [], Labels).
+    split_subject_memoized(Subject, Separator, Labels)
+    ->  true
+    ;   memoize_split_subject(Subject, Separator, Labels).
+
+% memoize_split_subject(+Subject, +Separator, -Labels).
+memoize_split_subject(Subject, Separator, Labels) :-
+    split_subject(Subject, Separator, "", [], Labels),
+    assertz(split_subject_memoized(Subject, Separator, Labels)).
 
 % […], and can be at most 253 characters long
 % (in practice, handles may be restricted to a slightly shorter length)
@@ -293,7 +302,7 @@ not_disallowed_top_level_domain(TopLevelDomain) :-
     ( (   Environment = "development"
         ;   Environment = "testing" )
     ->  DisallowedTopLevelDomains = BaseDisallowedTopLevelDomains
-    ;   append([BaseDisallowedTopLevelDomain, ["test"]], DisallowedTopLevelDomains) ),
+    ;   append([BaseDisallowedTopLevelDomains, ["test"]], DisallowedTopLevelDomains) ),
 
     (   member(TopLevelDomain, DisallowedTopLevelDomains)
     ->  throw(disallowed_top_level_domain(TopLevelDomain))
