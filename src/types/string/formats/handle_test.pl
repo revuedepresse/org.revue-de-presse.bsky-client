@@ -48,9 +48,13 @@ test(Spec) :-
     Spec = 'handle:has_at_least_two_labels:failing',
     assert(
         Spec,
-        (\+ (handle:has_two_labels_at_least("jay")), AtLeastTwoLabels = false),
-        false,
-        AtLeastTwoLabels
+        catch(
+            handle:has_two_labels_at_least("jay"),
+            E,
+            true
+        ),
+        'error_must_have_two_labels_at_least',
+        E
     ).
 
 test(Spec) :-

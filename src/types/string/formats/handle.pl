@@ -145,7 +145,9 @@ must_not_start_nor_end_with_hyphen(Subject) :-
 has_two_labels_at_least(Subject) :-
     split_subject(Subject, '.', Labels),
     length(Labels, N),
-    N #>= 2.
+    (   N #< 2
+    ->  throw(error_must_have_two_labels_at_least)
+    ;   true ).
 
 % No proceeding or trailing ASCII periods are allowed
 %

@@ -1,5 +1,6 @@
 :- module(did_identifier, [
     has_only_allowed_chars/1,
+    is_valid_did_identifier/1,
     must_have_valid_identifier_format/1,
     must_have_valid_method_format/1,
     must_have_valid_percent_encoding/1
@@ -15,6 +16,7 @@
 :- use_module(must_be_ground, [must_be_ground/1]).
 :- use_module(must_be_lowercase_alpha, [must_be_lowercase_alpha/1]).
 :- use_module(must_not_end_with, [must_not_end_with/2]).
+:- use_module(must_start_with, [must_start_with/2]).
 :- use_module(same_si, [same_si/2]).
 :- use_module(split_subject, [split_subject/3]).
 
@@ -25,6 +27,7 @@
 %   and must always be followed by two hex characters
 % - Query (?) and fragment (#) sections are allowed in DID URIs, but not in DID identifiers.
 %   In the context of atproto, the query and fragment parts are not allowed.
+% - The URI starts with lowercase `did`:
 is_valid_did_identifier(Subject) :-
     has_only_ascii_chars(Subject),
     has_only_allowed_chars(Subject),
@@ -62,25 +65,6 @@ must_be_allowed_char(Char) :-
     ;   Code #>= AlphaStartCode, Code #=< AlphaEndCode
     ;   Code #>= DigitStartCode, Code #=< DigitEndCode
     ;   member(Code, [ColonCode,DotCode,HyphenCode,PercentSignCode,UnderscoreCode]) ).
-
-% The URI starts with lowercase `did`:
-%
-% must_start_with(+Subject, +Substring).
-must_start_with(Subject, Substring) :-
-    must_be_chars(Subject),
-    must_be_chars(Substring),
-    length(Subject, N),
-    length(Substring, SubstringLength),
-
-    N #>= SubstringLength,
-
-    atom_chars(SubjectAtom, Subject),
-    sub_atom(SubjectAtom, 0, SubstringLength, _, SubAtom),
-    atom_chars(SubAtom, SubStr),
-
-    SubStr \= Substring
-    ->  throw(error_must_start_with(Substring))
-    ;   true.
 
 % In the context of atproto, implementations do not need to validate percent encoding.
 % The percent symbol is allowed in DID identifier segments,
