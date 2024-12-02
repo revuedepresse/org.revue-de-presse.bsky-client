@@ -136,7 +136,7 @@ test(Spec) :-
     assert(
         Spec,
         catch(
-            did_identifier:is_valid_did_identifier("did:weba:i%_d-0"),
+            did_identifier:is_valid_did_identifier("did:weba:i%3A_d-0"),
             E,
             true
         ),
@@ -148,7 +148,7 @@ test(Spec) :-
     Spec = 'did_identifier:is_valid_did_identifier:succeeding:1',
     assert(
         Spec,
-        (did_identifier:is_valid_did_identifier("did:web:i%_d-0"),
+        (did_identifier:is_valid_did_identifier("did:web:i_d-0"),
         IsValidDidIdentifier = true),
         is_valid_did_identifier:true,
         is_valid_did_identifier:IsValidDidIdentifier
@@ -158,7 +158,7 @@ test(Spec) :-
     Spec = 'did_identifier:is_valid_did_identifier:succeeding:2',
     assert(
         Spec,
-        (did_identifier:is_valid_did_identifier("did:plc:i%_d-0"),
+        (did_identifier:is_valid_did_identifier("did:plc:i%3A_d-0"),
         IsValidDidIdentifier = true),
         is_valid_did_identifier:true,
         is_valid_did_identifier:IsValidDidIdentifier
@@ -204,7 +204,17 @@ test(Spec) :-
     ).
 
 test(Spec) :-
-    Spec = 'did_identifier:must_have_valid_percent_encoding:succeeding',
+    Spec = 'did_identifier:must_have_valid_percent_encoding:succeeding:1',
+    assert(
+        Spec,
+        (did_identifier:must_have_valid_percent_encoding("i3A"),
+        IsValidPercentEncoding = true),
+        is_valid_percent_encoding:true,
+        is_valid_percent_encoding:IsValidPercentEncoding
+    ).
+
+test(Spec) :-
+    Spec = 'did_identifier:must_have_valid_percent_encoding:succeeding:2',
     assert(
         Spec,
         (did_identifier:must_have_valid_percent_encoding("i%3A"),
@@ -233,7 +243,8 @@ main :-
         'did_identifier:must_have_valid_percent_encoding:failing:1',
         'did_identifier:must_have_valid_percent_encoding:failing:2',
         'did_identifier:must_have_valid_percent_encoding:failing:3',
-        'did_identifier:must_have_valid_percent_encoding:succeeding'
+        'did_identifier:must_have_valid_percent_encoding:succeeding:1',
+        'did_identifier:must_have_valid_percent_encoding:succeeding:2'
     ],
     run_test_suite(did_identifier_test, Specs).
 

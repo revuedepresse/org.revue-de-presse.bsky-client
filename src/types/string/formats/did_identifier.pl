@@ -112,7 +112,9 @@ must_have_valid_identifier_format(Subject) :-
         must_not_end_with(Subject, '%'),
         _E,
         throw(error_identifier_must_not_end_with('%'))
-    ).
+    ),
+
+    must_have_valid_percent_encoding(Identifier).
 
 must_have_at_least_n_characters(N, Subject) :-
     length(Subject, NChars),
