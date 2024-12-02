@@ -26,14 +26,23 @@ above_debug_level :-
 log([]) :- nl.
 log([Message|Rest]) :-
     (   atomic_si(Message)
-    ->  write(Message)
+    ->  LogMessage = Message,
+        write(LogMessage)
     ;   integer(Message),
         number_chars(Message,MessageChars),
         atom_chars(AtomicMessage, MessageChars),
-        writeq(AtomicMessage)
+        LogMessage = AtomicMessage,
+        write(LogMessage)
     ;   chars_si(Message),
         atom_chars(AtomicMessage,Message),
-        writeq(AtomicMessage) ),
+        LogMessage = AtomicMessage,
+        write(LogMessage)
+    ;   list_si(Message),
+        LogMessage = Message,
+        write(LogMessage)
+    ;   LogMessage = Message,
+        writeq(LogMessage)
+    ),
     write(' '),
     log(Rest).
 

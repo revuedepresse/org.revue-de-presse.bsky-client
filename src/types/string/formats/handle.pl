@@ -29,6 +29,8 @@
 ]).
 :- use_module(must_be_ground, [must_be_ground/1]).
 :- use_module(must_be_lowercase_alpha, [must_be_lowercase_alpha/1]).
+:- use_module(must_not_end_with, [must_not_end_with/2]).
+:- use_module(must_not_start_with, [must_not_start_with/2]).
 :- use_module(split_subject, [split_subject/3]).
 
 % See [String Formats](https://atproto.com/specs/lexicon#string-formats)
@@ -144,24 +146,6 @@ has_two_labels_at_least(Subject) :-
     split_subject(Subject, '.', Labels),
     length(Labels, N),
     N #>= 2.
-
-% must_not_start_with(+Subject, +Char).
-must_not_start_with(Subject, Char) :-
-    must_be_ground(Subject),
-    must_be_ground(Char),
-    Subject = [FirstChar|_],
-    (   \+ dif_si(FirstChar, Char)
-    ->  throw(error_must_not_start_with(Char))
-    ;   true ).
-
-% must_not_end_with(+Subject, +Char).
-must_not_end_with(Subject, Char) :-
-    reverse(Subject, ReversedSubject),
-    catch(
-        must_not_start_with(ReversedSubject, Char),
-        error_must_not_start_with(_),
-        throw(error_must_not_end_with(Char))
-    ).
 
 % No proceeding or trailing ASCII periods are allowed
 %

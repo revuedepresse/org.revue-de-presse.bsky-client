@@ -33,7 +33,7 @@ subject_and_separator_must_be_valid(Subject, Separator) :-
 % (referred to as "labels" in standards documents),
 % separated by ASCII periods (.)
 %
-% split_subject(+Subject, +Separator, +_LastLabel, -AccIn, +AccOut).
+% split_subject(+Subject, +Separator, +_LastLabel, -AccIn, +AccIn).
 split_subject("", _Separator, _LastLabel, AccIn, AccIn).
 split_subject(Subject, Separator, LabelAcc, AccIn, AccOut) :-
     subject_and_separator_must_be_valid(Subject, Separator),
@@ -42,7 +42,7 @@ split_subject(Subject, Separator, LabelAcc, AccIn, AccOut) :-
     if_(
         Char = Separator,
         (   NextLabelAcc = "",
-            append([AccIn, [LabelAcc]], NextAccIn) ),
+            append([AccIn, [LabelAcc], [""]], NextAccIn) ),
         (   append([LabelAcc, [Char]], NextLabelAcc),
             append([AccIn, [NextLabelAcc]], NextAccIn) )
     ),

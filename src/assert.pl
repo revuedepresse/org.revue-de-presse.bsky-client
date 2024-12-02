@@ -8,17 +8,17 @@
 
 assert(Spec, Goal, Expected, Actual) :-
     must_be_ground(Expected),
-    (   ( call(Goal), freeze(Actual, \+ dif_si(Expected, Actual) ) )
-    ->  write('[OK] ')
-    ;   write('[KO] '), WriteDiff = true
+
+    (   \+ ( call(Goal), freeze(Actual, \+ dif_si(Expected, Actual) ) )
+    ->  write('[KO] '), WriteDiff = true
+    ;   write('[OK] ')
     ),
     write(Spec), nl,
 
     (   ground(WriteDiff)
     ->
         (
-            call(Goal)
-        ;
+            call(Goal),
             write('expected: '), writeq(Expected), nl,
             write('actual: '), writeq(Actual), nl,
             fail

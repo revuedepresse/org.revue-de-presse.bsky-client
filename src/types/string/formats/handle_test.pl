@@ -237,7 +237,7 @@ test(Spec) :-
     assert(
         Spec,
         catch(handle:is_valid_handle("test.0-.fr"), E, true),
-        is_valid_hande:error_must_not_end_with(-),
+        is_valid_handle:error_must_not_end_with(-),
         is_valid_handle:E
     ).
 
@@ -248,6 +248,15 @@ test(Spec) :-
         catch(handle:is_valid_handle("test.0fr"), E, true),
         is_valid_handle:error_must_not_start_with_digit,
         is_valid_handle:E
+    ).
+
+test(Spec) :-
+    Spec = 'handle:is_valid_handle:succeeding',
+    assert(
+        Spec,
+        (handle:is_valid_handle("test.fr"), IsValidHandle = true),
+        is_valid_handle:true,
+        is_valid_handle:IsValidHandle
     ).
 
 main :-
@@ -275,7 +284,8 @@ main :-
         'handle:with_last_label_distinct_from_disallowed_top_level_domain:failing',
         'handle:is_valid_handle:failing:1',
         'handle:is_valid_handle:failing:2',
-        'handle:is_valid_handle:failing:3'
+        'handle:is_valid_handle:failing:3',
+        'handle:is_valid_handle:succeeding'
     ],
     run_test_suite(handle_test, Specs).
 

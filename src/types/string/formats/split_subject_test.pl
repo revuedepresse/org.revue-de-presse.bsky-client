@@ -1,6 +1,9 @@
 :- module(split_subject_test, [main/0]).
 
-:- use_module('../../../assert', [assert/4]).
+:- use_module('../../../assert', [
+    assert/4,
+    run_test_suite/2
+]).
 :- use_module(split_subject).
 
 test(Spec) :-
@@ -17,7 +20,7 @@ test(Spec) :-
     assert(
         Spec,
         split_subject:split_subject(".", '.', ActualLabels),
-        [""],
+        ["",""],
         ActualLabels
      ).
 
@@ -134,7 +137,7 @@ test(Spec) :-
     assert(
         Spec,
         (split_subject:split_subject("did:a:id:", ':', ActualLabels)),
-        ["did","a","id"],
+        ["did","a","id",""],
         ActualLabels
     ).
 
@@ -156,6 +159,6 @@ main :-
         'split_subject:did:a:id',
         'split_subject:did:a:id:'
     ],
-    bagof(member(Spec, Specs), test(Spec), _Sol).
+    run_test_suite(split_subject_test, Specs).
 
 :- initialization(main).
