@@ -110,7 +110,7 @@ function list_api_spec_keys() {
 
 function list_api_spec_values() {
   local value
-  for i in $(ls -1 ./doc/endpoints/*);
+  for i in $(ls -1 ./doc/endpoints/*key.json);
   do
       value="$(echo $i | sed -E 's#key#value#')"
       jq ".paths | $(echo '."'"$(\cat $i)"'"')" ./doc/api.json \
