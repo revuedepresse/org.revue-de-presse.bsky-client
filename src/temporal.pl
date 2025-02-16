@@ -4,20 +4,18 @@
 
 :- use_module(library(os)).
 :- use_module(library(lists)).
-:- use_module(library(uuid)).
 
-:- use_module(configuration, [temporary_dir/1]).
 :- use_module(logger, [
     log_debug/1,
     log_info/1
 ]).
-:- use_module(stream, [read_stream/3]).
-
-% temporary_file(+Prefix, -TempFile).
-temporary_file(Prefix, TempFile) :-
-    uuidv4_string(UuidStr),
-    temporary_dir(TempDir),
-    append([TempDir, "/", Prefix, "_", UuidStr], TempFile).
+:- use_module(os_ext, [
+    remove_temporary_file/1,
+    temporary_file/2
+]).
+:- use_module(stream, [
+    read_stream/2
+]).
 
 % See [date command --iso-8601 option](https://unix.stackexchange.com/a/629504)
 % date_iso8601(-Date).
@@ -34,11 +32,6 @@ date_iso8601(Iso8601Date) :-
     ;   true ),
 
     open(TempFile, read, Stream, [type(text)]),
-    read_stream(Stream, [], Iso8601Date),
+    read_stream(Stream, Iso8601Date),
 
-    WarningMessage = " || echo 'Removed temporary file already' 1>&2",
-    append(["test -e ", TempFile," && rm -f ", TempFile, WarningMessage], RemoveTempFileCmd),
-    shell(RemoveTempFileCmd, RemoveTempFileStatus),
-    ( RemoveTempFileStatus \= 0
-    ->  throw(unexpected_command_exit_code('Failed to remove temporary file'))
-    ;   true ).
+    remove_temporary_file(TempFile).
