@@ -63,7 +63,87 @@ function app__bsky__actor__getProfile() {
     fi
 
     scryer -g 'app__bsky__actor__getProfile("'"${actor}"'", Prop)' \
-        ./src/app/bsky/actor/getProfile.pl
+        ./src/app/bsky/actor/getProfile.pl -g halt
+}
+
+# https://docs.bsky.app/docs/api/app-bsky-graph-get-list
+function app__bsky__graph__getList() {
+    configure
+
+    local env_var_input
+    env_var_input=${LIST_AT_URI:-}
+
+    local at_uri
+    at_uri="${1:-${env_var_input}}"
+
+    if [ -z "${at_uri}" ]; then
+        printf 'A %s is expected as %s (%s).%s' 'non-empty string' '1st argument' 'Reference (AT-URI) of the list record to hydrate.' $'\n'
+        return 1
+    fi
+
+    scryer -g 'app__bsky__graph__getList("'"${at_uri}"'", Prop)' \
+        ./src/app/bsky/graph/getList.pl -g halt
+}
+
+function infrastructure__lists__count() {
+    configure
+
+    scryer -g 'count(Count), writeq(Count), halt.' \
+        ./src/infrastructure/repository/repository_lists.pl
+}
+
+function infrastructure__lists__query() {
+    configure
+
+    scryer -g 'query(Result), writeq(Result).' -g 'halt.' \
+        ./src/infrastructure/repository/repository_lists.pl
+}
+
+function infrastructure__lists__next_id() {
+    configure
+
+    scryer -g 'next_id(Result), writeq(Result).' -g 'halt.' \
+        ./src/infrastructure/repository/repository_lists.pl
+}
+
+function infrastructure__list_items__count() {
+    configure
+
+    scryer -g 'count(Count), writeq(Count), halt.' \
+        ./src/infrastructure/repository/repository_list_items.pl
+}
+
+function infrastructure__list_items__query() {
+    configure
+
+    scryer -g 'query(Result), writeq(Result).' -g 'halt.' \
+        ./src/infrastructure/repository/repository_list_items.pl
+}
+
+function infrastructure__list_items__next_id() {
+    configure
+
+    scryer -g 'next_id(Result), writeq(Result).' -g 'halt.' \
+        ./src/infrastructure/repository/repository_list_items.pl
+}
+
+# https://docs.bsky.app/docs/api/app-bsky-graph-get-lists
+function app__bsky__graph__getLists() {
+    configure
+
+    local env_var_input
+    env_var_input=${ACTOR:-}
+
+    local actor
+    actor="${1:-${env_var_input}}"
+
+    if [ -z "${actor}" ]; then
+        printf 'A %s is expected as %s (%s).%s' 'non-empty string' '1st argument' 'Handle or DID of account to fetch profile of.' $'\n'
+        return 1
+    fi
+
+    scryer -g 'app__bsky__graph__getLists("'"${actor}"'", Prop)' \
+        ./src/app/bsky/graph/getLists.pl -g halt
 }
 
 function list_endpoints() {
