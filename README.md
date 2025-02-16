@@ -6,6 +6,11 @@ All development is delivered under free and open-source software licence.
 
 :fr: [Revue-de-presse.org](https://github.com/revuedepresse) est un projet citoyen indépendant qui s'adresse à toute personne curieuse de l'actualité et de l'influence des médias sur l'opinion.
 
+## Requirements
+
+ - [jq](https://jqlang.org/)
+ - [psql](https://www.postgresql.org/docs/current/app-psql.html)
+
 ## Documentation
 
 ```

@@ -10,8 +10,7 @@
 above_error_level :-
     getenv("LOG_LEVEL", "critical")
     ;   getenv("LOG_LEVEL", "alert")
-    ;   getenv("LOG_LEVEL", "emergency")
-    ;   \+ getenv("LOG_LEVEL", _).
+    ;   getenv("LOG_LEVEL", "emergency").
 
 above_info_level :-
     getenv("LOG_LEVEL", "notice")
@@ -27,39 +26,43 @@ log([]) :- nl.
 log([Message|Rest]) :-
     (   atomic_si(Message)
     ->  LogMessage = Message,
-        write(LogMessage)
+        write(LogMessage),
+        MessageRest = Rest
     ;   integer(Message),
-        number_chars(Message,MessageChars),
+        number_chars(Message, MessageChars),
         atom_chars(AtomicMessage, MessageChars),
         LogMessage = AtomicMessage,
-        write(LogMessage)
+        write(LogMessage),
+        MessageRest = Rest
     ;   chars_si(Message),
         atom_chars(AtomicMessage,Message),
         LogMessage = AtomicMessage,
-        write(LogMessage)
+        write(LogMessage),
+        MessageRest = Rest,
+        write(' ')
     ;   list_si(Message),
         LogMessage = Message,
-        write(LogMessage)
+        write(LogMessage),
+        MessageRest = Rest,
+        write(' ')
     ;   LogMessage = Message,
-        writeq(LogMessage)
+        writeq(LogMessage),
+        MessageRest = Rest,
+        write(' ')
     ),
-    write(' '),
-    log(Rest).
+    log(MessageRest).
 
 log_debug(_) :-
-    \+ getenv("LOG_LEVEL", "debug")
-    ;   above_debug_level.
+    above_debug_level.
 log_debug(Messages) :-
-    log(Messages).
+    once(log(Messages)).
 
 log_info(_) :-
-    \+ getenv("LOG_LEVEL", "info")
-    ;   above_info_level.
+    above_info_level.
 log_info(Messages) :-
-    log(Messages).
+    once(log(Messages)).
 
 log_error(_) :-
-    \+ getenv("LOG_LEVEL", "error")
-    ;   above_error_level.
+    above_error_level.
 log_error(Messages) :-
-    log(Messages).
+    once(log(Messages)).
