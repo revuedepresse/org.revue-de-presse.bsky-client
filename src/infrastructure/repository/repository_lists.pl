@@ -51,7 +51,7 @@ query(HeadersAndRows) :-
     % Executed to fetch column names
     query(EmptyResults, false, 0),
     nth0(0, EmptyResults, Headers),
-    query(Rows, true, 10),
+    query(Rows, true, "ALL"),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
@@ -179,11 +179,11 @@ insert(row(ListName, Payload), InsertionResult) :-
     next_id(NextId),
 
     count_matching_records(NextId, TotalMatchingRecords),
-    number_chars(NextId, NextIdChars),
 
     if_(
         dif(1, TotalMatchingRecords),
-        (uuidv4_string(NextId),
+        (uuidv4_string(NextPrimaryKey),
+        number_chars(NextId, NextIdChars),
         event_table(EventTable),
         append(
             [
@@ -196,7 +196,7 @@ insert(row(ListName, Payload), InsertionResult) :-
                 "   started_at,         ",
                 "   ended_at            ",
                 ") VALUES (             ",
-                "'", NextId, "',        ",
+                "'", NextPrimaryKey, "',        ",
                 "", NextIdChars, ", ",
                 "'", ListName, "',      ",
                 "'", Payload, "',       ",

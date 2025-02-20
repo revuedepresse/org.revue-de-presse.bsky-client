@@ -1,4 +1,5 @@
 :- module(repository_list_items, [
+    by_screen_name/2,
     count/1,
     insert/2,
     next_id/1,
@@ -25,7 +26,10 @@
     query_result/2,
     query_result_from_file/3
 ]).
-:- use_module('../../logger', [log_info/1]).
+:- use_module('../../logger', [
+    log_debug/1,
+    log_info/1
+]).
 :- use_module('../../os_ext', [remove_temporary_file/1]).
 :- use_module('../../serialization', [
     pairs_to_assoc/2,
@@ -137,6 +141,8 @@ select_clause(SelectClause) :-
             "COALESCE(m.usr_user_name::text, m.usr_twitter_username::text, ' ') AS string__username, ",
             % avatar
             "COALESCE(m.usr_avatar::text, ' ') AS string__avatar, ",
+            % description
+            "m.description::bytea AS string__description, ",
             % uri
             "COALESCE(m.url::text, ' ') AS string__uri, ",
             % indexedAt
@@ -145,10 +151,63 @@ select_clause(SelectClause) :-
         SelectClause
     ).
 
+%% by_screen_name(+ScreenName, -HeadersAndRows).
+by_screen_name(ScreenName, HeadersAndRows) :-
+    chars_si(ScreenName),
+    from_event_table_clause(FromClause),
+    append([
+        "SELECT ",
+        "payload as string__payload, ",
+        "screen_name as string__screen_name ",
+        FromClause, " e ",
+        "WHERE ",
+        "e.occurred_at::date > '2024-12-31'::date ",
+        "AND e.screen_name = '", ScreenName, "' ",
+        "OFFSET 0 "
+    ], SelectByScreenName),
+    append(
+        [
+            SelectByScreenName,
+            "LIMIT 0;"
+        ],
+        QueryHeaders
+    ),
+    once(query_result_from_file(
+        QueryHeaders,
+        false,
+        HeadersOnlyTempFile
+    )),
+    read_rows(HeadersOnlyTempFile, HeadersRows),
+
+    nth0(0, HeadersRows, Headers),
+    append(
+        [
+            SelectByScreenName,
+            "LIMIT ALL;"
+        ],
+        SelectByScreenNameWithoutLimit
+    ),
+    log_debug([SelectByScreenNameWithoutLimit]),
+    once(query_result_from_file(
+        SelectByScreenNameWithoutLimit,
+        true,
+        ByScreenNameTmpFile
+    )),
+    (   read_rows(ByScreenNameTmpFile, Rows)
+    ->  true
+    ;   throw(cannot_read_rows_selected_by(screen_name)) ),
+
+    maplist(to_json(Headers), Rows, Pairs),
+    maplist(pairs_to_assoc, Pairs, HeadersAndRows).
+
 %% from_clause(-FromClause).
 from_clause(FromClause) :-
     table(Table),
     append(["FROM public.", Table, " m "], FromClause).
+
+from_event_table_clause(FromClause) :-
+    event_table(EventTable),
+    append(["FROM public.", EventTable], FromClause).
 
 %% read_rows(+TmpFile, -Rows).
 read_rows(TmpFile, Rows) :-
@@ -163,11 +222,11 @@ read_rows(TmpFile, Rows) :-
 
 %% count_matching_records(+NextId, -Result).
 count_matching_records(ScreenName, Result) :-
-    event_table(EventTable),
+    from_event_table_clause(FromClause),
     append([
         "SELECT count(*) how_many_records ",
-        "FROM public.", EventTable, " ",
-        "WHERE screen_name::text = ", ScreenName, ";"
+        FromClause, " ",
+        "WHERE screen_name::text = '", ScreenName, "';"
     ], SelectQuery),
     once(query_result(
         SelectQuery,
@@ -225,7 +284,7 @@ insert(row(ScreenName, Payload), InsertionResult) :-
         append([Prefix, ['"']], DecodedChars),
         append([['"'], Suffix], Prefix),
         to_json_chars(Suffix, JSONChars),
-        log_info([JSONChars]),
+        log_debug([JSONChars]),
         InsertionResult = ok)
     ).
 
