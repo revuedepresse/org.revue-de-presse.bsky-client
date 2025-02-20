@@ -1,6 +1,7 @@
 :- module(serialization, [
     beautify_json/2,
     by_key/3,
+    char_code_at/2,
     keys/3,
     pairs_to_assoc/2,
     unwrap_pairs/2,
@@ -27,6 +28,10 @@
 :- use_module(stream, [
     read_stream/2
 ]).
+
+%% char_code_at(+Code, -Char).
+char_code_at(Code, Char) :-
+    char_code(Char, Code).
 
 %% to_json_chars(+Chars, -JSONChars).
 to_json_chars(Chars, JSONChars) :-

@@ -12,7 +12,8 @@
 :- use_module(library(serialization/json)).
 
 :- use_module('../../../domain/events/app/bsky/graph/event_getList', [
-    onGetList/2
+    onGetList/2,
+    onGetListItem/2
 ]).
 :- use_module('../../../http', [
     public_bluesky_appview_api_endpoint/2,
@@ -28,6 +29,7 @@
 ]).
 :- use_module('../../../serialization', [
     by_key/3,
+    char_code_at/2,
     keys/3,
     pairs_to_assoc/2,
     to_json_chars/2,
@@ -51,10 +53,6 @@ app__bsky__graph__getList_endpoint(OperationId, ParamName, Param, Endpoint) :-
 app__bsky__graph__getList_headers(ListHeaders) :-
     header_content_type_application_json(ApplicationJsonContentTypeHeader),
     ListHeaders = [ApplicationJsonContentTypeHeader].
-
-%% char_code_at(+Code, -Char).
-char_code_at(Code, Char) :-
-    char_code(Char, Code).
 
 %% send_request(+MainListAtUri, -ResponsePairs, -StatusCode).
 send_request(MainListAtUri, ResponsePairs, StatusCode) :-
@@ -96,7 +94,7 @@ send_request(MainListAtUri, ResponsePairs, StatusCode) :-
     payload(BodyChars, Payload),
     list_uri(ResponsePairs, ListUri),
 
-    % See ./domain/events/app/bsky/graph/getList.pl
+    % See ./domain/events/app/bsky/graph/event_getList.pl
     % where `onGetList` event handler is implemented
     onGetList(ListUri, Payload),
 
@@ -126,9 +124,7 @@ list_uri(ResponsePairs, Uri) :-
     get_assoc(list, JSONAssoc, List),
     get_assoc(items, JSONAssoc, Items),
     maplist(wrapped_pairs_to_assoc, Items, ItemsAssocs),
-    nth0(0, ItemsAssocs, FirstItem),
-    assoc_to_keys(FirstItem, Keys),
-    writeq(Keys),
+    maplist(onGetListItem, ItemsAssocs, Items),
     get_assoc(uri, List, Uri).
 
 :- dynamic(app__bsky__graph__getList_memoized/2).

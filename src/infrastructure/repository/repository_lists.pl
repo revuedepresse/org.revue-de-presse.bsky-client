@@ -1,4 +1,5 @@
 :- module(repository_lists, [
+    by_list_uri/2,
     count/1,
     insert/2,
     next_id/1,
@@ -25,7 +26,10 @@
     query_result/2,
     query_result_from_file/3
 ]).
-:- use_module('../../logger', [log_info/1]).
+:- use_module('../../logger', [
+    log_debug/1,
+    log_info/1
+]).
 :- use_module('../../os_ext', [remove_temporary_file/1]).
 :- use_module('../../serialization', [
     pairs_to_assoc/2,
@@ -51,7 +55,7 @@ query(HeadersAndRows) :-
     % Executed to fetch column names
     query(EmptyResults, false, 0),
     nth0(0, EmptyResults, Headers),
-    query(Rows, true, 10),
+    query(Rows, true, "ALL"),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
@@ -144,10 +148,64 @@ select_clause(SelectClause) :-
         SelectClause
     ).
 
+%% by_list_uri(+ListURI, -HeadersAndRows).
+by_list_uri(ListURI, HeadersAndRows) :-
+    chars_si(ListURI),
+    from_event_table_clause(FromClause),
+    append([
+        "SELECT ",
+        "payload as string__payload, ",
+        "list_id as number__list_id, ",
+        "list_name as string__list_name ",
+        FromClause, " e ",
+        "WHERE ",
+        "e.occurred_at::date > '2024-12-31'::date ",
+        "AND e.list_name = '", ListURI, "' ",
+        "OFFSET 0 "
+    ], SelectByListURI),
+    append(
+        [
+            SelectByListURI,
+            "LIMIT 0;"
+        ],
+        QueryHeaders
+    ),
+    once(query_result_from_file(
+        QueryHeaders,
+        false,
+        HeadersOnlyTempFile
+    )),
+    read_rows(HeadersOnlyTempFile, HeadersRows),
+
+    nth0(0, HeadersRows, Headers),
+    append(
+        [
+            SelectByListURI,
+            "LIMIT ALL;"
+        ],
+        SelectByListURIWithoutLimit
+    ),
+    log_debug([SelectByListURIWithoutLimit]),
+    once(query_result_from_file(
+        SelectByListURIWithoutLimit,
+        true,
+        ByListURITmpFile
+    )),
+    (   read_rows(ByListURITmpFile, Rows)
+    ->  true
+    ;   throw(cannot_read_rows_selected_by(list_id)) ),
+
+    maplist(to_json(Headers), Rows, Pairs),
+    maplist(pairs_to_assoc, Pairs, HeadersAndRows).
+
 %% from_clause(-FromClause).
 from_clause(FromClause) :-
     table(Table),
     append(["FROM public.", Table, " t "], FromClause).
+
+from_event_table_clause(FromClause) :-
+    event_table(EventTable),
+    append(["FROM public.", EventTable], FromClause).
 
 %% read_rows(+TmpFile, -Rows).
 read_rows(TmpFile, Rows) :-
@@ -179,11 +237,11 @@ insert(row(ListName, Payload), InsertionResult) :-
     next_id(NextId),
 
     count_matching_records(NextId, TotalMatchingRecords),
-    number_chars(NextId, NextIdChars),
 
     if_(
         dif(1, TotalMatchingRecords),
-        (uuidv4_string(NextId),
+        (uuidv4_string(NextPrimaryKey),
+        number_chars(NextId, NextIdChars),
         event_table(EventTable),
         append(
             [
@@ -196,7 +254,7 @@ insert(row(ListName, Payload), InsertionResult) :-
                 "   started_at,         ",
                 "   ended_at            ",
                 ") VALUES (             ",
-                "'", NextId, "',        ",
+                "'", NextPrimaryKey, "',        ",
                 "", NextIdChars, ", ",
                 "'", ListName, "',      ",
                 "'", Payload, "',       ",

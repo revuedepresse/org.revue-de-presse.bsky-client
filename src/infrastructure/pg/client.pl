@@ -34,7 +34,8 @@ is_digit(Char) :-
 
 %% query_result(+Query, -Result).
 query_result(Query, Result) :-
-    query(Query, "ALL", true, TempFile, Result),
+    RemoveResultFile = false,
+    query(Query, RemoveResultFile, true, TempFile, Result),
     remove_temporary_file(TempFile).
 
 %% query_result_from_file(+Query, +TuplesOnly, -TempFile).

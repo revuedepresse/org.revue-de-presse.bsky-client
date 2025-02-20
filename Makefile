@@ -21,15 +21,6 @@ app__bsky__graph__getList: ### app.bsky.graph.getList
 app__bsky__graph__getLists: ### app.bsky.graph.getLists
 	@/bin/bash -c '. fun.sh && app__bsky__graph__getLists'
 
-infrastructure__lists__count: ### Count lists
-	@/bin/bash -c '. fun.sh && infrastructure__lists__count'
-
-infrastructure__lists__query: ### Query lists
-	@/bin/bash -c '. fun.sh && infrastructure__lists__query'
-
-infrastructure__lists__next_id: ### Next list id
-	@/bin/bash -c '. fun.sh && infrastructure__lists__next_id'
-
 infrastructure__list_items__count: ### Count list items
 	@/bin/bash -c '. fun.sh && infrastructure__list_items__count'
 
@@ -38,6 +29,15 @@ infrastructure__list_items__query: ### Query list items
 
 infrastructure__list_items__next_id: ### Next list item id
 	@/bin/bash -c '. fun.sh && infrastructure__list_items__next_id'
+
+infrastructure__lists__count: ### Count lists
+	@/bin/bash -c '. fun.sh && infrastructure__lists__count'
+
+infrastructure__lists__query: ### Query lists
+	@/bin/bash -c '. fun.sh && infrastructure__lists__query'
+
+infrastructure__lists__next_id: ### Next list id
+	@/bin/bash -c '. fun.sh && infrastructure__lists__next_id'
 
 com__atproto__repo__createRecord: ### com.atproto.repo.createRecord
 	@/bin/bash -c '. fun.sh && com__atproto__repo__createRecord'
