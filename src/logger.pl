@@ -52,17 +52,30 @@ log([Message|Rest]) :-
     ),
     log(MessageRest).
 
-log_debug(_) :-
-    above_debug_level.
 log_debug(Messages) :-
-    once(log(Messages)).
+    once(debug(Messages)).
 
-log_info(_) :-
-    above_info_level.
+    debug(_) :-
+        above_debug_level.
+
+    debug(Messages) :-
+        write(why_does_it_log_at_debug_level), nl,
+        log(Messages).
+
 log_info(Messages) :-
-    once(log(Messages)).
+    once(info(Messages)).
 
-log_error(_) :-
-    above_error_level.
+    info(_) :-
+        above_info_level.
+
+    info(Messages) :-
+        log(Messages).
+
 log_error(Messages) :-
-    once(log(Messages)).
+    once(error(Messages)).
+
+    error(_) :-
+        above_error_level.
+
+    error(Messages) :-
+        log(Messages).
