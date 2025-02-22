@@ -123,8 +123,10 @@ list_uri(ResponsePairs, Uri) :-
     pairs_to_assoc(ResponsePairs, JSONAssoc),
     get_assoc(list, JSONAssoc, List),
     get_assoc(items, JSONAssoc, Items),
+
     maplist(wrapped_pairs_to_assoc, Items, ItemsAssocs),
     maplist(onGetListItem, ItemsAssocs, Items),
+
     get_assoc(uri, List, Uri).
 
 :- dynamic(app__bsky__graph__getList_memoized/2).
