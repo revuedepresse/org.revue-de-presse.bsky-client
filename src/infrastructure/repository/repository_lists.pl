@@ -1,7 +1,9 @@
 :- module(repository_lists, [
     by_list_uri/2,
+    by_list_uri_or_throw/2,
     count/1,
     insert/2,
+    next_event_id/1,
     next_id/1,
     query/1
 ]).
@@ -35,7 +37,11 @@
     pairs_to_assoc/2,
     to_json_chars/2
 ]).
-:- use_module('../../stream', [read_stream/2]).
+:- use_module('../../stream', [
+    read_stream/2,
+    writeln/1,
+    writeln/2
+]).
 :- use_module('../../temporal', [date_iso8601/1]).
 
 %% count(-Count).
@@ -58,19 +64,6 @@ query(HeadersAndRows) :-
     query(Rows, true, "ALL"),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
-
-%% Query max list id, then increment it by 1 to declare what next list id is
-%
-%% next_id(-NextId).
-next_id(NextId) :-
-    query_max_id(Rows),
-    nth0(0, Rows, Headers),
-    nth0(0, Headers, SingleField),
-    number_chars(MaxId, SingleField),
-    NextId #= MaxId + 1,
-    (   integer_si(NextId)
-    ->  true
-    ;   throw(invalid_list_id(NextId)) ).
 
 %% all_clauses(-Query, +Limit).
 all_clauses(Query, Limit) :-
@@ -115,24 +108,75 @@ query(Rows, TuplesOnly, Limit) :-
     )),
     read_rows(TmpFile, Rows).
 
-%% query_max_id(-MaxId).
-query_max_id(MaxId) :-
-    event_table(Table),
-    append(
-        [
-            "SELECT COALESCE(list_id::bigint, 0) list ",
-            "FROM ", Table, " l ",
-            "ORDER BY list DESC ",
-            "LIMIT 1;"
-        ],
-        Query
-    ),
-    once(query_result_from_file(
-        Query,
-        true,
-        TmpFile
-    )),
-    read_rows(TmpFile, MaxId).
+%% Query max id, then increment it by 1 to declare what next max id will be.
+%
+%% next_id(-NextId).
+next_id(NextId) :-
+    query_max_id(Rows),
+    nth0(0, Rows, Headers),
+    nth0(0, Headers, SingleField),
+    number_chars(MaxId, SingleField),
+    NextId #= MaxId + 1,
+    (   integer_si(NextId)
+    ->  true
+    ;   throw(invalid_list_id(NextId)) ).
+
+    %% query_max_id(-MaxId).
+    query_max_id(MaxId) :-
+        table(Table),
+        append(
+            [
+                "SELECT COALESCE(r.id::bigint, 0) pk ",
+                "FROM ", Table, " r ",
+                "ORDER BY r.id DESC ",
+                "LIMIT 1;"
+            ],
+            Query
+        ),
+        once(query_result_from_file(
+            Query,
+            true,
+            TmpFile
+        )),
+        read_rows(TmpFile, MaxId).
+
+        %% table(-Table)
+        table("publishers_list").
+
+%% Query event max id, then increment it by 1 to declare what next event id is.
+%
+%% next_event_id(-NextEventId).
+next_event_id(NextEventId) :-
+    query_event_max_id(Rows),
+    nth0(0, Rows, Headers),
+    nth0(0, Headers, SingleField),
+    number_chars(EventMaxId, SingleField),
+    NextEventId #= EventMaxId + 1,
+    (   integer_si(NextEventId)
+    ->  true
+    ;   throw(invalid_list_id(NextEventId)) ).
+
+    %% query_event_max_id(-EventMaxId).
+    query_event_max_id(EventMaxId) :-
+        event_table(Table),
+        append(
+            [
+                "SELECT COALESCE(e.list_id::bigint, 0) list ",
+                "FROM ", Table, " e ",
+                "ORDER BY list DESC ",
+                "LIMIT 1;"
+            ],
+            Query
+        ),
+        once(query_result_from_file(
+            Query,
+            true,
+            TmpFile
+        )),
+        read_rows(TmpFile, EventMaxId).
+
+        %% event_table(-EventTable).
+        event_table("publishers_list_collected_event").
 
 %% select_clause(-SelectClause).
 select_clause(SelectClause) :-
@@ -148,55 +192,78 @@ select_clause(SelectClause) :-
         SelectClause
     ).
 
-%% by_list_uri(+ListURI, -HeadersAndRows).
-by_list_uri(ListURI, HeadersAndRows) :-
-    chars_si(ListURI),
-    from_event_table_clause(FromClause),
-    append([
-        "SELECT ",
-        "payload as string__payload, ",
-        "list_id as number__list_id, ",
-        "list_name as string__list_name ",
-        FromClause, " e ",
-        "WHERE ",
-        "e.occurred_at::date > '2024-12-31'::date ",
-        "AND e.list_name = '", ListURI, "' ",
-        "OFFSET 0 "
-    ], SelectByListURI),
-    append(
-        [
-            SelectByListURI,
-            "LIMIT 0;"
-        ],
-        QueryHeaders
-    ),
-    once(query_result_from_file(
-        QueryHeaders,
-        false,
-        HeadersOnlyTempFile
-    )),
-    read_rows(HeadersOnlyTempFile, HeadersRows),
+%% by_list_uri_or_throw(+MainListAtUri, -Assoc).
+by_list_uri_or_throw(list_uri(MainListAtUri), Assoc) :-
+    ( ( by_list_uri(MainListAtUri, ListURIRows),
+        writeln(rows: ListURIRows, true),
+        nth0(0, ListURIRows, FirstListURIRow),
+        get_assoc(payload, FirstListURIRow, FirstListURIRowPayload),
+        get_assoc(list_id, FirstListURIRow, ListId),
+        chars_base64(Utf8BytesPayload, FirstListURIRowPayload, []),
+        maplist(char_code, Utf8BytesPayload, Utf8Bytes),
+        chars_utf8bytes(PayloadChars, Utf8Bytes),
+        append([Prefix, ['"']], PayloadChars),
+        append([['"'], Suffix], Prefix),
+        to_json_chars(Suffix, JSONChars),
+        phrase(json_chars(pairs(Pairs)), JSONChars, []),
+        write_term(pairs: Pairs, [quoted(false),double_quotes(true)]), nl,
 
-    nth0(0, HeadersRows, Headers),
-    append(
-        [
-            SelectByListURI,
-            "LIMIT ALL;"
-        ],
-        SelectByListURIWithoutLimit
-    ),
-    log_debug([SelectByListURIWithoutLimit]),
-    once(query_result_from_file(
-        SelectByListURIWithoutLimit,
-        true,
-        ByListURITmpFile
-    )),
-    (   read_rows(ByListURITmpFile, Rows)
+        pairs_to_assoc(Pairs, AnonymousAssoc),
+        writeln(anonymous_assoc:AnonymousAssoc, true),
+        put_assoc(list_id, AnonymousAssoc, ListId, Assoc) )
     ->  true
-    ;   throw(cannot_read_rows_selected_by(list_id)) ),
+    ;   throw(cannot_find_publishers_list_by_uri) ).
 
-    maplist(to_json(Headers), Rows, Pairs),
-    maplist(pairs_to_assoc, Pairs, HeadersAndRows).
+    %% by_list_uri(+ListURI, -HeadersAndRows).
+    by_list_uri(ListURI, HeadersAndRows) :-
+        chars_si(ListURI),
+        from_event_table_clause(FromClause),
+        append([
+            "SELECT ",
+            "payload as string__payload, ",
+            "list_id as number__list_id, ",
+            "list_name as string__list_name ",
+            FromClause, " e ",
+            "WHERE ",
+            "e.occurred_at::date > '2024-12-31'::date ",
+            "AND e.list_name = '", ListURI, "' ",
+            "OFFSET 0 "
+        ], SelectByListURI),
+        append(
+            [
+                SelectByListURI,
+                "LIMIT 0;"
+            ],
+            QueryHeaders
+        ),
+        once(query_result_from_file(
+            QueryHeaders,
+            false,
+            HeadersOnlyTempFile
+        )),
+        read_rows(HeadersOnlyTempFile, HeadersRows),
+
+        nth0(0, HeadersRows, Headers),
+        append(
+            [
+                SelectByListURI,
+                "LIMIT ALL;"
+            ],
+            SelectByListURIWithoutLimit
+        ),
+        writeln(by_list_URI:SelectByListURIWithoutLimit),
+
+        once(query_result_from_file(
+            SelectByListURIWithoutLimit,
+            true,
+            ByListURITmpFile
+        )),
+        (   read_rows(ByListURITmpFile, Rows)
+        ->  true
+        ;   throw(cannot_read_rows_selected_by(list_id)) ),
+
+        maplist(to_json(Headers), Rows, Pairs),
+        maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
 %% from_clause(-FromClause).
 from_clause(FromClause) :-
@@ -292,9 +359,3 @@ insert(row(ListName, Payload), InsertionResult) :-
         log_info([JSONChars]),
         InsertionResult = ok)
     ).
-
-%% event_table(-EventTable).
-event_table("publishers_list_collected_event").
-
-%% table(-Table)
-table("publishers_list").

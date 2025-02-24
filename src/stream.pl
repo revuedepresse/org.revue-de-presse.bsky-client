@@ -11,22 +11,23 @@
 
 % read_stream(+Stream, -Out).
 read_stream(Stream, Out) :-
-    once(read_stream(Stream, [], Out)),
-    close(Stream).
+    once(read_stream(Stream, [], Out)).
 
 % read_stream(+Stream, +In, -Out).
 read_stream(Stream, In, Out) :-
     get_char(Stream, Char),
-    (   Char = end_of_file
-    ->  Out = In
-    ;   read_stream(Stream, In, ReadOut),
-        Out = [Char|ReadOut] ).
+    if_(
+        Char = end_of_file,
+        (close(Stream),
+        Out = In),
+        (read_stream(Stream, In, ReadOut),
+        Out = [Char|ReadOut] )
+    ).
 
 writeln(_Term) :- !.
 
 writeln_(_Term, false) :- !.
 writeln_(Term, true) :-
-    chars_si(Term),
     write_term(Term, [double_quotes(true)]),
     nl.
 writeln_(Term, true) :-

@@ -35,6 +35,7 @@ char_code_at(Code, Char) :-
 
 %% to_json_chars(+Chars, -JSONChars).
 to_json_chars(Chars, JSONChars) :-
+    chars_si(Chars),
     atom_chars(Atom, Chars),
     temporary_file("beautify_json", ".json", JsonFile),
     open(JsonFile, write, WriteToJsonStream, [type(text)]),
@@ -88,7 +89,7 @@ keys([string(KeyChars)-_|RemainingKeys], KeysIn, KeysOut) :-
 
 %% wrapped_pairs_to_assoc(+Pairs, -Assoc).
 wrapped_pairs_to_assoc(pairs(UnwrappedPairs), Assoc) :-
-    pairs_to_assoc(UnwrappedPairs, Assoc).
+    once(pairs_to_assoc(UnwrappedPairs, Assoc)).
 
 %% pairs_to_assoc(+Pair, -Assoc).
 pairs_to_assoc(Pairs, Assoc) :-
@@ -101,18 +102,22 @@ pairs_to_assoc(Pairs, Assoc) :-
 % Relates right boolean, number, string, list with the same type
 % Relates right pairs with an assoc
 without_type(string(Key)-boolean(Value), KeyAtom-Value) :-
+    log_debug([kv:string(Key)-boolean(Value)]),
     atom_chars(KeyAtom, Key).
 without_type(string(Key)-string(Value), KeyAtom-Value) :-
+    log_debug([kv:string(Key)-string(Value)]),
     atom_chars(KeyAtom, Key).
 without_type(string(Key)-number(Value), KeyAtom-Value) :-
+    log_debug([kv:string(Key)-number(Value)]),
     atom_chars(KeyAtom, Key).
 without_type(string(Key)-list(Value), KeyAtom-Value) :-
+    log_debug([kv:string(Key)-list(Value)]),
     atom_chars(KeyAtom, Key).
 without_type(string(Key)-pairs(Value), KeyAtom-ValueAssoc) :-
     atom_chars(KeyAtom, Key),
     pairs_to_assoc(Value, ValueAssoc).
-without_type(Left-Right, _) :-
-    throw(cannot_remove_type(Left, Right)).
+without_type(Left-Right, UnknownKind) :-
+    throw(cannot_remove_type(Left, Right)-because_of(UnknownKind)).
 
 %% unwrap_pairs(+Pairs, -UnwrappedPairs).
 unwrap_pairs(pairs(UnwrappedPairs), UnwrappedPairs).

@@ -1,7 +1,11 @@
 :- module(repository_list_items, [
-    by_screen_name/2,
+    event_by_screen_name/2,
+    from_event/2,
+    record_by_screen_name/2,
     count/1,
     insert/2,
+    insert_list_items_if_not_exists/2,
+    insert_record/2,
     next_id/1,
     query/1
 ]).
@@ -27,11 +31,13 @@
     query_result_from_file/3
 ]).
 :- use_module('../../logger', [
+    log_error/1,
     log_debug/1,
     log_info/1
 ]).
 :- use_module('../../os_ext', [remove_temporary_file/1]).
 :- use_module('../../serialization', [
+    char_code_at/2,
     pairs_to_assoc/2,
     to_json_chars/2
 ]).
@@ -72,7 +78,7 @@ next_id(NextId) :-
 %% all_clauses(-Query, +Limit).
 all_clauses(Query, Limit) :-
     select_clause(SelectClause),
-    from_clause(FromClause),
+    from_record_table_clause(FromClause),
 
     % Accepting "ALL" as limit
     % and sufficiently instantiated integers
@@ -92,12 +98,17 @@ all_clauses(Query, Limit) :-
         [
             SelectFromClauses,
             "ORDER BY ",
-            "m.usr_id DESC ",
+            "r.usr_id DESC ",
             "OFFSET 0 ",
             "LIMIT ", LimitClause, ";"
         ],
         Query
     ).
+
+    %% from_record_table_clause(-FromClause).
+    from_record_table_clause(FromClause) :-
+        table(Table),
+        append(["FROM public.", Table, " r "], FromClause).
 
 %% query(-Rows, +TuplesOnly, +Limit).
 query(Rows, TuplesOnly, Limit) :-
@@ -133,26 +144,26 @@ select_clause(SelectClause) :-
     append(
         [
             "SELECT ",
-            "m.usr_id::bigint AS number__id, ",
+            "r.usr_id::bigint AS number__id, ",
             % handle
-            "m.usr_twitter_username::text AS string__handle, ",
+            "r.usr_twitter_username::text AS string__handle, ",
             % did
-            "m.usr_twitter_id::text AS string__did, ",
-            "COALESCE(m.usr_user_name::text, m.usr_twitter_username::text, ' ') AS string__username, ",
+            "r.usr_twitter_id::text AS string__did, ",
+            "COALESCE(r.usr_user_name::text, r.usr_twitter_username::text, ' ') AS string__username, ",
             % avatar
-            "COALESCE(m.usr_avatar::text, ' ') AS string__avatar, ",
+            "COALESCE(r.usr_avatar::text, ' ') AS string__avatar, ",
             % description
-            "m.description::bytea AS string__description, ",
+            "r.description::bytea AS string__description, ",
             % uri
-            "COALESCE(m.url::text, ' ') AS string__uri, ",
+            "COALESCE(r.url::text, ' ') AS string__uri, ",
             % indexedAt
-            "COALESCE(m.last_status_publication_date::text, ' ') AS string__indexed_at "
+            "COALESCE(r.last_status_publication_date::text, ' ') AS string__indexed_at "
         ],
         SelectClause
     ).
 
-%% by_screen_name(+ScreenName, -HeadersAndRows).
-by_screen_name(ScreenName, HeadersAndRows) :-
+%% event_by_screen_name(+ScreenName, -HeadersAndRows).
+event_by_screen_name(ScreenName, HeadersAndRows) :-
     chars_si(ScreenName),
     from_event_table_clause(FromClause),
     append([
@@ -200,14 +211,81 @@ by_screen_name(ScreenName, HeadersAndRows) :-
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
-%% from_clause(-FromClause).
-from_clause(FromClause) :-
-    table(Table),
-    append(["FROM public.", Table, " m "], FromClause).
+%% record_by_screen_name(+ScreenName, -HeadersAndRows).
+record_by_screen_name(ScreenName, HeadersAndRows) :-
+    chars_si(ScreenName),
+    from_record_table_clause(FromClause),
+    append([
+        "SELECT ",
+        "r.usr_id AS number__id, ",
+        "r.usr_api_key AS string__api_key, ",
+        "r.max_status_id AS number__max_status_id, ",
+        "r.min_status_id AS number__min_status_id, ",
+        "r.max_like_id AS number__max_status_id, ",
+        "r.min_like_id AS number__min_status_id, ",
+        "r.total_statuses AS number__total_statuses, ",
+        "r.total_likes AS number__total_likes, ",
+        "r.description AS string__id, ",
+        "r.url AS string__url, ",
+        "r.last_status_publication_date AS string__last_status_publication_date, ",
+        "r.total_subscribees AS number__total_subscribees, ",
+        "r.total_subscriptions AS number__total_subscriptions, ",
+        "r.usr_twitter_id AS string__twitter_id, ",
+        "r.usr_twitter_username AS string__twitter_username, ",
+        "r.usr_avatar AS string__avatar, ",
+        "r.usr_full_name AS string__full_name, ",
+        "r.usr_status AS boolean__status, ",
+        "r.usr_user_name AS string__user_name, ",
+        "r.usr_username_canonical AS string__user_name_canonical, ",
+        "r.usr_email AS string__email, ",
+        "r.usr_email_canonical AS string__email_canonical, ",
+        "r.protected AS boolean__protected, ",
+        "r.suspended AS boolean__suspended, ",
+        "r.not_found AS boolean__not_found, ",
+        "r.usr_position_in_hierarchy AS number__position_in_hierarchy ",
+        FromClause,
+        "WHERE ",
+        "r.usr_twitter_username = '", ScreenName, "' ",
+        "OFFSET 0 "
+    ], SelectByScreenName),
+    append(
+        [
+            SelectByScreenName,
+            "LIMIT 0;"
+        ],
+        QueryHeaders
+    ),
+    once(query_result_from_file(
+        QueryHeaders,
+        false,
+        HeadersOnlyTempFile
+    )),
+    read_rows(HeadersOnlyTempFile, HeadersRows),
+
+    nth0(0, HeadersRows, Headers),
+    append(
+        [
+            SelectByScreenName,
+            "LIMIT ALL;"
+        ],
+        SelectByScreenNameWithoutLimit
+    ),
+    log_debug([SelectByScreenNameWithoutLimit]),
+    once(query_result_from_file(
+        SelectByScreenNameWithoutLimit,
+        true,
+        ByScreenNameTmpFile
+    )),
+    (   read_rows(ByScreenNameTmpFile, Rows)
+    ->  true
+    ;   throw(cannot_read_rows_selected_by(screen_name)) ),
+
+    maplist(to_json(Headers), Rows, Pairs),
+    maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
 from_event_table_clause(FromClause) :-
     event_table(EventTable),
-    append(["FROM public.", EventTable], FromClause).
+    append(["FROM public.", EventTable, " "], FromClause).
 
 %% read_rows(+TmpFile, -Rows).
 read_rows(TmpFile, Rows) :-
@@ -220,32 +298,19 @@ read_rows(TmpFile, Rows) :-
     once(phrase(rows(Rows), StreamRows, [])),
     remove_temporary_file(TmpFile).
 
-%% count_matching_records(+NextId, -Result).
-count_matching_records(ScreenName, Result) :-
-    from_event_table_clause(FromClause),
-    append([
-        "SELECT count(*) how_many_records ",
-        FromClause, " ",
-        "WHERE screen_name::text = '", ScreenName, "';"
-    ], SelectQuery),
-    once(query_result(
-        SelectQuery,
-        Result
-    )).
-
 %% insert(+Row, -InsertionResult).
 insert(row(ScreenName, Payload), InsertionResult) :-
     event_table(EventTable),
-    count_matching_records(ScreenName, TotalMatchingRecords),
+    count_matching_events(ScreenName, TotalMatchingEvents),
 
     if_(
-        dif(1, TotalMatchingRecords),
+        dif(1, TotalMatchingEvents),
         (uuidv4_string(NextId),
         append(
             [
                 "INSERT INTO public.", EventTable, " (",
                 "   id,                 ",
-                "   screen_name,          ",
+                "   screen_name,        ",
                 "   payload,            ",
                 "   occurred_at,        ",
                 "   started_at,         ",
@@ -267,9 +332,9 @@ insert(row(ScreenName, Payload), InsertionResult) :-
         ))),
         (append(
             [
-                "SELECT m.payload AS payload ",
-                "FROM public.", EventTable," m ",
-                "WHERE m.screen_name::text = ", ScreenName, ";"
+                "SELECT e.payload AS payload ",
+                "FROM public.", EventTable," e ",
+                "WHERE e.screen_name::text = '", ScreenName, "';"
             ],
             SelectQuery
         ),
@@ -287,6 +352,232 @@ insert(row(ScreenName, Payload), InsertionResult) :-
         log_debug([JSONChars]),
         InsertionResult = ok)
     ).
+
+    %% count_matching_events(+ScreenName, -Result).
+    count_matching_events(ScreenName, Result) :-
+        from_event_table_clause(FromClause),
+        append([
+            "SELECT count(*) how_many_records ",
+            FromClause, " t ",
+            "WHERE t.screen_name::text = '", ScreenName, "';"
+        ], SelectQuery),
+        once(query_result(
+            SelectQuery,
+            Result
+        )).
+
+encode_field_value(FieldValue, EncodedFieldValue) :-
+        write_term_to_chars(FieldValue, [quoted(true), double_quotes(true)], QuotedFieldValue),
+        chars_utf8bytes(QuotedFieldValue, Utf8Bytes),
+        maplist(char_code_at, Utf8Bytes, FieldUtf8Bytes),
+        chars_base64(FieldUtf8Bytes, EncodedFieldValue, []).
+
+%% insert_record(+Row, -InsertionResult).
+insert_record(
+    row(
+        Avatar,
+        Description,
+        Did,
+        Handle,
+        DisplayName
+    ),
+    InsertionResult
+) :-
+    table(Table),
+    count_matching_records(Handle, TotalMatchingRecords),
+    write_term(total: TotalMatchingRecords, [double_quotes(true)]), nl,
+
+    if_(
+        dif(1, TotalMatchingRecords),
+        (next_id(NextId),
+        write_term(next_id: NextId, [double_quotes(true)]), nl,
+        % Convert NextId to a list of characters
+        % so that it could be added  to insertion query
+        number_chars(NextId, NextIdChars),
+
+        encode_field_value(DisplayName, EncodedDisplayName),
+        encode_field_value(Description, EncodedDescription),
+
+        append(
+            [
+                "INSERT INTO public.", Table, " (   ",
+                "   usr_id,                        ",
+                "   usr_api_key,                    ",
+                "   max_status_id,                  ",
+                "   min_status_id,                  ",
+                "   max_like_id,                    ",
+                "   min_like_id,                    ",
+                "   total_statuses,                 ",
+                "   total_likes,                    ",
+                "   description,                    ",
+                "   url,                            ",
+                "   last_status_publication_date,   ",
+                "   total_subscribees,              ",
+                "   total_subscriptions,            ",
+                "   usr_twitter_id,                 ",
+                "   usr_twitter_username,           ",
+                "   usr_avatar,                     ",
+                "   usr_full_name,                  ",
+                "   usr_status,                     ",
+                "   usr_user_name,                  ",
+                "   usr_username_canonical,         ",
+                "   usr_email,                      ",
+                "   usr_email_canonical,            ",
+                "   protected,                      ",
+                "   suspended,                      ",
+                "   not_found,                      ",
+                "   usr_position_in_hierarchy       ",
+                ") VALUES (                         ",
+                "", NextIdChars, ",                 ", % usr_id
+                "   NULL,                           ",
+                "   NULL,                           ",
+                "   NULL,                           ",
+                "   NULL,                           ",
+                "   NULL,                           ",
+                "   0,                              ",
+                "   0,                              ",
+                "'", EncodedDescription, "',         ", % description
+                "'", Handle, "',                    ", % url
+                "   NULL,                           ",
+                "   0,                              ",
+                "   0,                              ",
+                "'", Did, "',                       ", % usr_twitter_id
+                "'", Handle, "',                    ", % usr_twitter_username
+                "'", Avatar, "',                    ", % usr_avatar
+                "'", EncodedDisplayName, "',        ", % usr_full_name
+                "   false,  ",
+                "'", Handle, "',                    ", % usr_user_name
+                "'", Handle, "',                    ", % usr_username_canonical
+                "   '',                             ", % usr_email
+                "   '',                             ", % usr_email_canonical
+                "   false,                          ",
+                "   false,                          ",
+                "   false,                          ",
+                "   1                               ",
+                ")"
+            ],
+            InsertRecordQuery
+        ),
+        log_debug([query:InsertRecordQuery]),
+
+        (   once(query_result(
+                InsertRecordQuery,
+                InsertionResult)
+            )
+        ->  write_term(record_insertion_result(InsertionResult), [double_quotes(true)]), nl
+        ;   throw(cannot_insert_record_into_database(InsertRecordQuery)) ) ),
+
+        (append(
+            [
+                "SELECT r.usr_id AS identifier ",
+                "FROM public.", Table," r ",
+                "WHERE r.usr_twitter_username::text = '", Handle, "';"
+            ],
+            SelectQuery
+        ),
+        once(query_result(
+            SelectQuery,
+            SelectionResult
+        )),
+
+        write_term(selection:SelectionResult, [double_quotes(true)])
+
+%       chars_base64(DecodedBase64Payload, SelectionResult, []),
+%       maplist(char_code, DecodedBase64Payload, DecodedBytes),
+%       chars_utf8bytes(DecodedChars, DecodedBytes),
+%       append([Prefix, ['"']], DecodedChars),
+%       append([['"'], Suffix], Prefix),
+%       to_json_chars(Suffix, JSONChars),
+%       log_debug([JSONChars]),
+%        InsertionResult = ok
+        )
+    ).
+
+    %% count_matching_records(+Handle, -Result).
+    count_matching_records(Handle, Result) :-
+        from_record_table_clause(FromClause),
+        append([
+            "SELECT count(*) how_many_records ",
+            FromClause,
+            "WHERE r.usr_user_name::text = '", Handle, "';"
+        ], SelectQuery),
+        once(query_result(
+            SelectQuery,
+            Result
+        )).
+
+%% insert_list_items_if_not_exists(+Row -HeadersAndRowsSelectedByHandle).
+insert_list_items_if_not_exists(
+    row(
+        Avatar,
+        Description,
+        Did,
+        Handle,
+        DisplayName
+    ),
+    HeadersAndRowsSelectedByHandle
+) :-
+    catch(
+        record_by_screen_name(Handle, HeadersAndRowsSelectedByHandle),
+        E,
+        (log_info([E]),
+        catch(
+            (insert_record(
+                row(
+                    Avatar,
+                    Description,
+                    Did,
+                    Handle,
+                    DisplayName
+                ),
+                InsertionResult
+            ),
+            writeq(member_record_insertion_result(InsertionResult)), nl),
+            E,
+            log_error([error_on_record_insertion(E)])
+        ))
+    ).
+
+%% event(+Payload, -Row).
+from_event(Payload, row(Avatar, Description, DID, Handle, DisplayName)) :-
+    chars_base64(Utf8BytesPayload, Payload, []),
+    maplist(char_code, Utf8BytesPayload, Utf8Bytes),
+    chars_utf8bytes(PayloadChars, Utf8Bytes),
+
+    append(["pairs(", PayloadChars, ")."], CompleteReduction),
+    read_from_chars(CompleteReduction, Term),
+    Term = pairs(Pairs),
+    pairs_to_assoc(Pairs, Assoc),
+    get_assoc(subject, Assoc, Subject),
+    assoc_to_keys(Subject, SubjectKeys),
+
+    log_debug([['list items keys':SubjectKeys, [double_quotes(true)]], nl]),
+
+    get_assoc(avatar, Subject, Avatar),
+    log_debug([[avatar:Avatar, [double_quotes(true)]], nl]),
+    get_assoc(displayName, Subject, DisplayName),
+    log_debug([[displayName:DisplayName, [double_quotes(true)]], nl]),
+    get_assoc(did, Subject, DID),
+    log_debug([[did:DID, [double_quotes(true)]], nl]),
+    get_assoc(handle, Subject, Handle),
+    log_debug([[handle:Handle, [double_quotes(true)]], nl]),
+    get_assoc(createdAt, Subject, CreatedAt),
+    log_debug([[createdAt:CreatedAt, [double_quotes(true)]], nl]),
+    get_assoc(indexedAt, Subject, IndexedAt),
+    log_debug([[indexedAt:IndexedAt, [double_quotes(true)]], nl]),
+
+    once(catch(
+        ( ( get_assoc(associated, Subject, Associated),
+            get_assoc(chat, Associated, Chat),
+            get_assoc(allowIncoming, Chat, AllowIncomingChat),
+            log_debug([[associated:AllowIncomingChat, [double_quotes(true)]], nl])
+        ;   throw(key_not_found(associated)), nl ),
+        ( get_assoc(description, Subject, Description),
+            log_debug([[description:Description, [double_quotes(true)]], nl])
+        ;   Description = "" )),
+        key_not_found(Field),
+        (write_term(not_found(Field), [double_quotes(true)]), nl)
+    )).
 
 %% event_table(-EventTable).
 event_table("member_profile_collected_event").
