@@ -36,8 +36,20 @@ infrastructure__lists__count: ### Count lists
 infrastructure__lists__query: ### Query lists
 	@/bin/bash -c '. fun.sh && infrastructure__lists__query'
 
+infrastructure__lists__next_event_id: ### Next list event id
+	@/bin/bash -c '. fun.sh && infrastructure__lists__next_event_id'
+
 infrastructure__lists__next_id: ### Next list id
 	@/bin/bash -c '. fun.sh && infrastructure__lists__next_id'
+
+infrastructure__publishers__count: ### Count publishers
+	@/bin/bash -c '. fun.sh && infrastructure__publishers__count'
+
+infrastructure__publishers__query: ### Query publishers
+	@/bin/bash -c '. fun.sh && infrastructure__publishers__query'
+
+infrastructure__publishers__next_id: ### Next publisher id
+	@/bin/bash -c '. fun.sh && infrastructure__publishers__next_id'
 
 com__atproto__repo__createRecord: ### com.atproto.repo.createRecord
 	@/bin/bash -c '. fun.sh && com__atproto__repo__createRecord'

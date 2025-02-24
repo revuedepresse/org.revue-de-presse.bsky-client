@@ -458,8 +458,7 @@ insert_record(
             ],
             InsertRecordQuery
         ),
-
-        write_term(query:InsertRecordQuery, [double_quotes(true)]),
+        log_debug([query:InsertRecordQuery]),
 
         (   once(query_result(
                 InsertRecordQuery,
@@ -519,8 +518,7 @@ insert_list_items_if_not_exists(
     HeadersAndRowsSelectedByHandle
 ) :-
     catch(
-        (record_by_screen_name(Handle, HeadersAndRowsSelectedByHandle),
-        writeq(rows: HeadersAndRowsSelectedByHandle)),
+        record_by_screen_name(Handle, HeadersAndRowsSelectedByHandle),
         E,
         (log_info([E]),
         catch(
@@ -541,7 +539,7 @@ insert_list_items_if_not_exists(
     ).
 
 %% event(+Payload, -Row).
-from_event(Payload, row(Avatar, Description, Did, Handle, DisplayName)) :-
+from_event(Payload, row(Avatar, Description, DID, Handle, DisplayName)) :-
     chars_base64(Utf8BytesPayload, Payload, []),
     maplist(char_code, Utf8BytesPayload, Utf8Bytes),
     chars_utf8bytes(PayloadChars, Utf8Bytes),
@@ -553,29 +551,29 @@ from_event(Payload, row(Avatar, Description, Did, Handle, DisplayName)) :-
     get_assoc(subject, Assoc, Subject),
     assoc_to_keys(Subject, SubjectKeys),
 
-    write_term('list items keys':SubjectKeys, [double_quotes(true)]), nl,
+    log_debug([['list items keys':SubjectKeys, [double_quotes(true)]], nl]),
 
     get_assoc(avatar, Subject, Avatar),
-    write_term(avatar:Avatar, [double_quotes(true)]), nl,
+    log_debug([[avatar:Avatar, [double_quotes(true)]], nl]),
     get_assoc(displayName, Subject, DisplayName),
-    write_term(displayName:DisplayName, [double_quotes(true)]), nl,
-    get_assoc(did, Subject, Did),
-    write_term(did:Did, [double_quotes(true)]), nl,
+    log_debug([[displayName:DisplayName, [double_quotes(true)]], nl]),
+    get_assoc(did, Subject, DID),
+    log_debug([[did:DID, [double_quotes(true)]], nl]),
     get_assoc(handle, Subject, Handle),
-    write_term(handle:Handle, [double_quotes(true)]), nl,
+    log_debug([[handle:Handle, [double_quotes(true)]], nl]),
     get_assoc(createdAt, Subject, CreatedAt),
-    write_term(createdAt:CreatedAt, [double_quotes(true)]), nl,
+    log_debug([[createdAt:CreatedAt, [double_quotes(true)]], nl]),
     get_assoc(indexedAt, Subject, IndexedAt),
-    write_term(indexedAt:IndexedAt, [double_quotes(true)]), nl,
+    log_debug([[indexedAt:IndexedAt, [double_quotes(true)]], nl]),
 
     once(catch(
         ( ( get_assoc(associated, Subject, Associated),
             get_assoc(chat, Associated, Chat),
             get_assoc(allowIncoming, Chat, AllowIncomingChat),
-            write_term(associated:AllowIncomingChat, [double_quotes(true)]), nl
+            log_debug([[associated:AllowIncomingChat, [double_quotes(true)]], nl])
         ;   throw(key_not_found(associated)), nl ),
         ( get_assoc(description, Subject, Description),
-            write_term(description:Description, [double_quotes(true)]), nl
+            log_debug([[description:Description, [double_quotes(true)]], nl])
         ;   Description = "" )),
         key_not_found(Field),
         (write_term(not_found(Field), [double_quotes(true)]), nl)

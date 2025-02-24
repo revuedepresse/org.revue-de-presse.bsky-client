@@ -59,7 +59,6 @@ log_debug(Messages) :-
         above_debug_level.
 
     debug(Messages) :-
-        write(why_does_it_log_at_debug_level), nl,
         log(Messages).
 
 log_info(Messages) :-
