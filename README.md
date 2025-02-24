@@ -10,11 +10,26 @@ All development is delivered under free and open-source software licence.
 
  - [jq](https://jqlang.org/)
  - [psql](https://www.postgresql.org/docs/current/app-psql.html)
+ - [scryer-prolog](https://scryer.pl)
 
 ## Documentation
 
-```
+```shell
 make help
+```
+
+## Build
+
+With [rustup](https://github.com/mthom/scryer-prolog/blob/4fc4152eaca6b53947f7fdb564d1734296e7a3b8/README.md#installing-scryer-prolog):
+
+```shell
+cargo build --bin scryer-prolog --release
+```
+
+With docker:
+
+```shell
+docker build -t org.revue-de-presse.bsky.stable .
 ```
 
 ## License
@@ -32,10 +47,5 @@ communities, organizations and projects (in lexicographic order):
   - [Debian](https://www.debian.org/)
   - [Docker](docker.com)
   - [GitHub](https://github.com/)
-  - [JetBrains](https://jb.gg/OpenSourceSupport)
   - [Scryer Prolog](https://www.scryer.pl/)
   - [Ubuntu](https://ubuntu.com/)
-
-### Our Sponsors who support our FOSS project 💙
-
-[![JetBrains](../main/assets/sponsors/jetbrains-logo-alt.png?raw=true)](https://jb.gg/OpenSourceSupport)  

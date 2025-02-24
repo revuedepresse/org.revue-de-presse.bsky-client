@@ -3,6 +3,7 @@
 ]).
 
 :- use_module(library(assoc)).
+:- use_module(library(charsio)).
 :- use_module(library(dcgs)).
 :- use_module(library(http/http_open)).
 :- use_module(library(lists)).
@@ -28,7 +29,6 @@
     pairs_to_assoc/2
 ]).
 :- use_module('../../../stream', [
-    read_stream/3,
     writeln/1,
     writeln/2
 ]).
@@ -79,17 +79,19 @@ send_request(Actor, ResponsePairs, StatusCode) :-
     http_open(Endpoint, Stream, Options), !,
     log_debug(Options),
 
-    read_stream(Stream, [], BodyChars),
-    log_info(['body ', BodyChars]),
+    get_n_chars(Stream, _, BodyChars),
+    log_debug(['body ', BodyChars]),
 
     phrase(json_chars(pairs(ResponsePairs)), BodyChars),
 
     append([OperationId, " call failed"], FailedHttpRequestErrorMessage),
     atom_chars(FailedHttpRequestErrorMessageAtom, FailedHttpRequestErrorMessage),
 
-    (   StatusCode = 200
-    ->  log_info(['status code: ', StatusCode])
-    ;   throw(failed_http_request(FailedHttpRequestErrorMessageAtom, ResponsePairs, StatusCode)) ).
+    if_(
+        StatusCode = 200,
+        log_debug(['status code: ', StatusCode]),
+        throw(failed_http_request(FailedHttpRequestErrorMessageAtom, ResponsePairs, StatusCode))
+    ).
 
 :- dynamic(app__bsky__graph__getLists_memoized/2).
 
@@ -101,13 +103,13 @@ memoize_app__bsky__graph__getLists_memoized(Actor, Props) :-
         log_info([Message])
     ),
 
-    (   StatusCode \= 200
-    ->  by_key("message", Pairs, ErrorMessageChars),
+    if_(
+        dif(StatusCode, 200),
+       (by_key("message", Pairs, ErrorMessageChars),
         atom_chars(ErrorMessage, ErrorMessageChars),
-        log_info([ErrorMessage]), fail
-    ;   keys(Pairs, [], Keys),
-        maplist(writeln, Keys),
-        Props = [] ),
+        log_error([ErrorMessage]), fail),
+        Props = Pairs
+    ),
     assertz(app__bsky__graph__getLists_memoized(Actor, Props)).
 
 %% [app.bsky.graph.getLists](https://docs.bsky.app/docs/api/app-bsky-graph-get-lists)
