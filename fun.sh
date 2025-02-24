@@ -99,6 +99,13 @@ function infrastructure__lists__query() {
         ./src/infrastructure/repository/repository_lists.pl
 }
 
+function infrastructure__lists__next_event_id() {
+    configure
+
+    scryer -g 'next_event_id(Result), writeq(Result).' -g 'halt.' \
+        ./src/infrastructure/repository/repository_lists.pl
+}
+
 function infrastructure__lists__next_id() {
     configure
 
@@ -125,6 +132,27 @@ function infrastructure__list_items__next_id() {
 
     scryer -g 'next_id(Result), writeq(Result).' -g 'halt.' \
         ./src/infrastructure/repository/repository_list_items.pl
+}
+
+function infrastructure__publishers__count() {
+    configure
+
+    scryer -g 'count(Count), writeq(Count), halt.' \
+        ./src/infrastructure/repository/repository_publishers.pl
+}
+
+function infrastructure__publishers__query() {
+    configure
+
+    scryer -g 'query(Result), writeq(Result).' -g 'halt.' \
+        ./src/infrastructure/repository/repository_publishers.pl
+}
+
+function infrastructure__publishers__next_id() {
+    configure
+
+    scryer -g 'next_id(Result), writeq(Result).' -g 'halt.' \
+        ./src/infrastructure/repository/repository_publishers.pl
 }
 
 # https://docs.bsky.app/docs/api/app-bsky-graph-get-lists

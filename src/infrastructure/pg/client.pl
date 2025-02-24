@@ -75,14 +75,15 @@ query(Query, RemoveResultFile, TuplesOnly, TempFile, Result) :-
             "psql ",
             TuplesOnlyOption,
             "--csv ",
-            "--no-align ",
-            "--no-readline ",
-            "--quiet ",
-            "--username='", Username, "' ",
             "--dbname='", DbName, "' ",
             "--host='", Host, "' ",
+            "--no-align ",
+            "--no-readline ",
+            "--output='", TempFile, "' ",
             "--port='", Port, "' ",
-            "--output='", TempFile, "' "
+            "--quiet ",
+            "--set ON_ERROR_STOP=1 ",
+            "--username='", Username, "' "
         ], QueryCommand)
     ->  true
     ;   throw(cannot_execute_sql_query) ),

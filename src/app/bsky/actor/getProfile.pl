@@ -3,13 +3,20 @@
 ]).
 
 :- use_module(library(assoc)).
+:- use_module(library(charsio)).
 :- use_module(library(dcgs)).
 :- use_module(library(http/http_open)).
+:- use_module(library(iso_ext)).
 :- use_module(library(lists)).
 :- use_module(library(pairs)).
 :- use_module(library(reif)).
+:- use_module(library(si)).
 :- use_module(library(serialization/json)).
+:- use_module(library(time)).
 
+:- use_module('../../../configuration', [
+    credentials_access_jwt/1
+]).
 :- use_module('../../../http', [
     public_bluesky_appview_api_endpoint/2,
     header_content_type_application_json/1
@@ -29,7 +36,7 @@
     pairs_to_assoc/2
 ]).
 :- use_module('../../../stream', [
-    read_stream/3,
+    read_stream/2,
     writeln/1,
     writeln/2
 ]).
@@ -44,7 +51,16 @@ app__bsky__actor__getProfile_endpoint(OperationId, ParamName, Param, Endpoint) :
 %% app__bsky__actor__getProfile_headers(-ListHeaders).
 app__bsky__actor__getProfile_headers(ListHeaders) :-
     header_content_type_application_json(ApplicationJsonContentTypeHeader),
-    ListHeaders = [ApplicationJsonContentTypeHeader].
+
+    credentials_access_jwt(AccessJwt),
+    append(["Bearer ", AccessJwt], BearerTokenChars),
+    atom_chars(BearerToken, BearerTokenChars),
+
+    ListHeaders = [
+        ApplicationJsonContentTypeHeader,
+        'Authorization'(BearerToken),
+        'User-Agent'('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36')
+    ].
 
 %% send_request(+ParamValue, -ResponsePairs, -StatusCode).
 send_request(ParamValue, ResponsePairs, StatusCode) :-
@@ -53,6 +69,7 @@ send_request(ParamValue, ResponsePairs, StatusCode) :-
     pairs_keys(SpecPairs, [string(Verb)]),
     pairs_to_assoc(SpecPairs, SpecAssoc),
 
+    chars_si(Verb),
     atom_chars(VerbAtom, Verb),
     get_assoc(VerbAtom, SpecAssoc, EndpointSpecAssoc),
     get_assoc(parameters, EndpointSpecAssoc, Parameters),
@@ -68,24 +85,38 @@ send_request(ParamValue, ResponsePairs, StatusCode) :-
         method(VerbAtom),
         status_code(StatusCode),
         request_headers(ListHeaders),
-        headers(_ResponseHeaders)
+        headers(ResponseHeaders)
     ],
 
     app__bsky__actor__getProfile_endpoint(OperationId, ParamName, ParamValue, Endpoint),
 
-    http_open(Endpoint, Stream, Options), !,
-    log_debug(Options),
+    catch(
+        once((
+            writeln(endpoint: Endpoint, true),
+            writeln('terra incognita right here ><', true),
+            (   http_open(Endpoint, Stream, Options)
+            ->  writeln('oopsie', true)
+            ;   throw(http_request_failed(Endpoint, Options)) )
+        )),
+        E,
+        (writeln(cannot_submit_http_request(E), true), halt)
+    ),
 
-    read_stream(Stream, [], BodyChars),
+
+    writeln(response_headers: ResponseHeaders, true),
+
+    % read_stream(Stream, BodyChars),
+    get_n_chars(Stream, _N, BodyChars),
     log_info(['body ', BodyChars]),
 
     phrase(json_chars(pairs(ResponsePairs)), BodyChars),
 
     append([OperationId, " call failed"], FailedHttpRequestErrorMessage),
+    chars_si(FailedHttpRequestErrorMessage),
     atom_chars(FailedHttpRequestErrorMessageAtom, FailedHttpRequestErrorMessage),
 
     (   StatusCode = 200
-    ->  log_info(['status code: ', StatusCode])
+    ->  log_debug(['status code: ', StatusCode])
     ;   throw(failed_http_request(FailedHttpRequestErrorMessageAtom, ResponsePairs, StatusCode)) ).
 
 :- dynamic(app__bsky__actor__getProfile_memoized/2).
@@ -100,11 +131,12 @@ memoize_app__bsky__actor__getProfile_memoized(ParamValue, Props) :-
 
     (   StatusCode \= 200
     ->  by_key("message", Pairs, ErrorMessageChars),
+        chars_si(ErrorMessageChars),
         atom_chars(ErrorMessage, ErrorMessageChars),
         log_info([ErrorMessage]), fail
     ;   keys(Pairs, [], Keys),
         maplist(writeln, Keys),
-        Props = [] ),
+        Props = Pairs ),
     assertz(app__bsky__actor__getProfile_memoized(ParamValue, Props)).
 
 %% app__bsky__actor__getProfile(+ParamValue, -Props).
