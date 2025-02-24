@@ -41,7 +41,11 @@
     pairs_to_assoc/2,
     to_json_chars/2
 ]).
-:- use_module('../../stream', [read_stream/2]).
+:- use_module('../../stream', [
+    read_stream/2,
+    writeln/1,
+    writeln/2
+]).
 :- use_module('../../temporal', [date_iso8601/1]).
 
 %% count(-Count).
@@ -532,9 +536,9 @@ insert_list_items_if_not_exists(
                 ),
                 InsertionResult
             ),
-            writeq(member_record_insertion_result(InsertionResult)), nl),
-            E,
-            log_error([error_on_record_insertion(E)])
+            writeln(member_record_insertion_result(InsertionResult), true)),
+            Err,
+            log_error([error_on_record_insertion(Err)])
         ))
     ).
 
@@ -550,30 +554,29 @@ from_event(Payload, row(Avatar, Description, DID, Handle, DisplayName)) :-
     pairs_to_assoc(Pairs, Assoc),
     get_assoc(subject, Assoc, Subject),
     assoc_to_keys(Subject, SubjectKeys),
-
-    log_debug([['list items keys':SubjectKeys, [double_quotes(true)]], nl]),
+    writeln('list items keys':SubjectKeys),
 
     get_assoc(avatar, Subject, Avatar),
-    log_debug([[avatar:Avatar, [double_quotes(true)]], nl]),
+    writeln(avatar:Avatar),
     get_assoc(displayName, Subject, DisplayName),
-    log_debug([[displayName:DisplayName, [double_quotes(true)]], nl]),
+    writeln(displayName:DisplayName),
     get_assoc(did, Subject, DID),
-    log_debug([[did:DID, [double_quotes(true)]], nl]),
+    writeln(did:DID),
     get_assoc(handle, Subject, Handle),
-    log_debug([[handle:Handle, [double_quotes(true)]], nl]),
+    writeln(handle:Handle),
     get_assoc(createdAt, Subject, CreatedAt),
-    log_debug([[createdAt:CreatedAt, [double_quotes(true)]], nl]),
+    writeln(createdAt:CreatedAt),
     get_assoc(indexedAt, Subject, IndexedAt),
-    log_debug([[indexedAt:IndexedAt, [double_quotes(true)]], nl]),
+    writeln(indexedAt:IndexedAt),
 
     once(catch(
         ( ( get_assoc(associated, Subject, Associated),
             get_assoc(chat, Associated, Chat),
             get_assoc(allowIncoming, Chat, AllowIncomingChat),
-            log_debug([[associated:AllowIncomingChat, [double_quotes(true)]], nl])
+            writeln(associated:AllowIncomingChat)
         ;   throw(key_not_found(associated)), nl ),
         ( get_assoc(description, Subject, Description),
-            log_debug([[description:Description, [double_quotes(true)]], nl])
+            writeln(description:Description)
         ;   Description = "" )),
         key_not_found(Field),
         (write_term(not_found(Field), [double_quotes(true)]), nl)

@@ -55,7 +55,7 @@ onGetList(ListUri, Payload) :-
             phrase(json_chars(pairs(Pairs)), JSONChars, []),
             maplist(get_key, Pairs, Keys),
             pairs_to_assoc(Pairs, _Assoc),
-            writeln('list keys':Keys, true)
+            writeln('list keys':Keys)
         ;   true )),
         cannot_read_rows_selected_by(_Selector),
         catch(
