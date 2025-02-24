@@ -48,7 +48,6 @@
     wrapped_pairs_to_assoc/2
 ]).
 :- use_module('../../../stream', [
-    read_stream/2,
     writeln/1,
     writeln/2
 ]).
@@ -58,7 +57,7 @@
 %% app__bsky__graph__getList_endpoint(+OperationId, +ParamName, +Param, -Endpoint).
 app__bsky__graph__getList_endpoint(OperationId, ParamName, Param, Endpoint) :-
     public_bluesky_appview_api_endpoint(OperationId, EndpointWithoutParam),
-    concat_as_string([EndpointWithoutParam, "?limit=6&", ParamName, "=", Param], [], Endpoint).
+    concat_as_string([EndpointWithoutParam, "?limit=50&", ParamName, "=", Param], [], Endpoint).
 
 %% app__bsky__graph__getList_headers(-ListHeaders).
 app__bsky__graph__getList_headers(ListHeaders) :-
@@ -101,13 +100,14 @@ send_request(MainListAtUri, ResponsePairs, StatusCode) :-
     log_debug(Options), !,
     writeln(response_headers: ResponseHeaders),
 
-    read_stream(Stream, BodyChars),
+    get_n_chars(Stream, _, BodyChars),
     phrase(json_chars(pairs(ResponsePairs)), BodyChars),
     pairs_to_assoc(ResponsePairs, JSONAssoc),
     get_assoc(list, JSONAssoc, List),
     get_assoc(uri, List, ListUri),
 
     payload(BodyChars, Payload),
+
     % See ./domain/.../graph/event_getList.pl
     % where `onGetList` event handler is implemented
     onGetList(ListUri, Payload),
@@ -117,17 +117,16 @@ send_request(MainListAtUri, ResponsePairs, StatusCode) :-
     % - `onGetProfile` event handled by ./domain/.../actor/event_getProfile.pl
     list_uri(MainListAtUri, JSONAssoc, ListUri),
 
-    append([OperationId, " call failed"], FailedHttpRequestErrorMessage),
-    chars_si(FailedHttpRequestErrorMessage),
-    atom_chars(FailedHttpRequestErrorMessageAtom, FailedHttpRequestErrorMessage),
-
     if_(
         dif(StatusCode, 200),
-        (log_error(['status code: ', StatusCode]),
+       (append([OperationId, " call failed"], FailedHttpRequestErrorMessage),
+        chars_si(FailedHttpRequestErrorMessage),
+        atom_chars(FailedHttpRequestErrorMessageAtom, FailedHttpRequestErrorMessage),
+        log_error(['status code: ', StatusCode]),
         throw(failed_http_request(
             FailedHttpRequestErrorMessageAtom, ResponsePairs, StatusCode)
         )),
-        log_debug(['status code: ', StatusCode])
+        log_info(['getList status code: ', StatusCode])
     ).
 
 %% payload(+BodyChars, -Payload).
@@ -143,50 +142,65 @@ list_uri(MainListAtUri, JSONAssoc, Uri) :-
     get_assoc(list, JSONAssoc, List),
     get_assoc(items, JSONAssoc, Items),
 
-    maplist(wrapped_pairs_to_assoc, Items, ItemsAssocs),
-    foldl(get_profile(MainListAtUri), ItemsAssocs, [], []),
-    maplist(ItemsAssocs, onGetListItem(Items)),
+    % For some reasons, we cannot take more than 5 items at once
+    HowManyItemsToTake = 1,
+    HowManyItemsBefore = 0,
+    process_nth_first_items(MainListAtUri, HowManyItemsToTake, Items, HowManyItemsBefore, _),
     get_assoc(uri, List, Uri).
+
+    %% process_nth_first_items(+HowManyItemsToTake, +Items, +HowManyItemsBefore, -Out).
+    process_nth_first_items(_MainListAtUri, _HowManyItemsToTake, _Items, 50, 50).
+    process_nth_first_items(MainListAtUri, HowManyItemsToTake, Items, HowManyItemsBefore, Out) :-
+        maplist(wrapped_pairs_to_assoc, Items, RevItemsAssocs),
+        reverse(RevItemsAssocs, Range),
+        length(ItemsAssocs, HowManyItemsToTake),
+        length(ItemsAssocsPrefix, HowManyItemsBefore),
+        append([ItemsAssocsPrefix, ItemsAssocs, _], Range),
+
+        reverse(Items, RevItems),
+        length(FirstNthItems, HowManyItemsToTake),
+        length(FirstNthItemsPrefix, HowManyItemsBefore),
+        append([FirstNthItemsPrefix, FirstNthItems, _], RevItems),
+
+        foldl(try_to_get_profile(MainListAtUri), ItemsAssocs, [], []),
+        maplist(onGetListItem, ItemsAssocs, FirstNthItems),
+
+        NextOffset #= HowManyItemsBefore + HowManyItemsToTake,
+        writeln(next_offset(next_offset:NextOffset, true)),
+        process_nth_first_items(MainListAtUri, HowManyItemsToTake, Items, NextOffset, Out).
+
+    %% try_to_get_profile(+MainListAtUri, +Assoc, +In, -In).
+    try_to_get_profile(MainListAtUri, Assoc, In, In) :-
+        catch(
+            get_profile(MainListAtUri, Assoc, In, In),
+            E,
+            if_(
+                E = pre_existing_publisher(_),
+                writeln(cannot_select_publishers(E), true),
+                log_error([error_on_getProfile_event(E)])
+            )
+        ).
 
     %% get_profile(+MainListAtUri, +Assoc, +In, -In).
     get_profile(MainListAtUri, Assoc, In, In) :-
         get_assoc(subject, Assoc, Subject),
-        get_assoc(did, Subject, DID),
+        get_assoc(did, Subject, ActorParam),
 
-        writeln(gettingProfileByDID(DID), true),
-        app__bsky__actor__getProfile(DID, Payload),
+        writeln(gettingProfileByDID(ActorParam)),
+        app__bsky__actor__getProfile(ActorParam, Payload),
 
         % [Content Write Operations (per account)](https://docs.bsky.app/docs/advanced-guides/rate-limits#content-write-operations-per-account)
         TimeToWaitInSecBeforeNextWriteOperation is ceiling(5000/3600),
-
-        current_time(PreTimestamp),
-        phrase(format_time("%M:%S", PreTimestamp), PreCs),
-        writeln(before_sleep(PreCs), true),
-
-        writeln(about_to_wait_for(
-            TimeToWaitInSecBeforeNextWriteOperation
-        )-seconds, true),
-
-%        statistics(runtime, [PreCpuTime|_]),
-
         sleep(TimeToWaitInSecBeforeNextWriteOperation),
 
-%        statistics(runtime, [PostCpuTime|_]),
-%        CpuTimeDifference is (PostCpuTime - PreCpuTime) * 1000,
-%        writeln(cpu_time_difference(CpuTimeDifference), true),
-
-        current_time(PostTimestamp),
-        phrase(format_time("%M:%S", PostTimestamp), PostCs),
-        writeln(after_sleep(PostCs), true),
-
-        writeln(received_payload(Payload), true),
+        writeln(received_payload(Payload)),
 
         pairs_to_assoc(Payload, PayloadAssoc),
 
         get_assoc(followersCount, PayloadAssoc, FollowersCount),
         get_assoc(followsCount, PayloadAssoc, FollowsCount),
 
-        onGetProfile(props(MainListAtUri, FollowersCount, FollowsCount, DID, Payload)).
+        onGetProfile(props(MainListAtUri, FollowersCount, FollowsCount, ActorParam, Payload)).
 
 :- dynamic(app__bsky__graph__getList_memoized/2).
 
@@ -194,8 +208,12 @@ list_uri(MainListAtUri, JSONAssoc, Uri) :-
 memoize_app__bsky__graph__getList_memoized(MainListAtUri, Props) :-
     catch(
         (send_request(MainListAtUri, Pairs, StatusCode)),
-        failed_http_request(Message, Pairs, StatusCode),
-        log_info([Message])
+        E,
+        if_(
+            E = failed_http_request(Message, Pairs, StatusCode),
+            (log_error([Message]), fail),
+            (log_error([E]), fail)
+        )
     ),
 
     if_(
@@ -203,10 +221,8 @@ memoize_app__bsky__graph__getList_memoized(MainListAtUri, Props) :-
         (by_key("message", Pairs, ErrorMessageChars),
         chars_si(ErrorMessageChars),
         atom_chars(ErrorMessage, ErrorMessageChars),
-        log_info([ErrorMessage]), fail),
-        (keys(Pairs, [], Keys),
-        maplist(writeln, Keys),
-        Props = [] )
+        log_error([ErrorMessage]), fail),
+        Props = Pairs
     ),
     assertz(app__bsky__graph__getList_memoized(MainListAtUri, Props)).
 
@@ -215,5 +231,5 @@ memoize_app__bsky__graph__getList_memoized(MainListAtUri, Props) :-
 %% app__bsky__graph__getList(+MainListAtUri, -Props).
 app__bsky__graph__getList(MainListAtUri, Props) :-
     app__bsky__graph__getList_memoized(MainListAtUri, Props)
-    ->  halt
+    ->  true
     ;   memoize_app__bsky__graph__getList_memoized(MainListAtUri, Props).
