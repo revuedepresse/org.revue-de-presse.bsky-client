@@ -36,7 +36,6 @@
     pairs_to_assoc/2
 ]).
 :- use_module('../../../stream', [
-    read_stream/2,
     writeln/1,
     writeln/2
 ]).
@@ -90,24 +89,14 @@ send_request(ParamValue, ResponsePairs, StatusCode) :-
 
     app__bsky__actor__getProfile_endpoint(OperationId, ParamName, ParamValue, Endpoint),
 
-    catch(
-        once((
-            writeln(endpoint: Endpoint, true),
-            writeln('terra incognita right here ><', true),
-            (   http_open(Endpoint, Stream, Options)
-            ->  writeln('oopsie', true)
-            ;   throw(http_request_failed(Endpoint, Options)) )
-        )),
-        E,
-        (writeln(cannot_submit_http_request(E), true), halt)
+    submit_request_once(
+        request(Endpoint, Options),
+        response(ResponseHeaders, Stream)
     ),
 
-
-    writeln(response_headers: ResponseHeaders, true),
-
-    % read_stream(Stream, BodyChars),
-    get_n_chars(Stream, _N, BodyChars),
-    log_info(['body ', BodyChars]),
+    get_n_chars(Stream, _, BodyChars),
+    writeln('status code':StatusCode, true),
+    writeln(body:BodyChars),
 
     phrase(json_chars(pairs(ResponsePairs)), BodyChars),
 
@@ -115,35 +104,49 @@ send_request(ParamValue, ResponsePairs, StatusCode) :-
     chars_si(FailedHttpRequestErrorMessage),
     atom_chars(FailedHttpRequestErrorMessageAtom, FailedHttpRequestErrorMessage),
 
-    (   StatusCode = 200
-    ->  log_debug(['status code: ', StatusCode])
-    ;   throw(failed_http_request(FailedHttpRequestErrorMessageAtom, ResponsePairs, StatusCode)) ).
+    if_(
+        StatusCode = 200,
+        true,
+        throw(failed_http_request(FailedHttpRequestErrorMessageAtom, ResponsePairs, StatusCode))
+    ).
+
+    %% submit_request_once(+request, -Response).
+    submit_request_once(request(Endpoint, Options), response(ResponseHeaders, Stream)) :-
+        once((
+            writeln(endpoint: Endpoint, true),
+            (   http_open(Endpoint, Stream, Options)
+            ->  writeln(response_headers: ResponseHeaders), !
+            ;   throw(failed_http_request(Endpoint, Options)) )
+        )).
 
 :- dynamic(app__bsky__actor__getProfile_memoized/2).
 
-% memoize_app__bsky__actor__getProfile_memoized(+ParamValue, -Props).
+%% memoize_app__bsky__actor__getProfile_memoized(+ParamValue, -Props).
 memoize_app__bsky__actor__getProfile_memoized(ParamValue, Props) :-
     catch(
         send_request(ParamValue, Pairs, StatusCode),
-        failed_http_request(Message, Pairs, StatusCode),
-        log_info([Message])
+        E,
+        if_(
+            E = failed_http_request(Message, Pairs, StatusCode),
+            (log_error([Message]), fail),
+            (log_error([E]), fail)
+        )
     ),
 
-    (   StatusCode \= 200
-    ->  by_key("message", Pairs, ErrorMessageChars),
+    if_(
+        dif(StatusCode, 200),
+       (by_key("message", Pairs, ErrorMessageChars),
         chars_si(ErrorMessageChars),
         atom_chars(ErrorMessage, ErrorMessageChars),
-        log_info([ErrorMessage]), fail
-    ;   keys(Pairs, [], Keys),
-        maplist(writeln, Keys),
-        Props = Pairs ),
+        log_error([ErrorMessage]), fail),
+        Props = Pairs
+    ),
     assertz(app__bsky__actor__getProfile_memoized(ParamValue, Props)).
 
 %% app__bsky__actor__getProfile(+ParamValue, -Props).
 %
 % [app.bsky.actor.getProfile](https://docs.bsky.app/docs/api/app-bsky-actor-get-profile)
 app__bsky__actor__getProfile(ParamValue, Props) :-
-    % endpoint_spec_pairs(SpecPairs, false),
     app__bsky__actor__getProfile_memoized(ParamValue, Props)
     ->  true
     ;   memoize_app__bsky__actor__getProfile_memoized(ParamValue, Props).

@@ -195,7 +195,7 @@ select_clause(SelectClause) :-
 %% by_list_uri_or_throw(+MainListAtUri, -Assoc).
 by_list_uri_or_throw(list_uri(MainListAtUri), Assoc) :-
     ( ( by_list_uri(MainListAtUri, ListURIRows),
-        writeln(rows: ListURIRows, true),
+        writeln(rows_selected_by_list_uri(ListURIRows)),
         nth0(0, ListURIRows, FirstListURIRow),
         get_assoc(payload, FirstListURIRow, FirstListURIRowPayload),
         get_assoc(list_id, FirstListURIRow, ListId),
@@ -206,10 +206,10 @@ by_list_uri_or_throw(list_uri(MainListAtUri), Assoc) :-
         append([['"'], Suffix], Prefix),
         to_json_chars(Suffix, JSONChars),
         phrase(json_chars(pairs(Pairs)), JSONChars, []),
-        write_term(pairs: Pairs, [quoted(false),double_quotes(true)]), nl,
+        log_debug(pairs: Pairs),
 
         pairs_to_assoc(Pairs, AnonymousAssoc),
-        writeln(anonymous_assoc:AnonymousAssoc, true),
+        writeln(anonymous_assoc:AnonymousAssoc),
         put_assoc(list_id, AnonymousAssoc, ListId, Assoc) )
     ->  true
     ;   throw(cannot_find_publishers_list_by_uri) ).

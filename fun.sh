@@ -25,7 +25,7 @@ function com__atproto__server__createSession() {
     local refresh_jwt
     refresh_jwt='write('"'refresh jwt: '"'),atom_chars(AtomicRefreshJwt,RefreshJwt),write(AtomicRefreshJwt),nl'
 
-    scryer -g 'com__atproto__server__createSession(AccessJwt, RefreshJwt),'"${access_jwt},${refresh_jwt}" \
+    scryer-prolog -g 'com__atproto__server__createSession(AccessJwt, RefreshJwt),'"${access_jwt},${refresh_jwt}" \
         ./src/com/atproto/server/createSession.pl
 }
 
@@ -43,7 +43,7 @@ function com__atproto__repo__createRecord() {
         return 1
     fi
 
-    scryer -g 'com__atproto__repo__createRecord("'"${text}"'", Props)' \
+    scryer-prolog -g 'com__atproto__repo__createRecord("'"${text}"'", Props)' \
         ./src/com/atproto/repo/createRecord.pl
 }
 
@@ -62,7 +62,7 @@ function app__bsky__actor__getProfile() {
         return 1
     fi
 
-    scryer -g 'app__bsky__actor__getProfile("'"${actor}"'", Prop)' \
+    scryer-prolog -g 'app__bsky__actor__getProfile("'"${actor}"'", Prop)' \
         ./src/app/bsky/actor/getProfile.pl -g halt
 }
 
@@ -81,77 +81,77 @@ function app__bsky__graph__getList() {
         return 1
     fi
 
-    scryer -g 'app__bsky__graph__getList("'"${at_uri}"'", Prop)' \
-        ./src/app/bsky/graph/getList.pl -g halt
+    scryer-prolog -g 'app__bsky__graph__getList("'"${at_uri}"'", Prop), halt.' \
+        ./src/app/bsky/graph/getList.pl
 }
 
 function infrastructure__lists__count() {
     configure
 
-    scryer -g 'count(Count), writeq(Count), halt.' \
+    scryer-prolog -g 'count(Count), writeq(Count), halt.' \
         ./src/infrastructure/repository/repository_lists.pl
 }
 
 function infrastructure__lists__query() {
     configure
 
-    scryer -g 'query(Result), writeq(Result).' -g 'halt.' \
+    scryer-prolog -g 'query(Result), writeq(Result).' -g 'halt.' \
         ./src/infrastructure/repository/repository_lists.pl
 }
 
 function infrastructure__lists__next_event_id() {
     configure
 
-    scryer -g 'next_event_id(Result), writeq(Result).' -g 'halt.' \
+    scryer-prolog -g 'next_event_id(Result), writeq(Result).' -g 'halt.' \
         ./src/infrastructure/repository/repository_lists.pl
 }
 
 function infrastructure__lists__next_id() {
     configure
 
-    scryer -g 'next_id(Result), writeq(Result).' -g 'halt.' \
+    scryer-prolog -g 'next_id(Result), writeq(Result).' -g 'halt.' \
         ./src/infrastructure/repository/repository_lists.pl
 }
 
 function infrastructure__list_items__count() {
     configure
 
-    scryer -g 'count(Count), writeq(Count), halt.' \
+    scryer-prolog -g 'count(Count), writeq(Count), halt.' \
         ./src/infrastructure/repository/repository_list_items.pl
 }
 
 function infrastructure__list_items__query() {
     configure
 
-    scryer -g 'query(Result), writeq(Result).' -g 'halt.' \
+    scryer-prolog -g 'query(Result), writeq(Result).' -g 'halt.' \
         ./src/infrastructure/repository/repository_list_items.pl
 }
 
 function infrastructure__list_items__next_id() {
     configure
 
-    scryer -g 'next_id(Result), writeq(Result).' -g 'halt.' \
+    scryer-prolog -g 'next_id(Result), writeq(Result).' -g 'halt.' \
         ./src/infrastructure/repository/repository_list_items.pl
 }
 
 function infrastructure__publishers__count() {
     configure
 
-    scryer -g 'count(Count), writeq(Count), halt.' \
+    scryer-prolog -g 'count(Count), writeq(Count), halt.' \
         ./src/infrastructure/repository/repository_publishers.pl
 }
 
 function infrastructure__publishers__query() {
     configure
 
-    scryer -g 'query(Result), writeq(Result).' -g 'halt.' \
+    scryer-prolog -g 'query(Result), writeq(Result).' -g 'halt.' \
         ./src/infrastructure/repository/repository_publishers.pl
 }
 
 function infrastructure__publishers__next_id() {
     configure
 
-    scryer -g 'next_id(Result), writeq(Result).' -g 'halt.' \
+    scryer-prolog -g 'next_id(Result), writeq(Result).' -g 'halt.' \
         ./src/infrastructure/repository/repository_publishers.pl
 }
 
@@ -170,7 +170,7 @@ function app__bsky__graph__getLists() {
         return 1
     fi
 
-    scryer -g 'app__bsky__graph__getLists("'"${actor}"'", Prop)' \
+    scryer-prolog -g 'app__bsky__graph__getLists("'"${actor}"'", Prop)' \
         ./src/app/bsky/graph/getLists.pl -g halt
 }
 

@@ -38,11 +38,11 @@ onGetProfile(props(ListURI, FollowersCount, FollowsCount, DID, Payload)) :-
         (once(repository_publishers:by_criteria(list_uri(ListURI), did(DID), Rows)),
         ( ( nth0(0, Rows, FirstRow),
             get_assoc(screen_name, FirstRow, PreExistingDID) )
-        ->  writeln('Pre-existing record for did':PreExistingDID, true)
+        ->  log_debug(['Pre-existing record for did':PreExistingDID])
         ;   true )),
         Cause,
         if_(
-            Cause = cannot_read_rows_selected_by(_Selector),
+            Cause = cannot_read_rows_selected_by(list_id),
             once((
                 by_list_uri_or_throw(list_uri(ListURI), ListUriPairs),
                 get_assoc(list_id, ListUriPairs, ListId),
@@ -59,7 +59,7 @@ onGetProfile(props(ListURI, FollowersCount, FollowsCount, DID, Payload)) :-
                 ),
                 log_info([list_insertion_result(InsertionResult)])
             )),
-            throw(cannot_select_publishers(Cause))
+            throw(pre_existing_publisher(PreExistingDID), true)
         )
     ).
 

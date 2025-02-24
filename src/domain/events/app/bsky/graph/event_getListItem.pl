@@ -5,6 +5,7 @@
 :- use_module(library(assoc)).
 :- use_module(library(charsio)).
 :- use_module(library(lists)).
+:- use_module(library(reif)).
 :- use_module(library(serialization/json)).
 
 :- use_module('../../../../../infrastructure/repository/repository_lists', [
@@ -28,6 +29,13 @@
     pairs_to_assoc/2,
     to_json_chars/2
 ]).
+:- use_module('../../../../../stream', [
+    char_code_at/2,
+    pairs_to_assoc/2,
+    to_json_chars/2,
+    writeln/1,
+    writeln/2
+]).
 
 %% Handling onGetListItem Event
 %
@@ -50,9 +58,10 @@ onGetListItem(ItemAssoc, pairs(UnwrappedPairs)) :-
             from_event(Payload, row(_,_,_,Handle,_)),
             write_term('list item value related to "subject" key':Handle, [double_quotes(true)]), nl
         ;   true )),
-        cannot_read_rows_selected_by(_),
-        (
-            once(repository_list_items:insert(
+        E,
+        if_(
+            E = cannot_read_rows_selected_by(_),
+            (once(repository_list_items:insert(
                 row(ScreenName, Payload),
                 InsertionResult
             )),
@@ -63,8 +72,10 @@ onGetListItem(ItemAssoc, pairs(UnwrappedPairs)) :-
                 _
             ),
 
-            write_term(screen_name:ScreenName, [double_quotes(true)]), nl,
-            write_term(insertion_result:InsertionResult, []), nl,
-            log_debug([payload:Payload]), nl
+            writeln(screen_name:ScreenName, true),
+            writeln(insertion_result:InsertionResult, true),
+
+            log_info([payload:Payload])),
+            log_error([unexpected_error(E)])
         )
     ).
