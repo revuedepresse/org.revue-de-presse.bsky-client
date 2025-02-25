@@ -93,7 +93,7 @@ send_request(Text, Pairs, StatusCode) :-
     phrase(json_chars(pairs(Pairs)), BodyChars),
 
     (   StatusCode = 200
-    ->  log_info(['status code: ', StatusCode])
+    ->  writeln('status code':StatusCode, true)
     ;   throw(failed_http_request('com.atproto.repo.createRecord call failed', Pairs, StatusCode)) ).
 
 % memoize_com__atproto__repo__createRecord_response(+Text, -Props).

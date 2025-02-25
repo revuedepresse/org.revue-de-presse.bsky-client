@@ -89,7 +89,7 @@ send_request(Actor, ResponsePairs, StatusCode) :-
 
     if_(
         StatusCode = 200,
-        log_debug(['status code: ', StatusCode]),
+        writeln('status code':StatusCode, true),
         throw(failed_http_request(FailedHttpRequestErrorMessageAtom, ResponsePairs, StatusCode))
     ).
 

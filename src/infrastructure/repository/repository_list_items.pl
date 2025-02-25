@@ -574,12 +574,12 @@ from_event(Payload, row(Avatar, Description, DID, Handle, DisplayName)) :-
             get_assoc(chat, Associated, Chat),
             get_assoc(allowIncoming, Chat, AllowIncomingChat),
             writeln(associated:AllowIncomingChat)
-        ;   throw(key_not_found(associated)), nl ),
+        ;   throw(key_not_found(associated)) ),
         ( get_assoc(description, Subject, Description),
             writeln(description:Description)
         ;   Description = "" )),
         key_not_found(Field),
-        (write_term(not_found(Field), [double_quotes(true)]), nl)
+        writeln(not_found(Field))
     )).
 
 %% event_table(-EventTable).
