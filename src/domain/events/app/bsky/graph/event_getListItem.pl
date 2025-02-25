@@ -56,7 +56,7 @@ onGetListItem(ItemAssoc, pairs(UnwrappedPairs)) :-
             get_assoc(payload, FirstRow, Payload) )
         ->
             from_event(Payload, row(_,_,_,Handle,_)),
-            write_term('list item value related to "subject" key':Handle, [double_quotes(true)]), nl
+            writeln('list item value related to "subject" key':Handle, true)
         ;   true )),
         E,
         if_(

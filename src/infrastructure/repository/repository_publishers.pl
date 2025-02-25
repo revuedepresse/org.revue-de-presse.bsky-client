@@ -176,7 +176,7 @@ by_criteria(list_uri(ListURI), did(DID), HeadersAndRows) :-
         ],
         SelectByDIDWithoutLimit
     ),
-    writeln(selection_query(SelectByDIDWithoutLimit)), nl,
+    writeln(selection_query(SelectByDIDWithoutLimit)),
 
     once(query_result_from_file(
         SelectByDIDWithoutLimit,
