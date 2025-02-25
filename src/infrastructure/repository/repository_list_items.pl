@@ -51,7 +51,7 @@
 %% count(-Count).
 count(Count) :-
     table(Table),
-    append(["select count(*) as Count from public.", Table], Query),
+    append(["SELECT count(*) AS Count FROM public.", Table], Query),
     query_result(
         Query,
         Count
