@@ -81,7 +81,9 @@ function app__bsky__graph__getList() {
         return 1
     fi
 
-    scryer-prolog -g 'app__bsky__graph__getList("'"${at_uri}"'", Prop), halt.' \
+    scryer-prolog \
+        -g 'app__bsky__graph__getList("'"${at_uri}"'", Prop).' \
+        -g 'halt.' \
         ./src/app/bsky/graph/getList.pl
 }
 
