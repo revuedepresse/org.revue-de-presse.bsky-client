@@ -126,7 +126,7 @@ send_request(MainListAtUri, ResponsePairs, StatusCode) :-
         throw(failed_http_request(
             FailedHttpRequestErrorMessageAtom, ResponsePairs, StatusCode)
         )),
-        writeln('getList status code': StatusCode)
+        writeln('getList status code': StatusCode, true)
     ).
 
 %% payload(+BodyChars, -Payload).
@@ -141,33 +141,14 @@ payload(BodyChars, Payload) :-
 list_uri(MainListAtUri, JSONAssoc, Uri) :-
     get_assoc(list, JSONAssoc, List),
     get_assoc(items, JSONAssoc, Items),
-
-    % For some reasons, we cannot take more than 5 items at once
-    HowManyItemsToTake = 5,
-    HowManyItemsBefore = 0,
-    process_nth_first_items(MainListAtUri, HowManyItemsToTake, Items, HowManyItemsBefore, _),
+    process_items(MainListAtUri, Items),
     get_assoc(uri, List, Uri).
 
-    %% process_nth_first_items(+HowManyItemsToTake, +Items, +HowManyItemsBefore, -Out).
-    process_nth_first_items(_MainListAtUri, _HowManyItemsToTake, _Items, 50, 50).
-    process_nth_first_items(MainListAtUri, HowManyItemsToTake, Items, HowManyItemsBefore, Out) :-
-        maplist(wrapped_pairs_to_assoc, Items, RevItemsAssocs),
-        reverse(RevItemsAssocs, Range),
-        length(ItemsAssocs, HowManyItemsToTake),
-        length(ItemsAssocsPrefix, HowManyItemsBefore),
-        append([ItemsAssocsPrefix, ItemsAssocs, _], Range),
-
-        reverse(Items, RevItems),
-        length(FirstNthItems, HowManyItemsToTake),
-        length(FirstNthItemsPrefix, HowManyItemsBefore),
-        append([FirstNthItemsPrefix, FirstNthItems, _], RevItems),
-
-        foldl(try_to_get_profile(MainListAtUri), ItemsAssocs, [], []),
-        maplist(onGetListItem, ItemsAssocs, FirstNthItems),
-
-        NextOffset #= HowManyItemsBefore + HowManyItemsToTake,
-        writeln(next_offset(next_offset:NextOffset, true)),
-        process_nth_first_items(MainListAtUri, HowManyItemsToTake, Items, NextOffset, Out).
+    %% process_items(+_MainListAtUri, +ItemsAssocs).
+    process_items(MainListAtUri, ItemsAssocs) :-
+        maplist(wrapped_pairs_to_assoc, ItemsAssocs, WrappedItemsAssocs),
+        foldl(try_to_get_profile(MainListAtUri), WrappedItemsAssocs, [], []),
+        maplist(onGetListItem, WrappedItemsAssocs, ItemsAssocs).
 
     %% try_to_get_profile(+MainListAtUri, +Assoc, +In, -In).
     try_to_get_profile(MainListAtUri, Assoc, In, In) :-

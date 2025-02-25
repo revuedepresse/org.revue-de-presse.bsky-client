@@ -45,7 +45,7 @@
 count(Count) :-
     table(Table),
     append(
-       ["select count(*) as Count from public.", Table],
+       ["SELECT count(*) AS Count FROM public.", Table],
        Query
     ),
     query_result(

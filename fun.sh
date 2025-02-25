@@ -43,7 +43,9 @@ function com__atproto__repo__createRecord() {
         return 1
     fi
 
-    scryer-prolog -g 'com__atproto__repo__createRecord("'"${text}"'", Props)' \
+    scryer-prolog \
+        -g 'com__atproto__repo__createRecord("'"${text}"'", Props)' \
+        -g halt \
         ./src/com/atproto/repo/createRecord.pl
 }
 
@@ -62,8 +64,31 @@ function app__bsky__actor__getProfile() {
         return 1
     fi
 
-    scryer-prolog -g 'app__bsky__actor__getProfile("'"${actor}"'", Prop)' \
-        ./src/app/bsky/actor/getProfile.pl -g halt
+    scryer-prolog \
+        -g 'app__bsky__actor__getProfile("'"${actor}"'", Prop)' \
+        -g halt \
+        ./src/app/bsky/actor/getProfile.pl
+}
+
+# https://docs.bsky.app/docs/api/app-bsky-feed-get-author-feed
+function app__bsky__feed__getAuthorFeed() {
+    configure
+
+    local env_var_input
+    env_var_input=${ACTOR:-}
+
+    local author
+    author="${1:-${env_var_input}}"
+
+    if [ -z "${author}" ]; then
+        printf 'A %s is expected as %s (%s).%s' 'non-empty string' '1st argument' 'Handle or DID of author to fetch feed of.' $'\n'
+        return 1
+    fi
+
+    scryer-prolog \
+        -g 'app__bsky__feed__getAuthorFeed("'"${author}"'", Prop).' \
+        -g halt \
+        ./src/app/bsky/feed/getAuthorFeed.pl
 }
 
 # https://docs.bsky.app/docs/api/app-bsky-graph-get-list
@@ -90,71 +115,118 @@ function app__bsky__graph__getList() {
 function infrastructure__lists__count() {
     configure
 
-    scryer-prolog -g 'count(Count), writeq(Count), halt.' \
+    scryer-prolog \
+        -g 'count(Count), writeq(Count).' \
+        -g 'halt.' \
         ./src/infrastructure/repository/repository_lists.pl
 }
 
 function infrastructure__lists__query() {
     configure
 
-    scryer-prolog -g 'query(Result), writeq(Result).' -g 'halt.' \
+    scryer-prolog \
+        -g 'query(Result), writeq(Result).' \
+        -g 'halt.' \
         ./src/infrastructure/repository/repository_lists.pl
 }
 
 function infrastructure__lists__next_event_id() {
     configure
 
-    scryer-prolog -g 'next_event_id(Result), writeq(Result).' -g 'halt.' \
+    scryer-prolog \
+        -g 'next_event_id(Result), writeq(Result).' \
+        -g 'halt.' \
         ./src/infrastructure/repository/repository_lists.pl
 }
 
 function infrastructure__lists__next_id() {
     configure
 
-    scryer-prolog -g 'next_id(Result), writeq(Result).' -g 'halt.' \
+    scryer-prolog \
+        -g 'next_id(Result), writeq(Result).' \
+        -g 'halt.' \
         ./src/infrastructure/repository/repository_lists.pl
 }
 
 function infrastructure__list_items__count() {
     configure
 
-    scryer-prolog -g 'count(Count), writeq(Count), halt.' \
+    scryer-prolog \
+        -g 'count(Count), writeq(Count)' \
+        -g 'halt.' \
         ./src/infrastructure/repository/repository_list_items.pl
 }
 
 function infrastructure__list_items__query() {
     configure
 
-    scryer-prolog -g 'query(Result), writeq(Result).' -g 'halt.' \
+    scryer-prolog \
+        -g 'query(Result), writeq(Result).' \
+        -g 'halt.' \
         ./src/infrastructure/repository/repository_list_items.pl
 }
 
 function infrastructure__list_items__next_id() {
     configure
 
-    scryer-prolog -g 'next_id(Result), writeq(Result).' -g 'halt.' \
+    scryer-prolog \
+        -g 'next_id(Result), writeq(Result).' \
+        -g 'halt.' \
         ./src/infrastructure/repository/repository_list_items.pl
 }
 
 function infrastructure__publishers__count() {
     configure
 
-    scryer-prolog -g 'count(Count), writeq(Count), halt.' \
+    scryer-prolog \
+        -g 'count(Count), writeq(Count)' \
+        -g 'halt.' \
         ./src/infrastructure/repository/repository_publishers.pl
 }
 
 function infrastructure__publishers__query() {
     configure
 
-    scryer-prolog -g 'query(Result), writeq(Result).' -g 'halt.' \
+    scryer-prolog \
+        -g 'query(Result), writeq(Result).' \
+        -g 'halt.' \
         ./src/infrastructure/repository/repository_publishers.pl
 }
 
 function infrastructure__publishers__next_id() {
     configure
 
-    scryer-prolog -g 'next_id(Result), writeq(Result).' -g 'halt.' \
+    scryer-prolog \
+        -g 'next_id(Result), writeq(Result).' \
+        -g 'halt.' \
         ./src/infrastructure/repository/repository_publishers.pl
+}
+
+function infrastructure__statuses__count() {
+    configure
+
+    scryer-prolog \
+        -g 'count(Count), writeq(Count).' \
+        -g 'halt.' \
+        ./src/infrastructure/repository/repository_statuses.pl
+}
+
+function infrastructure__statuses__query() {
+    configure
+
+    scryer-prolog \
+        -g 'query(Result), write_term(Result, [double_quotes(true)]).' \
+        -g 'halt.' \
+        ./src/infrastructure/repository/repository_statuses.pl
+}
+
+function infrastructure__statuses__next_id() {
+    configure
+
+    scryer-prolog \
+        -g 'next_id(Result), writeq(Result).' \
+        -g 'halt.' \
+        ./src/infrastructure/repository/repository_statuses.pl
 }
 
 # https://docs.bsky.app/docs/api/app-bsky-graph-get-lists

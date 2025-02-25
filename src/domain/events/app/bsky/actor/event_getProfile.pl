@@ -59,7 +59,7 @@ onGetProfile(props(ListURI, FollowersCount, FollowsCount, DID, Payload)) :-
                 ),
                 log_info([list_insertion_result(InsertionResult)])
             )),
-            throw(pre_existing_publisher(PreExistingDID), true)
+            throw(pre_existing_publisher(PreExistingDID))
         )
     ).
 
