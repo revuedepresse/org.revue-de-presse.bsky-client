@@ -126,7 +126,7 @@ send_request(MainListAtUri, ResponsePairs, StatusCode) :-
         throw(failed_http_request(
             FailedHttpRequestErrorMessageAtom, ResponsePairs, StatusCode)
         )),
-        log_info(['getList status code: ', StatusCode])
+        writeln('getList status code': StatusCode)
     ).
 
 %% payload(+BodyChars, -Payload).
@@ -143,7 +143,7 @@ list_uri(MainListAtUri, JSONAssoc, Uri) :-
     get_assoc(items, JSONAssoc, Items),
 
     % For some reasons, we cannot take more than 5 items at once
-    HowManyItemsToTake = 1,
+    HowManyItemsToTake = 5,
     HowManyItemsBefore = 0,
     process_nth_first_items(MainListAtUri, HowManyItemsToTake, Items, HowManyItemsBefore, _),
     get_assoc(uri, List, Uri).

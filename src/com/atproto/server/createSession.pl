@@ -55,7 +55,7 @@ memoize_jw_tokens(AccessJwt, RefreshJwt) :-
     log_debug(['Response headers: ', ResponseHeaders]),
 
     (   StatusCode = 200
-    ->  log_info(['status code: ', StatusCode])
+    ->  writeln('status code':StatusCode)
     ;   throw(cannot_create_session('Failed to create session', StatusCode)) ),
 
     read_stream(Stream, [], BodyChars),
