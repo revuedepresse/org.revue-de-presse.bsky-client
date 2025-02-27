@@ -1,4 +1,5 @@
 :- module(client, [
+    encode_field_value/2,
     query_result_from_file/3,
     query_result/2
 ]).
@@ -24,9 +25,21 @@
     remove_temporary_file/1,
     temporary_file/2
 ]).
-:- use_module('../../stream', [
-    read_stream/2
+:- use_module('../../serialization', [
+    char_code_at/2
 ]).
+:- use_module('../../stream', [
+    read_stream/2,
+    writeln/1,
+    writeln/2
+]).
+
+%% encode_field_value(+FieldValue, -EncodedFieldValue)
+encode_field_value(FieldValue, EncodedFieldValue) :-
+    write_term_to_chars(FieldValue, [quoted(true), double_quotes(true)], QuotedFieldValue),
+    chars_utf8bytes(QuotedFieldValue, Utf8Bytes),
+    maplist(char_code_at, Utf8Bytes, FieldUtf8Bytes),
+    chars_base64(FieldUtf8Bytes, EncodedFieldValue, []).
 
 %% is_digit(+Char).
 is_digit(Char) :-
@@ -69,6 +82,8 @@ query(Query, RemoveResultFile, TuplesOnly, TempFile, Result) :-
             [AntiSlash], "cat ", QueryFile, " | ",
             % Removing leading double quotes
             "sed -E 's#^", [DoubleQuote], "##g' | ",
+            % Removing antislashes
+            "sed -E 's#", [AntiSlash], [AntiSlash], "##g' | ",
             % Removing trailing double quotes
             "sed -E 's#", [DoubleQuote], "$##g' | ",
             "PGPASSWORD='", Password, "' ",
@@ -89,14 +104,15 @@ query(Query, RemoveResultFile, TuplesOnly, TempFile, Result) :-
     ;   throw(cannot_execute_sql_query) ),
 
     shell(QueryCommand, QueryExecutionStatus),
-
     log_debug(['query execution status: ', QueryExecutionStatus]),
+
     (   QueryExecutionStatus \= 0
-    ->  throw(unexpected_command_exit_code('Failed to execute query'))
+    ->  write_term(cmd:QueryCommand, [quoted(false),double_quotes(true)]),
+        throw(unexpected_command_exit_code('Failed to execute query'))
     ;   remove_temporary_file(QueryFile) ),
 
     open(TempFile, read, Stream, [type(text)]),
-    read_stream(Stream, ReadResult),
+    get_n_chars(Stream, _, ReadResult),
     char_code(Eol, 10),
 
     (   append([IntermediateResult, [Eol]], ReadResult)
