@@ -1,5 +1,5 @@
-:- module(repository_publishers, [
-    by_criteria/3,
+:- module(repository_statuses, [
+    by_criteria/2,
     count/1,
     insert/2,
     next_id/1,
@@ -23,6 +23,7 @@
     to_json/3
 ]).
 :- use_module('../pg/client', [
+    encode_field_value/2,
     query_result/2,
     query_result_from_file/3
 ]).
@@ -58,7 +59,7 @@ query(HeadersAndRows) :-
     % Executed to fetch column names
     query(EmptyResults, false, 0),
     nth0(0, EmptyResults, Headers),
-    query(Rows, true, "ALL"),
+    query(Rows, true, 2),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
@@ -86,9 +87,7 @@ all_clauses(Query, Limit) :-
         [
             SelectFromClauses,
             "ORDER BY ",
-            "t.id DESC, ",
-            "t.name ASC, ",
-            "t.screen_name ASC ",
+            "ust_id DESC ",
             "OFFSET 0 ",
             "LIMIT ", LimitClause, ";"
         ],
@@ -98,6 +97,7 @@ all_clauses(Query, Limit) :-
 %% query(-Rows, +TuplesOnly, +Limit).
 query(Rows, TuplesOnly, Limit) :-
     all_clauses(Query, Limit),
+    writeln(query:Query, true),
     once(query_result_from_file(
         Query,
         TuplesOnly,
@@ -123,9 +123,9 @@ next_id(NextId) :-
         table(Table),
         append(
             [
-                "SELECT COALESCE(r.id::bigint, 0) pk ",
+                "SELECT COALESCE(r.ust_id::bigint, 0) pk ",
                 "FROM ", Table, " r ",
-                "ORDER BY r.id DESC ",
+                "ORDER BY r.ust_id DESC ",
                 "LIMIT 1;"
             ],
             Query
@@ -138,25 +138,23 @@ next_id(NextId) :-
         read_rows(TmpFile, MaxId).
 
         %% table(-Table)
-        table("publishers_list").
+        table("weaving_status").
 
-%% by_list_uri(+ListURI, +DID, -HeadersAndRows).
-by_criteria(list_uri(ListURI), did(DID), HeadersAndRows) :-
-    chars_si(DID),
+%% by_list_uri(+URI, -HeadersAndRows).
+by_criteria(uri(URI), HeadersAndRows) :-
+    chars_si(URI),
     select_clause(SelectClause),
     from_clause(FromClause),
     append([
         SelectClause,
         FromClause, " r ",
         "WHERE ",
-        "r.created_at::date > '2024-12-31'::date ",
-        "AND r.screen_name = '", DID, "' ",
-        "AND r.name = '", ListURI, "' ",
+        "r.ust_status_id = '", URI, "' ",
         "OFFSET 0 "
-    ], SelectByDID),
+    ], SelectByURI),
     append(
         [
-            SelectByDID,
+            SelectByURI,
             "LIMIT 0;"
         ],
         QueryHeaders
@@ -171,21 +169,21 @@ by_criteria(list_uri(ListURI), did(DID), HeadersAndRows) :-
     nth0(0, HeadersRows, Headers),
     append(
         [
-            SelectByDID,
+            SelectByURI,
             "LIMIT ALL;"
         ],
-        SelectByDIDWithoutLimit
+        SelectByURIWithoutLimit
     ),
-    writeln(selection_query(SelectByDIDWithoutLimit)),
+    writeln(selection_query(SelectByURIWithoutLimit)),
 
     once(query_result_from_file(
-        SelectByDIDWithoutLimit,
+        SelectByURIWithoutLimit,
         true,
         ByDIDTmpFile
     )),
     (   read_rows(ByDIDTmpFile, Rows)
     ->  true
-    ;   throw(cannot_read_rows_selected_by(list_id)) ),
+    ;   throw(cannot_read_rows_selected_by(status_id)) ),
 
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
@@ -211,45 +209,62 @@ by_criteria(list_uri(ListURI), did(DID), HeadersAndRows) :-
         append(
             [
                 "SELECT ",
-                "r.name as string__name, ",
-                "r.screen_name as string__screen_name, ",
-                "r.list_id as string__list_id, ",
-                "r.public_id as string__public_id, ",
-                "r.total_members as number__total_members, ",
-                "r.total_statuses as number__total_statuses "
+                "r.ust_id::bigint as number__id, ",
+                "r.ust_full_name as string__full_name, ",
+                "r.ust_avatar as string__avatar, ",
+                "r.ust_status_id as string__status_id, ",
+                "to_json(r.is_published) as boolean__is_published "
             ],
             SelectClause
         ).
 
 %% insert(+Row, -InsertionResult).
-insert(row(ListId, ListURI, _FollowersCount, _FollowsCount, DID, _), InsertionResult) :-
-    count_matching_records(row(ListURI, DID), TotalMatchingRecords),
+insert(
+    row(
+        FullName,
+        Name,
+        PreQuotingText,
+        Avatar,
+        PreEncodingPayload,
+        URI,
+        CreatedAt
+    ),
+    InsertionResult
+) :-
+    count_matching_records(row(URI), TotalMatchingRecords),
+    encode_field_value(PreEncodingPayload, Payload),
+    encode_field_value(PreQuotingText, Text),
 
     if_(
         dif(1, TotalMatchingRecords),
        (next_id(NextId),
         number_chars(NextId, NextIdChars),
-        uuidv4_string(PublicId),
         table(Table),
         append(
             [
                 "INSERT INTO public.", Table, " (",
-                "   id,                 ",
-                "   list_id,            ",
-                "   public_id,          ",
-                "   name,               ",
-                "   screen_name,        ",
-                "   locked,             ",
-                "   created_at          ",
+                "   ust_id,             ",
+                "   ust_name,           ",
+                "   ust_full_name,      ",
+                "   ust_text,           ",
+                "   ust_avatar,         ",
+                "   ust_api_document,   ",
+                "   ust_status_id,      ",
+                "   ust_access_token,   ",
+                "   is_published,       ",
+                "   ust_created_at      ",
                 ") VALUES (             ",
                 "'", NextIdChars, "',   ",
-                " ", ListId, ",         ",
-                "'", PublicId, "',      ",
-                "'", ListURI, "',       ",
-                "'", DID, "',           ",
-                "   false,              ",
-                "   NOW()               ",
-                ")"
+                "'", Name, "',          ",
+                "'", FullName, "',      ",
+                "'", Text, "',          ",
+                "'", Avatar, "',        ",
+                "'", Payload, "',       ",
+                "'", URI, "',           ",
+                "'dummy_access_token',  ",
+                "   true,               ",
+                "'", CreatedAt, "'      ",
+                ");"
             ],
             Query
         ),
@@ -260,14 +275,17 @@ insert(row(ListId, ListURI, _FollowersCount, _FollowsCount, DID, _), InsertionRe
         (table(Table),
         append(
             [
-                "SELECT                             ",
-                "r.id AS number__id,                ",
-                "r.public_id AS string__public_id,  ",
-                "r.name AS string__name             ",
-                "FROM public.", Table, " r     ",
-                "WHERE                              ",
-                "r.screen_name = '", DID, "'        ",
-                "AND r.name = '", ListURI, "'      ;"
+                "SELECT                                     ",
+                "r.ust_name as string__name,                ",
+                "r.ust_full_name as string__full_name,      ",
+                "r.ust_text as string__text,                ",
+                "r.ust_avatar as string__avatar,            ",
+                "r.ust_status_id as string__status_id,      ",
+                "r.is_published as boolean__is_published,   ",
+                "r.ust_created_at as string__created_at     ",
+                "FROM public.", Table, " r                  ",
+                "WHERE                                      ",
+                "r.ust_status_id = '", URI, "'             ;"
             ],
             SelectQuery
         ),
@@ -287,13 +305,12 @@ insert(row(ListId, ListURI, _FollowersCount, _FollowsCount, DID, _), InsertionRe
     ).
 
     %%% count_matching_records(+Row, -Result).
-    count_matching_records(row(ListURI, DID), Result) :-
+    count_matching_records(row(URI), Result) :-
         table(Table),
         append([
             "SELECT count(*) how_many_records ",
             "FROM public.", Table, " r ",
-            "WHERE name = '", ListURI, "' ",
-            "AND screen_name = '", DID, "';"
+            "WHERE ust_status_id = '", URI, "' ;"
         ], SelectQuery),
         once(query_result(
             SelectQuery,

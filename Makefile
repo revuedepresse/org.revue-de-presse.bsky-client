@@ -15,6 +15,9 @@ configure: ### Export environments variables from dot env file
 app__bsky__actor__getProfile: ### app.bsky.actor.getProfile
 	@/bin/bash -c '. fun.sh && app__bsky__actor__getProfile'
 
+app__bsky__feed__getAuthorFeed: ### app.bsky.feed.getAuthorFeed
+	@/bin/bash -c '. fun.sh && app__bsky__feed__getAuthorFeed'
+
 app__bsky__graph__getList: ### app.bsky.graph.getList
 	@/bin/bash -c '. fun.sh && app__bsky__graph__getList'
 
@@ -50,6 +53,15 @@ infrastructure__publishers__query: ### Query publishers
 
 infrastructure__publishers__next_id: ### Next publisher id
 	@/bin/bash -c '. fun.sh && infrastructure__publishers__next_id'
+
+infrastructure__statuses__count: ### Count statuses
+	@/bin/bash -c '. fun.sh && infrastructure__statuses__count'
+
+infrastructure__statuses__query: ### Query statuses
+	@/bin/bash -c '. fun.sh && infrastructure__statuses__query'
+
+infrastructure__statuses__next_id: ### Next status id
+	@/bin/bash -c '. fun.sh && infrastructure__statuses__next_id'
 
 com__atproto__repo__createRecord: ### com.atproto.repo.createRecord
 	@/bin/bash -c '. fun.sh && com__atproto__repo__createRecord'
