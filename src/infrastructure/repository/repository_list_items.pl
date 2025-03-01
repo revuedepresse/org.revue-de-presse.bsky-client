@@ -28,7 +28,8 @@
 ]).
 :- use_module('../pg/client', [
     query_result/2,
-    query_result_from_file/3
+    query_result_from_file/3,
+    read_rows/2
 ]).
 :- use_module('../../logger', [
     log_error/1,
@@ -291,17 +292,6 @@ from_event_table_clause(FromClause) :-
     event_table(EventTable),
     append(["FROM public.", EventTable, " "], FromClause).
 
-%% read_rows(+TmpFile, -Rows).
-read_rows(TmpFile, Rows) :-
-    once(open(TmpFile, read, Stream, [type(text)])), !,
-    (   file_exists(TmpFile)
-    ->  true
-    ;   write(file_does_not_exist), halt ),
-
-    read_stream(Stream, StreamRows),
-    once(phrase(rows(Rows), StreamRows, [])),
-    remove_temporary_file(TmpFile).
-
 %% insert(+Row, -InsertionResult).
 insert(row(ScreenName, Payload), InsertionResult) :-
     event_table(EventTable),
@@ -484,17 +474,7 @@ insert_record(
             SelectionResult
         )),
 
-        write_term(selection:SelectionResult, [double_quotes(true)])
-
-%       chars_base64(DecodedBase64Payload, SelectionResult, []),
-%       maplist(char_code, DecodedBase64Payload, DecodedBytes),
-%       chars_utf8bytes(DecodedChars, DecodedBytes),
-%       append([Prefix, ['"']], DecodedChars),
-%       append([['"'], Suffix], Prefix),
-%       to_json_chars(Suffix, JSONChars),
-%       log_debug([JSONChars]),
-%        InsertionResult = ok
-        )
+        write_term(selection:SelectionResult, [double_quotes(true)]))
     ).
 
     %% count_matching_records(+Handle, -Result).

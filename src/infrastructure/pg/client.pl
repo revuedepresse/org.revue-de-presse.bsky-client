@@ -1,15 +1,23 @@
 :- module(client, [
     encode_field_value/2,
+    matching_criteria/2,
+    read_rows/2,
     query_result_from_file/3,
     query_result/2
 ]).
 
 :- use_module(library(charsio)).
 :- use_module(library(lists)).
+:- use_module(library(files)).
+:- use_module(library(pio)).
 :- use_module(library(os)).
 :- use_module(library(si)).
 :- use_module(library(reif)).
 
+:- use_module('../repository/repository_dcgs', [
+    rows//1,
+    to_json/3
+]).
 :- use_module('../../configuration', [
     database_db_name/1,
     database_username/1,
@@ -26,7 +34,8 @@
     temporary_file/2
 ]).
 :- use_module('../../serialization', [
-    char_code_at/2
+    char_code_at/2,
+    pairs_to_assoc/2
 ]).
 :- use_module('../../stream', [
     read_stream/2,
@@ -64,7 +73,7 @@ query(Query, RemoveResultFile, TuplesOnly, TempFile, Result) :-
     database_host(Host),
 
     temporary_file("query_before_execution", QueryFile),
-    once(open(QueryFile, write, QueryFileStream, [type(text)])), !,
+    once(open(QueryFile, write, QueryFileStream, [type(text)])),
     write_term(QueryFileStream, Query, [double_quotes(true)]),
     close(QueryFileStream),
 
@@ -119,7 +128,7 @@ query(Query, RemoveResultFile, TuplesOnly, TempFile, Result) :-
         throw(unexpected_command_exit_code('Failed to execute query'))
     ;   remove_temporary_file(QueryFile) ),
 
-    open(TempFile, read, Stream, [type(text)]), !,
+    open(TempFile, read, Stream, [type(text)]),
     read_stream(Stream, ReadResult),
 
     char_code(Eol, 10),
@@ -139,4 +148,61 @@ query(Query, RemoveResultFile, TuplesOnly, TempFile, Result) :-
         RemoveResultFile = true,
         remove_temporary_file(TempFile),
         true
+    ).
+
+matching_criteria(Criteria, HeadersAndRows) :-
+    append(
+        [
+            Criteria,
+            "LIMIT 0;"
+        ],
+        QueryHeaders
+    ),
+
+    once(query_result_from_file(
+        QueryHeaders,
+        false,
+        HeadersOnlyTempFile
+    )),
+    read_rows(HeadersOnlyTempFile, HeadersRows),
+
+    nth0(0, HeadersRows, Headers),
+    append(
+        [
+            Criteria,
+            "LIMIT ALL;"
+        ],
+        CriteriaWithoutLimit
+    ),
+    writeln(selection_query(CriteriaWithoutLimit)),
+
+    once(query_result_from_file(
+        CriteriaWithoutLimit,
+        true,
+        ByCriteriaTemporaryFile
+    )),
+    (   read_rows(ByCriteriaTemporaryFile, Rows)
+    ->  true
+    ;   throw(cannot_read_rows_selection) ),
+
+    maplist(to_json(Headers), Rows, Pairs),
+    maplist(pairs_to_assoc, Pairs, HeadersAndRows).
+
+%% read_rows(+TmpFile, -Rows).
+read_rows(TmpFile, Rows) :-
+    once(open(TmpFile, read, Stream, [type(text)])),
+    once((
+        file_exists(TmpFile)
+        ;   throw(file_does_not_exist)
+    )),
+    (   once(phrase_from_stream(rows(Rows), Stream))
+    ->  remove_temporary_file(TmpFile)
+    ;
+        once(open(TmpFile, read, StreamBis, [type(text)])),
+        read_stream(StreamBis, Chars),
+        if_(
+            Chars = [],
+            remove_temporary_file(TmpFile),
+            throw(cannot_phrase_stream_from(TmpFile))
+        )
     ).

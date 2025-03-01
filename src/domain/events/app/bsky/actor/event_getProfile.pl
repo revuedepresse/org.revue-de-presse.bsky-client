@@ -42,7 +42,7 @@ onGetProfile(props(ListURI, FollowersCount, FollowsCount, DID, Payload)) :-
         ;   true )),
         Cause,
         if_(
-            Cause = cannot_read_rows_selected_by(list_id),
+            Cause = cannot_read_rows_selection,
             once((
                 by_list_uri_or_throw(list_uri(ListURI), ListUriPairs),
                 get_assoc(list_id, ListUriPairs, ListId),
@@ -62,5 +62,3 @@ onGetProfile(props(ListURI, FollowersCount, FollowsCount, DID, Payload)) :-
             throw(pre_existing_publisher(PreExistingDID))
         )
     ).
-
-%get_key(string(Key)-_Value, Key).
