@@ -197,7 +197,7 @@ by_criteria(list_uri(ListURI), did(DID), HeadersAndRows) :-
 
     %% read_rows(+TmpFile, -Rows).
     read_rows(TmpFile, Rows) :-
-        once(open(TmpFile, read, Stream, [type(text)])),
+        once(open(TmpFile, read, Stream, [type(text)])), !,
         (   file_exists(TmpFile)
         ->  true
         ;   write(file_does_not_exist), halt ),

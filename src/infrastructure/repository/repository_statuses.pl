@@ -8,6 +8,7 @@
 
 :- use_module(library(assoc)).
 :- use_module(library(charsio)).
+:- use_module(library(crypto)).
 :- use_module(library(clpz)).
 :- use_module(library(dcgs)).
 :- use_module(library(files)).
@@ -140,16 +141,19 @@ next_id(NextId) :-
         %% table(-Table)
         table("weaving_status").
 
-%% by_list_uri(+URI, -HeadersAndRows).
-by_criteria(uri(URI), HeadersAndRows) :-
+%% by_list_uri(+Criteria, -HeadersAndRows).
+by_criteria(handle(Handle)-uri(URI), HeadersAndRows) :-
+    append([Handle, "|", URI], UniqueIdentifier),
+    crypto_data_hash(UniqueIdentifier, Hash, [algorithm(sha256)]),
+
     chars_si(URI),
     select_clause(SelectClause),
     from_clause(FromClause),
     append([
         SelectClause,
-        FromClause, " r ",
+        FromClause,
         "WHERE ",
-        "r.ust_status_id = '", URI, "' ",
+        "r.ust_hash = '", Hash, "' ",
         "OFFSET 0 "
     ], SelectByURI),
     append(
@@ -191,11 +195,11 @@ by_criteria(uri(URI), HeadersAndRows) :-
     %% from_clause(-FromClause).
     from_clause(FromClause) :-
         table(Table),
-        append(["FROM public.", Table], FromClause).
+        append(["FROM public.", Table, " r "], FromClause).
 
     %% read_rows(+TmpFile, -Rows).
     read_rows(TmpFile, Rows) :-
-        once(open(TmpFile, read, Stream, [type(text)])),
+        once(open(TmpFile, read, Stream, [type(text)])), !,
         (   file_exists(TmpFile)
         ->  true
         ;   write(file_does_not_exist), halt ),
@@ -221,7 +225,7 @@ by_criteria(uri(URI), HeadersAndRows) :-
 %% insert(+Row, -InsertionResult).
 insert(
     row(
-        FullName,
+        _FullName,
         Name,
         PreQuotingText,
         Avatar,
@@ -231,7 +235,10 @@ insert(
     ),
     InsertionResult
 ) :-
-    count_matching_records(row(URI), TotalMatchingRecords),
+    append([Name, "|", URI], UniqueIdentifier),
+    crypto_data_hash(UniqueIdentifier, Hash, [algorithm(sha256)]),
+
+    count_matching_records(row(Hash), TotalMatchingRecords),
     encode_field_value(PreEncodingPayload, Payload),
     encode_field_value(PreQuotingText, Text),
 
@@ -244,6 +251,7 @@ insert(
             [
                 "INSERT INTO public.", Table, " (",
                 "   ust_id,             ",
+                "   ust_hash,           ",
                 "   ust_name,           ",
                 "   ust_full_name,      ",
                 "   ust_text,           ",
@@ -255,8 +263,9 @@ insert(
                 "   ust_created_at      ",
                 ") VALUES (             ",
                 "'", NextIdChars, "',   ",
+                "'", Hash, "',          ",
                 "'", Name, "',          ",
-                "'", FullName, "',      ",
+                "'", Name, "',          ",
                 "'", Text, "',          ",
                 "'", Avatar, "',        ",
                 "'", Payload, "',       ",
@@ -277,15 +286,16 @@ insert(
             [
                 "SELECT                                     ",
                 "r.ust_name as string__name,                ",
+                "r.ust_hash as string__hash,                ",
                 "r.ust_full_name as string__full_name,      ",
                 "r.ust_text as string__text,                ",
                 "r.ust_avatar as string__avatar,            ",
                 "r.ust_status_id as string__status_id,      ",
                 "r.is_published as boolean__is_published,   ",
                 "r.ust_created_at as string__created_at     ",
-                "FROM public.", Table, " r                  ",
+                "FROM public.", Table, "                    ",
                 "WHERE                                      ",
-                "r.ust_status_id = '", URI, "'             ;"
+                "r.ust_hash = '", Hash, "'                 ;"
             ],
             SelectQuery
         ),
@@ -305,12 +315,12 @@ insert(
     ).
 
     %%% count_matching_records(+Row, -Result).
-    count_matching_records(row(URI), Result) :-
+    count_matching_records(row(Hash), Result) :-
         table(Table),
         append([
-            "SELECT count(*) how_many_records ",
-            "FROM public.", Table, " r ",
-            "WHERE ust_status_id = '", URI, "' ;"
+            "SELECT count(*) how_many_records   ",
+            "FROM public.", Table, " r          ",
+            "WHERE ust_hash = '", Hash, "'     ;"
         ], SelectQuery),
         once(query_result(
             SelectQuery,

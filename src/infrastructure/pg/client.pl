@@ -47,9 +47,8 @@ is_digit(Char) :-
 
 %% query_result(+Query, -Result).
 query_result(Query, Result) :-
-    RemoveResultFile = false,
-    query(Query, RemoveResultFile, true, TempFile, Result),
-    remove_temporary_file(TempFile).
+    RemoveResultFile = true,
+    query(Query, RemoveResultFile, true, _TempFile, Result).
 
 %% query_result_from_file(+Query, +TuplesOnly, -TempFile).
 query_result_from_file(Query, TuplesOnly, TempFile) :-
@@ -65,12 +64,15 @@ query(Query, RemoveResultFile, TuplesOnly, TempFile, Result) :-
     database_host(Host),
 
     temporary_file("query_before_execution", QueryFile),
-    once(open(QueryFile, write, QueryFileStream, [type(text)])),
+    once(open(QueryFile, write, QueryFileStream, [type(text)])), !,
     write_term(QueryFileStream, Query, [double_quotes(true)]),
+    close(QueryFileStream),
 
     char_code(AntiSlash, 92),
     char_code(DoubleQuote, 34),
     temporary_file("query", TempFile),
+
+    writeln(creating_temporary_file(TempFile)-for_query(Query)-tuples_only(TuplesOnly)),
 
     if_(
         TuplesOnly = true,
@@ -78,15 +80,8 @@ query(Query, RemoveResultFile, TuplesOnly, TempFile, Result) :-
         TuplesOnlyOption = ""
     ),
 
-    (   append([
-            [AntiSlash], "cat ", QueryFile, " | ",
-            % Removing leading double quotes
-            "sed -E 's#^", [DoubleQuote], "##g' | ",
-            % Removing antislashes
-            "sed -E 's#", [AntiSlash], [AntiSlash], "##g' | ",
-            % Removing trailing double quotes
-            "sed -E 's#", [DoubleQuote], "$##g' | ",
-            "PGPASSWORD='", Password, "' ",
+    append(
+        [
             "psql ",
             TuplesOnlyOption,
             "--csv ",
@@ -99,22 +94,35 @@ query(Query, RemoveResultFile, TuplesOnly, TempFile, Result) :-
             "--quiet ",
             "--set ON_ERROR_STOP=1 ",
             "--username='", Username, "' "
+        ],
+        CommandSuffix
+    ),
+
+    (   append([
+            [AntiSlash], "cat ", QueryFile, " | ",
+            % Removing leading double quotes
+            "sed -E 's#^", [DoubleQuote], "##g' | ",
+            % Removing antislashes
+            "sed -E 's#", [AntiSlash], [AntiSlash], "##g' | ",
+            % Removing trailing double quotes
+            "sed -E 's#", [DoubleQuote], "$##g' | ",
+            "PGPASSWORD='", Password, "' ",
+            CommandSuffix
         ], QueryCommand)
     ->  true
     ;   throw(cannot_execute_sql_query) ),
 
     shell(QueryCommand, QueryExecutionStatus),
-    log_debug(['query execution status: ', QueryExecutionStatus]),
 
     (   QueryExecutionStatus \= 0
-    ->  write_term(cmd:QueryCommand, [quoted(false),double_quotes(true)]),
+    ->  write_term(cmd:CommandSuffix, [quoted(false),double_quotes(true)]),
         throw(unexpected_command_exit_code('Failed to execute query'))
     ;   remove_temporary_file(QueryFile) ),
 
-    open(TempFile, read, Stream, [type(text)]),
-    get_n_chars(Stream, _, ReadResult),
-    char_code(Eol, 10),
+    open(TempFile, read, Stream, [type(text)]), !,
+    read_stream(Stream, ReadResult),
 
+    char_code(Eol, 10),
     (   append([IntermediateResult, [Eol]], ReadResult)
     ->  true % results list end with EOL
     ;   IntermediateResult = ReadResult ),
