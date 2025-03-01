@@ -13,7 +13,10 @@
     log_info/1,
     log_debug/1
 ]).
-:- use_module('stream', [read_stream/3]).
+:- use_module('stream', [
+    read_stream/2,
+    read_stream/3
+]).
 
 :- meta_predicate(endpoint_spec_pairs(2, +)).
 
@@ -62,6 +65,6 @@ expand_endpoint_spec_pairs(Pairs, SourceAtom, endpoint_spec_pairs(Pairs, true)) 
     ;   throw(file_does_not_exist(EndpointSpecJson)) )),
 
     open(EndpointSpecJson, read, Stream, [type(text)]),
-    read_stream(Stream, [], EndpointSpecJsonContent),
+    read_stream(Stream, EndpointSpecJsonContent),
     phrase(json_chars(pairs(Pairs)), EndpointSpecJsonContent),
     log_debug([pairs:Pairs]).

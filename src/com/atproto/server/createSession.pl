@@ -18,7 +18,10 @@
     log_info/1,
     log_error/1
 ]).
-:- use_module('../../../stream', [read_stream/3]).
+:- use_module('../../../stream', [
+    read_stream/2,
+    read_stream/3
+]).
 
 % com__atproto__server__createSession_endpoint(-Endpoint).
 com__atproto__server__createSession_endpoint(Endpoint) :-
@@ -58,7 +61,7 @@ memoize_jw_tokens(AccessJwt, RefreshJwt) :-
     ->  writeln('status code':StatusCode)
     ;   throw(cannot_create_session('Failed to create session', StatusCode)) ),
 
-    read_stream(Stream, [], BodyChars),
+    read_stream(Stream, BodyChars),
     phrase(json_chars(pairs(Pairs)), BodyChars),
 
     by_key("accessJwt", Pairs, AccessJwt),

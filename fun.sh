@@ -229,6 +229,33 @@ function infrastructure__statuses__next_id() {
         ./src/infrastructure/repository/repository_statuses.pl
 }
 
+function infrastructure__publications__count() {
+    configure
+
+    scryer-prolog \
+        -g 'count(Count), writeq(Count).' \
+        -g 'halt.' \
+        ./src/infrastructure/repository/repository_publications.pl
+}
+
+function infrastructure__publications__query() {
+    configure
+
+    scryer-prolog \
+        -g 'query(Result), write_term(Result, [double_quotes(true)]).' \
+        -g 'halt.' \
+        ./src/infrastructure/repository/repository_publications.pl
+}
+
+function infrastructure__publications__next_id() {
+    configure
+
+    scryer-prolog \
+        -g 'next_id(Result), writeq(Result).' \
+        -g 'halt.' \
+        ./src/infrastructure/repository/repository_publications.pl
+}
+
 # https://docs.bsky.app/docs/api/app-bsky-graph-get-lists
 function app__bsky__graph__getLists() {
     configure

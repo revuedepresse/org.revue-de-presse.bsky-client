@@ -1,4 +1,4 @@
-:- module(repository_statuses, [
+:- module(repository_publications, [
     by_criteria/2,
     count/1,
     insert/2,
@@ -8,8 +8,8 @@
 
 :- use_module(library(assoc)).
 :- use_module(library(charsio)).
-:- use_module(library(crypto)).
 :- use_module(library(clpz)).
+:- use_module(library(crypto)).
 :- use_module(library(dcgs)).
 :- use_module(library(files)).
 :- use_module(library(lists)).
@@ -88,7 +88,7 @@ all_clauses(Query, Limit) :-
         [
             SelectFromClauses,
             "ORDER BY ",
-            "ust_id DESC ",
+            "legacy_id DESC ",
             "OFFSET 0 ",
             "LIMIT ", LimitClause, ";"
         ],
@@ -124,9 +124,9 @@ next_id(NextId) :-
         table(Table),
         append(
             [
-                "SELECT COALESCE(r.ust_id::bigint, 0) pk ",
+                "SELECT COALESCE(r.legacy_id::bigint, 0) pk ",
                 "FROM ", Table, " r ",
-                "ORDER BY r.ust_id DESC ",
+                "ORDER BY r.legacy_id DESC ",
                 "LIMIT 1;"
             ],
             Query
@@ -139,10 +139,10 @@ next_id(NextId) :-
         read_rows(TmpFile, MaxId).
 
         %% table(-Table)
-        table("weaving_status").
+        table("publication").
 
 %% by_list_uri(+Criteria, -HeadersAndRows).
-by_criteria(handle(Handle)-uri(URI), HeadersAndRows) :-
+by_criteria(handle-(Handle)-uri(URI), HeadersAndRows) :-
     append([Handle, "|", URI], UniqueIdentifier),
     crypto_data_hash(UniqueIdentifier, Hash, [algorithm(sha256)]),
 
@@ -151,9 +151,9 @@ by_criteria(handle(Handle)-uri(URI), HeadersAndRows) :-
     from_clause(FromClause),
     append([
         SelectClause,
-        FromClause,
+        FromClause, " ",
         "WHERE ",
-        "r.ust_hash = '", Hash, "' ",
+        "r.hash = '", Hash, "' ",
         "OFFSET 0 "
     ], SelectByURI),
     append(
@@ -213,11 +213,10 @@ by_criteria(handle(Handle)-uri(URI), HeadersAndRows) :-
         append(
             [
                 "SELECT ",
-                "r.ust_id::bigint as number__id, ",
-                "r.ust_full_name as string__full_name, ",
-                "r.ust_avatar as string__avatar, ",
-                "r.ust_status_id as string__status_id, ",
-                "to_json(r.is_published) as boolean__is_published "
+                "r.legacy_id::bigint as number__id, ",
+                "r.screen_name as string__full_name, ",
+                "r.avatar_url as string__avatar, ",
+                "r.document_id as string__status_id "
             ],
             SelectClause
         ).
@@ -246,31 +245,29 @@ insert(
         dif(1, TotalMatchingRecords),
        (next_id(NextId),
         number_chars(NextId, NextIdChars),
+        uuidv4_string(PublicId),
         table(Table),
         append(
             [
                 "INSERT INTO public.", Table, " (",
-                "   ust_id,             ",
-                "   ust_hash,           ",
-                "   ust_name,           ",
-                "   ust_full_name,      ",
-                "   ust_text,           ",
-                "   ust_avatar,         ",
-                "   ust_api_document,   ",
-                "   ust_status_id,      ",
-                "   ust_access_token,   ",
-                "   is_published,       ",
-                "   ust_created_at      ",
+                "   id,                 ",
+                "   legacy_id,          ",
+                "   hash,               ",
+                "   screen_name,        ",
+                "   text,               ",
+                "   avatar_url,         ",
+                "   document_id,        ",
+                "   document,           ",
+                "   published_at        ",
                 ") VALUES (             ",
+                "'", PublicId, "',      ",
                 "'", NextIdChars, "',   ",
                 "'", Hash, "',          ",
                 "'", Name, "',          ",
-                "'", Name, "',          ",
                 "'", Text, "',          ",
                 "'", Avatar, "',        ",
-                "'", Payload, "',       ",
                 "'", URI, "',           ",
-                "'dummy_access_token',  ",
+                "'", Payload, "',       ",
                 "   true,               ",
                 "'", CreatedAt, "'      ",
                 ");"
@@ -285,17 +282,15 @@ insert(
         append(
             [
                 "SELECT                                     ",
-                "r.ust_name as string__name,                ",
-                "r.ust_hash as string__hash,                ",
-                "r.ust_full_name as string__full_name,      ",
-                "r.ust_text as string__text,                ",
-                "r.ust_avatar as string__avatar,            ",
-                "r.ust_status_id as string__status_id,      ",
-                "r.is_published as boolean__is_published,   ",
-                "r.ust_created_at as string__created_at     ",
+                "r.screen_name as string__name,             ",
+                "r.hash as string__hash,                    ",
+                "r.text as string__text,                    ",
+                "r.avatar_url as string__avatar,            ",
+                "r.document_id as string__status_id,        ",
+                "r.published_at as string__created_at       ",
                 "FROM public.", Table, "                    ",
                 "WHERE                                      ",
-                "r.ust_hash = '", Hash, "'                 ;"
+                "r.hash = '", Hash, "'               ;"
             ],
             SelectQuery
         ),
@@ -315,12 +310,12 @@ insert(
     ).
 
     %%% count_matching_records(+Row, -Result).
-    count_matching_records(row(Hash), Result) :-
+    count_matching_records(row(URI), Result) :-
         table(Table),
         append([
-            "SELECT count(*) how_many_records   ",
-            "FROM public.", Table, " r          ",
-            "WHERE ust_hash = '", Hash, "'     ;"
+            "SELECT COUNT(*) how_many_records ",
+            "FROM public.", Table, " r ",
+            "WHERE document_id = '", URI, "' ;"
         ], SelectQuery),
         once(query_result(
             SelectQuery,
