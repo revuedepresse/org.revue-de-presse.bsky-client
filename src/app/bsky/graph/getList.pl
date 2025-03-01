@@ -17,6 +17,9 @@
 :- use_module('../../../app/bsky/actor/getProfile', [
     app__bsky__actor__getProfile/2
 ]).
+:- use_module('../../../app/bsky/feed/getAuthorFeed', [
+    app__bsky__feed__getAuthorFeed/2
+]).
 :- use_module('../../../domain/events/app/bsky/actor/event_getProfile', [
     onGetProfile/1
 ]).
@@ -48,6 +51,7 @@
     wrapped_pairs_to_assoc/2
 ]).
 :- use_module('../../../stream', [
+    read_stream/2,
     writeln/1,
     writeln/2
 ]).
@@ -91,16 +95,14 @@ send_request(MainListAtUri, ResponsePairs, StatusCode) :-
         method(VerbAtom),
         status_code(StatusCode),
         request_headers(ListHeaders),
-        headers(ResponseHeaders)
+        headers(_ResponseHeaders)
     ],
 
     app__bsky__graph__getList_endpoint(OperationId, ParamName, MainListAtUri, Endpoint),
 
-    http_open(Endpoint, Stream, Options),
-    log_debug(Options), !,
-    writeln(response_headers: ResponseHeaders),
+    http_open(Endpoint, Stream, Options), !,
 
-    get_n_chars(Stream, _, BodyChars),
+    read_stream(Stream, BodyChars),
     phrase(json_chars(pairs(ResponsePairs)), BodyChars),
     pairs_to_assoc(ResponsePairs, JSONAssoc),
     get_assoc(list, JSONAssoc, List),
@@ -140,7 +142,8 @@ payload(BodyChars, Payload) :-
 %% list_uri(+MainListAtUri, +JSONAssoc, -Uri).
 list_uri(MainListAtUri, JSONAssoc, Uri) :-
     get_assoc(list, JSONAssoc, List),
-    get_assoc(items, JSONAssoc, Items),
+    get_assoc(items, JSONAssoc, ReversedItems),
+    reverse(ReversedItems, Items),
     process_items(MainListAtUri, Items),
     get_assoc(uri, List, Uri).
 
@@ -169,13 +172,9 @@ list_uri(MainListAtUri, JSONAssoc, Uri) :-
 
         writeln(gettingProfileByDID(ActorParam)),
         app__bsky__actor__getProfile(ActorParam, Payload),
-
-        % [Content Write Operations (per account)](https://docs.bsky.app/docs/advanced-guides/rate-limits#content-write-operations-per-account)
-        TimeToWaitInSecBeforeNextWriteOperation is ceiling(5000/3600),
-        sleep(TimeToWaitInSecBeforeNextWriteOperation),
+        app__bsky__feed__getAuthorFeed(ActorParam, _),
 
         writeln(received_payload(Payload)),
-
         pairs_to_assoc(Payload, PayloadAssoc),
 
         get_assoc(followersCount, PayloadAssoc, FollowersCount),

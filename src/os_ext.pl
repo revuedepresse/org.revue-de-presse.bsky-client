@@ -5,6 +5,7 @@
 ]).
 
 :- use_module(library(charsio)).
+:- use_module(library(files)).
 :- use_module(library(lists)).
 :- use_module(library(os)).
 :- use_module(library(uuid)).
@@ -17,17 +18,16 @@
     log_info/1
 ]).
 :- use_module(stream, [
-    read_stream/2
+    read_stream/2,
+    writeln/1,
+    writeln/2
 ]).
 
 %% remove_temporary_file(+TempFile).
 remove_temporary_file(TempFile) :-
-    WarningMessage = " || echo 'Removed temporary file already' 1>&2",
-    append(["test -e ", TempFile, " && rm -f ", TempFile, WarningMessage], Cmd),
-    shell(Cmd, CmdExecutionStatus),
-    (   CmdExecutionStatus \= 0
-    ->  throw(unexpected_command_exit_code('Failed to remove temporary file'))
-    ;   true ).
+    (   delete_file(TempFile)
+    ->  writeln(removed(TempFile))
+    ;   throw(unexpected_command_exit_code('Failed to remove temporary file'))).
 
 %% temporary_file(+Prefix, +Suffix, -TempFile).
 temporary_file(Prefix, Suffix, TempFile) :-

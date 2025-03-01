@@ -5,24 +5,19 @@
     writeln/2
 ]).
 
+:- use_module(library(charsio)).
 :- use_module(library(lists)).
 :- use_module(library(reif)).
 :- use_module(library(si)).
 
 % read_stream(+Stream, -Out).
 read_stream(Stream, Out) :-
-    once(read_stream(Stream, [], Out)).
+    get_n_chars(Stream, _, Out),
+    close(Stream).
 
 % read_stream(+Stream, +In, -Out).
-read_stream(Stream, In, Out) :-
-    get_char(Stream, Char),
-    if_(
-        Char = end_of_file,
-        (close(Stream),
-        Out = In),
-        (read_stream(Stream, In, ReadOut),
-        Out = [Char|ReadOut] )
-    ).
+read_stream(Stream, _In, Out) :-
+    read_stream(Stream, Out).
 
 writeln(_Term) :- !.
 

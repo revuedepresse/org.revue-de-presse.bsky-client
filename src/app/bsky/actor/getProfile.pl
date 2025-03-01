@@ -36,6 +36,7 @@
     pairs_to_assoc/2
 ]).
 :- use_module('../../../stream', [
+    read_stream/2,
     writeln/1,
     writeln/2
 ]).
@@ -93,8 +94,7 @@ send_request(ParamValue, ResponsePairs, StatusCode) :-
         request(Endpoint, Options),
         response(ResponseHeaders, Stream)
     ),
-
-    get_n_chars(Stream, _, BodyChars),
+    read_stream(Stream, BodyChars),
     writeln('status code':StatusCode, true),
     writeln(body:BodyChars),
 
