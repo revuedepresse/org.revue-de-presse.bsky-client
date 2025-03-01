@@ -76,7 +76,7 @@ send_request(Actor, ResponsePairs, StatusCode) :-
     ],
 
     app__bsky__graph__getLists_endpoint(OperationId, ParamName, Actor, Endpoint),
-    http_open(Endpoint, Stream, Options), !,
+    once(http_open(Endpoint, Stream, Options)),
 
     read_stream(Stream, BodyChars),
     log_debug(['body ', BodyChars]),
@@ -87,7 +87,7 @@ send_request(Actor, ResponsePairs, StatusCode) :-
 
     if_(
         StatusCode = 200,
-        writeln('status code':StatusCode, true),
+        writeln(status_code(StatusCode), true),
         throw(failed_http_request(FailedHttpRequestErrorMessageAtom, ResponsePairs, StatusCode))
     ).
 

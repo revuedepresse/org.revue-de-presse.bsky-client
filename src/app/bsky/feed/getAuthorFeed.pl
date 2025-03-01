@@ -17,7 +17,8 @@
 
 :- use_module('../../../domain/events/app/bsky/feed/event_getAuthorFeed', [
     onGetAuthorFeed/1,
-    onGetAuthorFeed/2
+    onGetAuthorFeed/2,
+    onGetAuthorFeed/4
 ]).
 :- use_module('../../../configuration', [
     credentials_access_jwt/1
@@ -52,7 +53,7 @@
 %% app__bsky__feed__getAuthorFeed_endpoint(+OperationId, +ParamName, +Param, -Endpoint).
 app__bsky__feed__getAuthorFeed_endpoint(OperationId, ParamName, Param, Endpoint) :-
     public_bluesky_appview_api_endpoint(OperationId, EndpointWithoutParam),
-    concat_as_string([EndpointWithoutParam, "?limit=100&filter=posts_no_replies&includePins=false&", ParamName, "=", Param], [], Endpoint).
+    concat_as_string([EndpointWithoutParam, "?limit=15&filter=posts_no_replies&includePins=false&", ParamName, "=", Param], [], Endpoint).
 
 %% app__bsky__feed__getAuthorFeed_headers(-ListHeaders).
 app__bsky__feed__getAuthorFeed_headers(ListHeaders) :-
@@ -105,7 +106,7 @@ send_request(Params, ResponsePairs, StatusCode) :-
         response(ResponseHeaders, Stream)
     ),
     read_stream(Stream, BodyChars),
-    writeln('status code':StatusCode, true),
+    writeln(status_code(StatusCode), true),
 
     phrase(json_chars(pairs(ResponsePairs)), BodyChars),
     pairs_to_assoc(ResponsePairs, FeedAssoc),
@@ -114,22 +115,27 @@ send_request(Params, ResponsePairs, StatusCode) :-
     (   get_assoc(cursor, FeedAssoc, NextCursor)
     ->  true
     ;   NextCursor = 'none' ),
-
-    writeln(next_cursor:NextCursor, true),
+    writeln([next_cursor|[NextCursor]], true),
 
     length(Feed, HowManyPostsInFeed),
     numlist(HowManyPostsInFeed, IndicesStartingAt1),
-    reverse(Feed, ReversedFeed),
-    reverse(IndicesStartingAt1, ReversedIndicesStartAt1),
 
-    (   maplist(onGetAuthorFeed, ReversedFeed, ReversedIndicesStartAt1)
+    (   catch(
+            maplist(onGetAuthorFeed(NextCursor, HowManyPostsInFeed), Feed, IndicesStartingAt1),
+            E,
+            if_(
+                E = already_indexed_post(URI),
+                writeln(post(URI)-was_indexed_before, true),
+                throw(could_not_iterate_over_all_author_feed_post(E))
+            )
+        )
     ->  if_(
             NextCursor = 'none',
             writeln('fetched all available feed posts', true),
            (NextParams = actor(ParamValue)-cursor(NextCursor),
             app__bsky__feed__getAuthorFeed(NextParams, _Props))
         )
-    ;   writeln(('onGetAuthorFeed failed with total posts'):(HowManyPostsInFeed), true) ),
+    ;   writeln([onGetAuthorFeed_failed_with_posts_count|HowManyPostsInFeed], true) ),
 
     append([OperationId, " call failed"], FailedHttpRequestErrorMessage),
     chars_si(FailedHttpRequestErrorMessage),
@@ -144,9 +150,9 @@ send_request(Params, ResponsePairs, StatusCode) :-
     %% submit_request_once(+request, -Response).
     submit_request_once(request(Endpoint, Options), response(ResponseHeaders, Stream)) :-
         once((
-            writeln(endpoint: Endpoint, true),
-            (   http_open(Endpoint, Stream, Options)
-            ->  writeln(response_headers: ResponseHeaders), !
+            writeln([endpoint|[Endpoint]], true),
+            (   once(http_open(Endpoint, Stream, Options))
+            ->  writeln(response_headers: ResponseHeaders)
             ;   throw(failed_http_request(Endpoint, Options)) )
         )).
 

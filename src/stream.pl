@@ -10,29 +10,39 @@
 :- use_module(library(reif)).
 :- use_module(library(si)).
 
-% read_stream(+Stream, -Out).
+%% read_stream(+Stream, -Out).
+%
+% Unifying Out with chars read until EOF is found,
+% before closing Stream and
+% after reading all chars available.
 read_stream(Stream, Out) :-
     get_n_chars(Stream, _, Out),
     close(Stream).
 
-% read_stream(+Stream, +In, -Out).
+%% read_stream(+Stream, +In, -Out).
 read_stream(Stream, _In, Out) :-
     read_stream(Stream, Out).
 
-writeln(_Term) :- !.
+%% writeln(+L, +Cond).
+writeln([Key|Args], Cond) :-
+    writeln('%':[Key|Args], Cond).
 
-writeln_(_Term, false) :- !.
-writeln_(Term, true) :-
-    write_term(Term, [double_quotes(true)]),
-    nl.
-writeln_(Term, true) :-
-    \+ chars_si(Term),
-    write(Term),
-    nl.
+    %% writeln(+Term, +Cond).
+    writeln(Term, Cond) :-
+        if_(
+            Cond = true,
+            once(writeln_(Term, true)),
+            true
+        ).
 
-writeln(Term, Cond) :-
-    if_(
-        Cond = true,
-        once(writeln_(Term, true)),
-        true
-    ).
+        %% writeln_(+Term, +Cond).
+        writeln_(_Term, false) :- !.
+        writeln_(Term, true) :-
+            write_term(Term, [double_quotes(true)]),
+            nl.
+        writeln_(Term, true) :-
+            \+ chars_si(Term),
+            write(Term),
+            nl.
+
+        writeln(_Term) :- !.
