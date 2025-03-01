@@ -29,6 +29,7 @@
     pairs_to_assoc/2
 ]).
 :- use_module('../../../stream', [
+    read_stream/2,
     writeln/1,
     writeln/2
 ]).
@@ -75,13 +76,10 @@ send_request(Actor, ResponsePairs, StatusCode) :-
     ],
 
     app__bsky__graph__getLists_endpoint(OperationId, ParamName, Actor, Endpoint),
-
     http_open(Endpoint, Stream, Options), !,
-    log_debug(Options),
 
-    get_n_chars(Stream, _, BodyChars),
+    read_stream(Stream, BodyChars),
     log_debug(['body ', BodyChars]),
-
     phrase(json_chars(pairs(ResponsePairs)), BodyChars),
 
     append([OperationId, " call failed"], FailedHttpRequestErrorMessage),

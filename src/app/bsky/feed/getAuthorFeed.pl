@@ -3,6 +3,7 @@
 ]).
 
 :- use_module(library(assoc)).
+:- use_module(library(between)).
 :- use_module(library(charsio)).
 :- use_module(library(dcgs)).
 :- use_module(library(http/http_open)).
@@ -15,7 +16,8 @@
 :- use_module(library(time)).
 
 :- use_module('../../../domain/events/app/bsky/feed/event_getAuthorFeed', [
-    onGetAuthorFeed/1
+    onGetAuthorFeed/1,
+    onGetAuthorFeed/2
 ]).
 :- use_module('../../../configuration', [
     credentials_access_jwt/1
@@ -40,6 +42,7 @@
     to_json_chars/2
 ]).
 :- use_module('../../../stream', [
+    read_stream/2,
     writeln/1,
     writeln/2
 ]).
@@ -49,7 +52,7 @@
 %% app__bsky__feed__getAuthorFeed_endpoint(+OperationId, +ParamName, +Param, -Endpoint).
 app__bsky__feed__getAuthorFeed_endpoint(OperationId, ParamName, Param, Endpoint) :-
     public_bluesky_appview_api_endpoint(OperationId, EndpointWithoutParam),
-    concat_as_string([EndpointWithoutParam, "?", ParamName, "=", Param], [], Endpoint).
+    concat_as_string([EndpointWithoutParam, "?limit=100&filter=posts_no_replies&includePins=false&", ParamName, "=", Param], [], Endpoint).
 
 %% app__bsky__feed__getAuthorFeed_headers(-ListHeaders).
 app__bsky__feed__getAuthorFeed_headers(ListHeaders) :-
@@ -65,8 +68,8 @@ app__bsky__feed__getAuthorFeed_headers(ListHeaders) :-
         'User-Agent'('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36')
     ].
 
-%% send_request(+ParamValue, -ResponsePairs, -StatusCode).
-send_request(ParamValue, ResponsePairs, StatusCode) :-
+%% send_request(+Params, -ResponsePairs, -StatusCode).
+send_request(Params, ResponsePairs, StatusCode) :-
     endpoint_spec_pairs(SpecPairs, false),
 
     pairs_keys(SpecPairs, [string(Verb)]),
@@ -91,22 +94,42 @@ send_request(ParamValue, ResponsePairs, StatusCode) :-
         headers(ResponseHeaders)
     ],
 
-    app__bsky__feed__getAuthorFeed_endpoint(OperationId, ParamName, ParamValue, Endpoint),
+    (   Params = (actor(ParamValue)-cursor(Cursor))
+    ->  app__bsky__feed__getAuthorFeed_endpoint(OperationId, ParamName, ParamValue, EndpointWithoutCursor),
+        append([EndpointWithoutCursor, "&cursor=", Cursor], Endpoint)
+    ;   ParamValue = Params,
+        app__bsky__feed__getAuthorFeed_endpoint(OperationId, ParamName, ParamValue, Endpoint) ),
 
     submit_request_once(
         request(Endpoint, Options),
         response(ResponseHeaders, Stream)
     ),
-
-    get_n_chars(Stream, _, BodyChars),
+    read_stream(Stream, BodyChars),
     writeln('status code':StatusCode, true),
 
     phrase(json_chars(pairs(ResponsePairs)), BodyChars),
     pairs_to_assoc(ResponsePairs, FeedAssoc),
     get_assoc(feed, FeedAssoc, Feed),
-    writeln(feed:Feed),
 
-    maplist(onGetAuthorFeed, Feed),
+    (   get_assoc(cursor, FeedAssoc, NextCursor)
+    ->  true
+    ;   NextCursor = 'none' ),
+
+    writeln(next_cursor:NextCursor, true),
+
+    length(Feed, HowManyPostsInFeed),
+    numlist(HowManyPostsInFeed, IndicesStartingAt1),
+    reverse(Feed, ReversedFeed),
+    reverse(IndicesStartingAt1, ReversedIndicesStartAt1),
+
+    (   maplist(onGetAuthorFeed, ReversedFeed, ReversedIndicesStartAt1)
+    ->  if_(
+            NextCursor = 'none',
+            writeln('fetched all available feed posts', true),
+           (NextParams = actor(ParamValue)-cursor(NextCursor),
+            app__bsky__feed__getAuthorFeed(NextParams, _Props))
+        )
+    ;   writeln(('onGetAuthorFeed failed with total posts'):(HowManyPostsInFeed), true) ),
 
     append([OperationId, " call failed"], FailedHttpRequestErrorMessage),
     chars_si(FailedHttpRequestErrorMessage),
@@ -129,10 +152,10 @@ send_request(ParamValue, ResponsePairs, StatusCode) :-
 
 :- dynamic(app__bsky__feed__getAuthorFeed_memoized/2).
 
-%% memoize_app__bsky__feed__getAuthorFeed_memoized(+ParamValue, -Props).
-memoize_app__bsky__feed__getAuthorFeed_memoized(ParamValue, Props) :-
+%% memoize_app__bsky__feed__getAuthorFeed_memoized(+Params, -Props).
+memoize_app__bsky__feed__getAuthorFeed_memoized(Params, Props) :-
     catch(
-        send_request(ParamValue, Pairs, StatusCode),
+        send_request(Params, Pairs, StatusCode),
         E,
         if_(
             E = failed_http_request(Message, Pairs, StatusCode),
@@ -149,12 +172,12 @@ memoize_app__bsky__feed__getAuthorFeed_memoized(ParamValue, Props) :-
         log_error([ErrorMessage]), fail),
         Props = Pairs
     ),
-    assertz(app__bsky__feed__getAuthorFeed_memoized(ParamValue, Props)).
+    assertz(app__bsky__feed__getAuthorFeed_memoized(Params, Props)).
 
-%% app__bsky__feed__getAuthorFeed(+ParamValue, -Props).
+%% app__bsky__feed__getAuthorFeed(+Params, -Props).
 %
 % [app.bsky.feed.getAuthorFeed](https://docs.bsky.app/docs/api/app-bsky-feed-get-author-feed)
-app__bsky__feed__getAuthorFeed(ParamValue, Props) :-
-    app__bsky__feed__getAuthorFeed_memoized(ParamValue, Props)
+app__bsky__feed__getAuthorFeed(Params, Props) :-
+    app__bsky__feed__getAuthorFeed_memoized(Params, Props)
     ->  true
-    ;   memoize_app__bsky__feed__getAuthorFeed_memoized(ParamValue, Props).
+    ;   memoize_app__bsky__feed__getAuthorFeed_memoized(Params, Props).

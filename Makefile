@@ -63,6 +63,15 @@ infrastructure__statuses__query: ### Query statuses
 infrastructure__statuses__next_id: ### Next status id
 	@/bin/bash -c '. fun.sh && infrastructure__statuses__next_id'
 
+infrastructure__publications__count: ### Count publication
+	@/bin/bash -c '. fun.sh && infrastructure__publications__count'
+
+infrastructure__publications__query: ### Query publication
+	@/bin/bash -c '. fun.sh && infrastructure__publications__query'
+
+infrastructure__publications__next_id: ### Next publication id
+	@/bin/bash -c '. fun.sh && infrastructure__publications__next_id'
+
 com__atproto__repo__createRecord: ### com.atproto.repo.createRecord
 	@/bin/bash -c '. fun.sh && com__atproto__repo__createRecord'
 

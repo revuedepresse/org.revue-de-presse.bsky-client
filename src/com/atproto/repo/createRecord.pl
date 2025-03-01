@@ -25,7 +25,10 @@
     log_info/1
 ]).
 :- use_module('../../../serialization', [by_key/3]).
-:- use_module('../../../stream', [read_stream/3]).
+:- use_module('../../../stream', [
+    read_stream/2,
+    read_stream/3
+]).
 :- use_module('../../../temporal', [date_iso8601/1]).
 
 % com__atproto__repo__createRecord_endpoint(-Endpoint).
@@ -88,7 +91,7 @@ send_request(Text, Pairs, StatusCode) :-
     http_open(Endpoint, Stream, Options), !,
     log_debug(Options),
 
-    read_stream(Stream, [], BodyChars),
+    read_stream(Stream, BodyChars),
 
     phrase(json_chars(pairs(Pairs)), BodyChars),
 

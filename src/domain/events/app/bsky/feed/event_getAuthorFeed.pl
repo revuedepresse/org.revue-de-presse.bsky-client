@@ -1,5 +1,6 @@
 :- module(event_getAuthorFeed, [
-    onGetAuthorFeed/1
+    onGetAuthorFeed/1,
+    onGetAuthorFeed/2
 ]).
 
 :- use_module(library(assoc)).
@@ -7,6 +8,7 @@
 :- use_module(library(lists)).
 :- use_module(library(reif)).
 :- use_module(library(serialization/json)).
+:- use_module(library(time)).
 
 :- use_module('../../../../../infrastructure/repository/repository_statuses', [
     by_criteria/2,
@@ -28,9 +30,14 @@
     writeln/2
 ]).
 
+%% onGetAuthorFeed(+Post, +Index)
+onGetAuthorFeed(Post, Index) :-
+    writeln(processing_post_at_index(Index), true),
+    onGetAuthorFeed(Post).
+
 %% Handling onGetAuthorFeed Event
 %
-%% onGetAuthorFeed(+ListURI, +DID, +Payload)
+%% onGetAuthorFeed(+Post)
 onGetAuthorFeed(Post) :-
     wrapped_pairs_to_assoc(Post, PostAssoc),
     writeln(post:Post),
@@ -53,7 +60,7 @@ onGetAuthorFeed(Post) :-
     Payload = FeedPost,
 
     catch(
-        (once(repository_statuses:by_criteria(uri(URI), Rows)),
+        (once(repository_statuses:by_criteria(handle(Handle)-uri(URI), Rows)),
         ( ( nth0(0, Rows, FirstRow),
             get_assoc(handle, FirstRow, PreExistingPostHandle) )
         ->  log_info(['Pre-existing record for handle':PreExistingPostHandle])
@@ -74,7 +81,8 @@ onGetAuthorFeed(Post) :-
                 InsertionResult
             ),
             writeln(record_insertion(InsertionResult), true)),
-            throw(pre_existing_author_feed_post(URI))
+           (writeln(could_not_insert_status_with_uri(URI), true),
+            throw(pre_existing_author_feed_post(Cause)))
         )
     ).
 
