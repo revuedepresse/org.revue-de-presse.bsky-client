@@ -26,7 +26,8 @@
 ]).
 :- use_module('../pg/client', [
     query_result/2,
-    query_result_from_file/3
+    query_result_from_file/3,
+    read_rows/2
 ]).
 :- use_module('../../logger', [
     log_debug/1,
@@ -273,17 +274,6 @@ from_clause(FromClause) :-
 from_event_table_clause(FromClause) :-
     event_table(EventTable),
     append(["FROM public.", EventTable], FromClause).
-
-%% read_rows(+TmpFile, -Rows).
-read_rows(TmpFile, Rows) :-
-    once(open(TmpFile, read, Stream, [type(text)])), !,
-    (   file_exists(TmpFile)
-    ->  true
-    ;   write(file_does_not_exist), halt ),
-
-    read_stream(Stream, StreamRows),
-    once(phrase(rows(Rows), StreamRows, [])),
-    remove_temporary_file(TmpFile).
 
 %% count_matching_records(+NextId, -Result).
 count_matching_records(NextId, Result) :-

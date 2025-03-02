@@ -88,7 +88,7 @@ send_request(Text, Pairs, StatusCode) :-
 
     com__atproto__repo__createRecord_endpoint(Endpoint),
 
-    http_open(Endpoint, Stream, Options), !,
+    once(http_open(Endpoint, Stream, Options)),
     log_debug(Options),
 
     read_stream(Stream, BodyChars),
@@ -96,7 +96,7 @@ send_request(Text, Pairs, StatusCode) :-
     phrase(json_chars(pairs(Pairs)), BodyChars),
 
     (   StatusCode = 200
-    ->  writeln('status code':StatusCode, true)
+    ->  writeln(status_code(StatusCode), true)
     ;   throw(failed_http_request('com.atproto.repo.createRecord call failed', Pairs, StatusCode)) ).
 
 % memoize_com__atproto__repo__createRecord_response(+Text, -Props).

@@ -95,7 +95,7 @@ send_request(ParamValue, ResponsePairs, StatusCode) :-
         response(ResponseHeaders, Stream)
     ),
     read_stream(Stream, BodyChars),
-    writeln('status code':StatusCode, true),
+    writeln(status_code(StatusCode), true),
     writeln(body:BodyChars),
 
     phrase(json_chars(pairs(ResponsePairs)), BodyChars),
@@ -114,8 +114,8 @@ send_request(ParamValue, ResponsePairs, StatusCode) :-
     submit_request_once(request(Endpoint, Options), response(ResponseHeaders, Stream)) :-
         once((
             writeln(endpoint: Endpoint, true),
-            (   http_open(Endpoint, Stream, Options)
-            ->  writeln(response_headers: ResponseHeaders), !
+            (   once(http_open(Endpoint, Stream, Options))
+            ->  writeln(response_headers: ResponseHeaders)
             ;   throw(failed_http_request(Endpoint, Options)) )
         )).
 
