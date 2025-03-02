@@ -23,8 +23,10 @@
     to_json/3
 ]).
 :- use_module('../pg/client', [
+    matching_criteria/2,
     query_result/2,
-    query_result_from_file/3
+    query_result_from_file/3,
+    read_rows/2
 ]).
 :- use_module('../../logger', [
     log_debug/1,
@@ -153,58 +155,13 @@ by_criteria(list_uri(ListURI), did(DID), HeadersAndRows) :-
         "AND r.screen_name = '", DID, "' ",
         "AND r.name = '", ListURI, "' ",
         "OFFSET 0 "
-    ], SelectByDID),
-    append(
-        [
-            SelectByDID,
-            "LIMIT 0;"
-        ],
-        QueryHeaders
-    ),
-    once(query_result_from_file(
-        QueryHeaders,
-        false,
-        HeadersOnlyTempFile
-    )),
-    read_rows(HeadersOnlyTempFile, HeadersRows),
-
-    nth0(0, HeadersRows, Headers),
-    append(
-        [
-            SelectByDID,
-            "LIMIT ALL;"
-        ],
-        SelectByDIDWithoutLimit
-    ),
-    writeln(selection_query(SelectByDIDWithoutLimit)),
-
-    once(query_result_from_file(
-        SelectByDIDWithoutLimit,
-        true,
-        ByDIDTmpFile
-    )),
-    (   read_rows(ByDIDTmpFile, Rows)
-    ->  true
-    ;   throw(cannot_read_rows_selected_by(list_id)) ),
-
-    maplist(to_json(Headers), Rows, Pairs),
-    maplist(pairs_to_assoc, Pairs, HeadersAndRows).
+    ], SelectByCriteria),
+    matching_criteria(SelectByCriteria, HeadersAndRows).
 
     %% from_clause(-FromClause).
     from_clause(FromClause) :-
         table(Table),
         append(["FROM public.", Table], FromClause).
-
-    %% read_rows(+TmpFile, -Rows).
-    read_rows(TmpFile, Rows) :-
-        once(open(TmpFile, read, Stream, [type(text)])), !,
-        (   file_exists(TmpFile)
-        ->  true
-        ;   write(file_does_not_exist), halt ),
-
-        read_stream(Stream, StreamRows),
-        once(phrase(rows(Rows), StreamRows, [])),
-        remove_temporary_file(TmpFile).
 
     %% select_clause(-SelectClause).
     select_clause(SelectClause) :-
@@ -264,7 +221,7 @@ insert(row(ListId, ListURI, _FollowersCount, _FollowsCount, DID, _), InsertionRe
                 "r.id AS number__id,                ",
                 "r.public_id AS string__public_id,  ",
                 "r.name AS string__name             ",
-                "FROM public.", Table, " r     ",
+                "FROM public.", Table, " r          ",
                 "WHERE                              ",
                 "r.screen_name = '", DID, "'        ",
                 "AND r.name = '", ListURI, "'      ;"

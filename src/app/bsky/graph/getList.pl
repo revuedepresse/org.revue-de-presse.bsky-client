@@ -90,7 +90,6 @@ send_request(MainListAtUri, ResponsePairs, StatusCode) :-
     ;   throw(error_unsupported_parameter(Where)) )),
 
     app__bsky__graph__getList_headers(ListHeaders),
-
     Options = [
         method(VerbAtom),
         status_code(StatusCode),
@@ -99,8 +98,7 @@ send_request(MainListAtUri, ResponsePairs, StatusCode) :-
     ],
 
     app__bsky__graph__getList_endpoint(OperationId, ParamName, MainListAtUri, Endpoint),
-
-    http_open(Endpoint, Stream, Options), !,
+    once(http_open(Endpoint, Stream, Options)),
 
     read_stream(Stream, BodyChars),
     phrase(json_chars(pairs(ResponsePairs)), BodyChars),

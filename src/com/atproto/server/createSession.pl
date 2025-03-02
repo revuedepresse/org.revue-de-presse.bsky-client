@@ -54,11 +54,11 @@ memoize_jw_tokens(AccessJwt, RefreshJwt) :-
     com__atproto__server__createSession_endpoint(Endpoint),
     log_debug(['http_open options: ', Options]),
 
-    http_open(Endpoint, Stream, Options), !,
+    once(http_open(Endpoint, Stream, Options)),
     log_debug(['Response headers: ', ResponseHeaders]),
 
     (   StatusCode = 200
-    ->  writeln('status code':StatusCode)
+    ->  writeln(status_code(StatusCode))
     ;   throw(cannot_create_session('Failed to create session', StatusCode)) ),
 
     read_stream(Stream, BodyChars),
