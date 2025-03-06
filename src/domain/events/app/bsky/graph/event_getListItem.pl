@@ -8,10 +8,10 @@
 :- use_module(library(reif)).
 :- use_module(library(serialization/json)).
 
-:- use_module('../../../../../infrastructure/repository/repository_lists', [
+:- use_module('../../../../../infrastructure/repository/repository_list', [
     insert/2
 ]).
-:- use_module('../../../../../infrastructure/repository/repository_list_items', [
+:- use_module('../../../../../infrastructure/repository/repository_list_item', [
     event_by_screen_name/2,
     from_event/2,
     record_by_screen_name/2,
@@ -51,7 +51,7 @@ onGetListItem(ItemAssoc, pairs(UnwrappedPairs)) :-
     get_assoc(handle, Subject, ScreenName),
 
     catch(
-        (once(repository_list_items:event_by_screen_name(ScreenName, Rows)),
+        (once(repository_list_item:event_by_screen_name(ScreenName, Rows)),
         ( ( nth0(0, Rows, FirstRow),
             get_assoc(payload, FirstRow, Payload) )
         ->
@@ -61,7 +61,7 @@ onGetListItem(ItemAssoc, pairs(UnwrappedPairs)) :-
         E,
         if_(
             E = cannot_read_rows_selected_by(_),
-            (once(repository_list_items:insert(
+            (once(repository_list_item:insert(
                 row(ScreenName, Payload),
                 InsertionResult
             )),

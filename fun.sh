@@ -5,7 +5,7 @@ function configure() {
     local name
     local value
 
-    for envar in $(env | grep -vE '^(SHELL|HOME|USER|PATH|ACTOR|TEXT)' | cut -f 1 -d '='); do
+    for envar in $(env | grep -vE '^(SHELL|HOME|USER|PATH|ACTOR|AUTHOR|TEXT)' | cut -f 1 -d '='); do
         unset "${envar}"
     done
 
@@ -75,7 +75,7 @@ function app__bsky__feed__getAuthorFeed() {
     configure
 
     local env_var_input
-    env_var_input=${ACTOR:-}
+    env_var_input=${AUTHOR:-}
 
     local author
     author="${1:-${env_var_input}}"
@@ -86,7 +86,7 @@ function app__bsky__feed__getAuthorFeed() {
     fi
 
     scryer-prolog \
-        -g 'app__bsky__feed__getAuthorFeed("'"${author}"'", Prop).' \
+        -g 'app__bsky__feed__getAuthorFeed_without_memoization("'"${author}"'", Prop).' \
         -g halt \
         ./src/app/bsky/feed/getAuthorFeed.pl
 }
@@ -112,148 +112,175 @@ function app__bsky__graph__getList() {
         ./src/app/bsky/graph/getList.pl
 }
 
-function infrastructure__lists__count() {
+function infrastructure__list__count() {
     configure
 
     scryer-prolog \
         -g 'count(Count), writeq(Count).' \
         -g 'halt.' \
-        ./src/infrastructure/repository/repository_lists.pl
+        ./src/infrastructure/repository/repository_list.pl
 }
 
-function infrastructure__lists__query() {
+function infrastructure__list__query() {
     configure
 
     scryer-prolog \
         -g 'query(Result), writeq(Result).' \
         -g 'halt.' \
-        ./src/infrastructure/repository/repository_lists.pl
+        ./src/infrastructure/repository/repository_list.pl
 }
 
-function infrastructure__lists__next_event_id() {
+function infrastructure__list__next_event_id() {
     configure
 
     scryer-prolog \
         -g 'next_event_id(Result), writeq(Result).' \
         -g 'halt.' \
-        ./src/infrastructure/repository/repository_lists.pl
+        ./src/infrastructure/repository/repository_list.pl
 }
 
-function infrastructure__lists__next_id() {
+function infrastructure__list__next_id() {
     configure
 
     scryer-prolog \
         -g 'next_id(Result), writeq(Result).' \
         -g 'halt.' \
-        ./src/infrastructure/repository/repository_lists.pl
+        ./src/infrastructure/repository/repository_list.pl
 }
 
-function infrastructure__list_items__count() {
+function infrastructure__list_item__count() {
     configure
 
     scryer-prolog \
         -g 'count(Count), writeq(Count)' \
         -g 'halt.' \
-        ./src/infrastructure/repository/repository_list_items.pl
+        ./src/infrastructure/repository/repository_list_item.pl
 }
 
-function infrastructure__list_items__query() {
+function infrastructure__list_item__query() {
     configure
 
     scryer-prolog \
         -g 'query(Result), writeq(Result).' \
         -g 'halt.' \
-        ./src/infrastructure/repository/repository_list_items.pl
+        ./src/infrastructure/repository/repository_list_item.pl
 }
 
-function infrastructure__list_items__next_id() {
+function infrastructure__list_item__next_id() {
     configure
 
     scryer-prolog \
         -g 'next_id(Result), writeq(Result).' \
         -g 'halt.' \
-        ./src/infrastructure/repository/repository_list_items.pl
+        ./src/infrastructure/repository/repository_list_item.pl
 }
 
-function infrastructure__publishers__count() {
+function infrastructure__publisher__count() {
     configure
 
     scryer-prolog \
         -g 'count(Count), writeq(Count)' \
         -g 'halt.' \
-        ./src/infrastructure/repository/repository_publishers.pl
+        ./src/infrastructure/repository/repository_publisher.pl
 }
 
-function infrastructure__publishers__query() {
+function infrastructure__publisher__query() {
     configure
 
     scryer-prolog \
         -g 'query(Result), writeq(Result).' \
         -g 'halt.' \
-        ./src/infrastructure/repository/repository_publishers.pl
+        ./src/infrastructure/repository/repository_publisher.pl
 }
 
-function infrastructure__publishers__next_id() {
+function infrastructure__publisher__next_id() {
     configure
 
     scryer-prolog \
         -g 'next_id(Result), writeq(Result).' \
         -g 'halt.' \
-        ./src/infrastructure/repository/repository_publishers.pl
+        ./src/infrastructure/repository/repository_publisher.pl
 }
 
-function infrastructure__statuses__count() {
+function infrastructure__status__count() {
     configure
 
     scryer-prolog \
         -g 'count(Count), writeq(Count).' \
         -g 'halt.' \
-        ./src/infrastructure/repository/repository_statuses.pl
+        ./src/infrastructure/repository/repository_status.pl
 }
 
-function infrastructure__statuses__query() {
+function infrastructure__status__query() {
     configure
 
     scryer-prolog \
         -g 'query(Result), write_term(Result, [double_quotes(true)]).' \
         -g 'halt.' \
-        ./src/infrastructure/repository/repository_statuses.pl
+        ./src/infrastructure/repository/repository_status.pl
 }
 
-function infrastructure__statuses__next_id() {
+function infrastructure__status__next_id() {
     configure
 
     scryer-prolog \
         -g 'next_id(Result), writeq(Result).' \
         -g 'halt.' \
-        ./src/infrastructure/repository/repository_statuses.pl
+        ./src/infrastructure/repository/repository_status.pl
 }
 
-function infrastructure__publications__count() {
+function infrastructure__popularity__count() {
     configure
 
     scryer-prolog \
         -g 'count(Count), writeq(Count).' \
         -g 'halt.' \
-        ./src/infrastructure/repository/repository_publications.pl
+        ./src/infrastructure/repository/repository_popularity.pl
 }
 
-function infrastructure__publications__query() {
+function infrastructure__popularity__query() {
     configure
 
     scryer-prolog \
         -g 'query(Result), write_term(Result, [double_quotes(true)]).' \
         -g 'halt.' \
-        ./src/infrastructure/repository/repository_publications.pl
+        ./src/infrastructure/repository/repository_popularity.pl
 }
 
-function infrastructure__publications__next_id() {
+function infrastructure__popularity__next_id() {
     configure
 
     scryer-prolog \
         -g 'next_id(Result), writeq(Result).' \
         -g 'halt.' \
-        ./src/infrastructure/repository/repository_publications.pl
+        ./src/infrastructure/repository/repository_popularity.pl
+}
+
+function infrastructure__publication__count() {
+    configure
+
+    scryer-prolog \
+        -g 'count(Count), writeq(Count).' \
+        -g 'halt.' \
+        ./src/infrastructure/repository/repository_publication.pl
+}
+
+function infrastructure__publication__query() {
+    configure
+
+    scryer-prolog \
+        -g 'query(Result), write_term(Result, [double_quotes(true)]).' \
+        -g 'halt.' \
+        ./src/infrastructure/repository/repository_publication.pl
+}
+
+function infrastructure__publication__next_id() {
+    configure
+
+    scryer-prolog \
+        -g 'next_id(Result), writeq(Result).' \
+        -g 'halt.' \
+        ./src/infrastructure/repository/repository_publication.pl
 }
 
 # https://docs.bsky.app/docs/api/app-bsky-graph-get-lists
@@ -276,70 +303,68 @@ function app__bsky__graph__getLists() {
 }
 
 function list_endpoints() {
-    \cat ./doc/api.json | \
-    jq '.paths' | \
-    jq 'keys[]' | \
-    grep -v 'unspecced\|ozone' | \
-    grep '"/' | \
-    tr -d ',' | \
-    tr -d '"' | \
-    sed -E 's#/#.#g'
+    \cat ./doc/api.json |
+        jq '.paths' |
+        jq 'keys[]' |
+        grep -v 'unspecced\|ozone' |
+        grep '"/' |
+        tr -d ',' |
+        tr -d '"' |
+        sed -E 's#/#.#g'
 }
 
 function list_namespaces() {
-    list_endpoints | \
-    sed -E 's#(.+)\.[^.]*$#\1#g' | \
-    tr '.' '/' | \
-    uniq | \
-    xargs -I{} sh -c 'echo ./src${1}' shell {}
+    list_endpoints |
+        sed -E 's#(.+)\.[^.]*$#\1#g' |
+        tr '.' '/' |
+        uniq |
+        xargs -I{} sh -c 'echo ./src${1}' shell {}
 }
 
 function list_accessors() {
-  local cmd
-  cmd='echo /src${1}'
-  cmd="${cmd}"' | tr "." "/"'
-  cmd="${cmd}"' | sed -E "s#^#.#g"'
-  cmd="${cmd}"' | sed -E "s#(.*)#\1.pl#g"'
+    local cmd
+    cmd='echo /src${1}'
+    cmd="${cmd}"' | tr "." "/"'
+    cmd="${cmd}"' | sed -E "s#^#.#g"'
+    cmd="${cmd}"' | sed -E "s#(.*)#\1.pl#g"'
 
-  make list-endpoints | \
-  xargs -I{} sh -c "${cmd}" shell {}
+    make list-endpoints |
+        xargs -I{} sh -c "${cmd}" shell {}
 }
 
 function list_api_spec_keys() {
-  local cmd
-  cmd='echo ${1} > $(echo ${1}'
-  # shellcheck disable=SC2089
-  cmd="${cmd}"' | sed -E "s#/#./#g"'
-  cmd="${cmd}"' | sed -E "s#(.*)#doc/endpoints/\1.key.json#g")'
+    local cmd
+    cmd='echo ${1} > $(echo ${1}'
+    # shellcheck disable=SC2089
+    cmd="${cmd}"' | sed -E "s#/#./#g"'
+    cmd="${cmd}"' | sed -E "s#(.*)#doc/endpoints/\1.key.json#g")'
 
-  \cat ./doc/api.json | \
-  jq '.paths | to_entries | .[] | .key' | \
-  xargs -I{} sh -c "${cmd}" shell {}
+    \cat ./doc/api.json |
+        jq '.paths | to_entries | .[] | .key' |
+        xargs -I{} sh -c "${cmd}" shell {}
 }
 
 function list_api_spec_values() {
-  local value
-  # shellcheck disable=SC2045
-  for i in $(ls -1 ./doc/endpoints/*key.json);
-  do
-      value="$(echo $i | sed -E 's#key#value#')"
-      jq ".paths | $(echo '."'"$(\cat $i)"'"')" ./doc/api.json \
-      > "${value}";
-  done
+    local value
+    # shellcheck disable=SC2045
+    for i in $(ls -1 ./doc/endpoints/*key.json); do
+        value="$(echo $i | sed -E 's#key#value#')"
+        jq ".paths | $(echo '."'"$(\cat $i)"'"')" ./doc/api.json \
+            >"${value}"
+    done
 }
 
 function test() {
-  scryer-prolog ./src/types/string/formats/*_test.pl -g halt \
-  | tee ./test.log
-  # shellcheck disable=SC2046
-  if [ $(grep -c '\[KO\]' ./test.log) -gt 0 ];
-  then
-    printf '%s.%s' 'Some tests failed' $'\n'
-    exit 1
-  else
-    printf '%s.%s' 'All tests passed successfully' $'\n'
-  fi
-  rm ./test.log
+    scryer-prolog ./src/types/string/formats/*_test.pl -g halt |
+        tee ./test.log
+    # shellcheck disable=SC2046
+    if [ $(grep -c '\[KO\]' ./test.log) -gt 0 ]; then
+        printf '%s.%s' 'Some tests failed' $'\n'
+        exit 1
+    else
+        printf '%s.%s' 'All tests passed successfully' $'\n'
+    fi
+    rm ./test.log
 }
 
 set +Eeuo pipefail

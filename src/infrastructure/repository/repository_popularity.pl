@@ -1,7 +1,8 @@
-:- module(repository_publishers, [
-    by_criteria/3,
+:- module(repository_popularity, [
+    by_criteria/2,
     count/1,
     insert/2,
+    insert_without_unicity_check/2,
     next_id/1,
     query/1
 ]).
@@ -23,6 +24,7 @@
     to_json/3
 ]).
 :- use_module('../pg/client', [
+    encode_field_value/2,
     matching_criteria/2,
     query_result/2,
     query_result_from_file/3,
@@ -47,7 +49,7 @@
 count(Count) :-
     table(Table),
     append(
-       ["SELECT count(*) AS Count FROM public.", Table],
+       ["SELECT COUNT(*) AS matching_records_count FROM public.", Table],
        Query
     ),
     query_result(
@@ -60,7 +62,7 @@ query(HeadersAndRows) :-
     % Executed to fetch column names
     query(EmptyResults, false, 0),
     nth0(0, EmptyResults, Headers),
-    query(Rows, true, "ALL"),
+    query(Rows, true, 2),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
@@ -88,9 +90,7 @@ all_clauses(Query, Limit) :-
         [
             SelectFromClauses,
             "ORDER BY ",
-            "t.id DESC, ",
-            "t.name ASC, ",
-            "t.screen_name ASC ",
+            "status_id DESC ",
             "OFFSET 0 ",
             "LIMIT ", LimitClause, ";"
         ],
@@ -100,6 +100,7 @@ all_clauses(Query, Limit) :-
 %% query(-Rows, +TuplesOnly, +Limit).
 query(Rows, TuplesOnly, Limit) :-
     all_clauses(Query, Limit),
+    writeln(query:Query, true),
     once(query_result_from_file(
         Query,
         TuplesOnly,
@@ -125,9 +126,9 @@ next_id(NextId) :-
         table(Table),
         append(
             [
-                "SELECT COALESCE(r.id::bigint, 0) pk ",
+                "SELECT COALESCE(r.status_id::bigint, 0) pk ",
                 "FROM ", Table, " r ",
-                "ORDER BY r.id DESC ",
+                "ORDER BY r.status_id DESC ",
                 "LIMIT 1;"
             ],
             Query
@@ -139,21 +140,16 @@ next_id(NextId) :-
         )),
         read_rows(TmpFile, MaxId).
 
-        %% table(-Table)
-        table("publishers_list").
-
-%% by_list_uri(+ListURI, +DID, -HeadersAndRows).
-by_criteria(list_uri(ListURI), did(DID), HeadersAndRows) :-
-    chars_si(DID),
+%% by_criteria(+Criteria, -HeadersAndRows).
+by_criteria(record_id(RecordId), HeadersAndRows) :-
+    chars_si(RecordId),
     select_clause(SelectClause),
     from_clause(FromClause),
     append([
         SelectClause,
-        FromClause, " r ",
+        FromClause, " ",
         "WHERE ",
-        "r.created_at::date > '2024-12-31'::date ",
-        "AND r.screen_name = '", DID, "' ",
-        "AND r.name = '", ListURI, "' ",
+        "r.publication_id = '", RecordId, "' ",
         "OFFSET 0 "
     ], SelectByCriteria),
     matching_criteria(SelectByCriteria, HeadersAndRows).
@@ -161,52 +157,55 @@ by_criteria(list_uri(ListURI), did(DID), HeadersAndRows) :-
     %% from_clause(-FromClause).
     from_clause(FromClause) :-
         table(Table),
-        append(["FROM public.", Table], FromClause).
+        append(["FROM public.", Table, " r "], FromClause).
 
     %% select_clause(-SelectClause).
     select_clause(SelectClause) :-
         append(
             [
                 "SELECT ",
-                "r.name as string__name, ",
-                "r.screen_name as string__screen_name, ",
-                "r.list_id as string__list_id, ",
-                "r.public_id as string__public_id, ",
-                "r.total_members as number__total_members, ",
-                "r.total_statuses as number__total_statuses "
+                "r.id as string__id,                   ",
+                "r.publication_id as string__id,       ",
+                "r.total_favorites as number__likes,   ",
+                "r.total_retweets as number__reposts,  ",
+                "r.checked_at as number__string        "
             ],
             SelectClause
         ).
 
 %% insert(+Row, -InsertionResult).
-insert(row(ListId, ListURI, _FollowersCount, _FollowsCount, DID, _), InsertionResult) :-
-    count_matching_records(row(ListURI, DID), TotalMatchingRecords),
+insert(
+    row(
+        RecordId,
+        URI,
+        Likes,
+        RePosts
+    ),
+    InsertionResult
+) :-
+    count_matching_records(row(URI), TotalMatchingRecords),
 
     if_(
         dif(1, TotalMatchingRecords),
-       (next_id(NextId),
-        number_chars(NextId, NextIdChars),
-        uuidv4_string(PublicId),
+       (uuidv4_string(Id),
         table(Table),
         append(
             [
                 "INSERT INTO public.", Table, " (",
                 "   id,                 ",
-                "   list_id,            ",
-                "   public_id,          ",
-                "   name,               ",
-                "   screen_name,        ",
-                "   locked,             ",
-                "   created_at          ",
+                "   status_id,          ",
+                "   publication_id,     ",
+                "   total_favorites,    ",
+                "   total_retweets,     ",
+                "   checked_at          ",
                 ") VALUES (             ",
-                "'", NextIdChars, "',   ",
-                " ", ListId, ",         ",
-                "'", PublicId, "',      ",
-                "'", ListURI, "',       ",
-                "'", DID, "',           ",
-                "   false,              ",
-                "   NOW()               ",
-                ")"
+                "'", Id, "',            ",
+                "'", RecordId, "', ",
+                "'", URI, "', ",
+                "'", Likes, "',         ",
+                "'", RePosts, "',       ",
+                "NOW()                  ",
+                ");"
             ],
             Query
         ),
@@ -217,42 +216,87 @@ insert(row(ListId, ListURI, _FollowersCount, _FollowsCount, DID, _), InsertionRe
         (table(Table),
         append(
             [
-                "SELECT                             ",
-                "r.id AS number__id,                ",
-                "r.public_id AS string__public_id,  ",
-                "r.name AS string__name             ",
-                "FROM public.", Table, " r          ",
-                "WHERE                              ",
-                "r.screen_name = '", DID, "'        ",
-                "AND r.name = '", ListURI, "'      ;"
+                "SELECT                                 ",
+                "r.publication_id as string__id,        ",
+                "r.total_favorites as number__likes,    ",
+                "r.total_retweets as number__reposts    ",
+                "r.checked_at as number__string         ",
+                "FROM public.", Table, " r              ",
+                "WHERE                                  ",
+                "r.publication_id = '", URI, "'        ;"
             ],
             SelectQuery
         ),
-        once(query_result(
-            SelectQuery,
-            SelectionResult
-        )),
-        chars_base64(DecodedBase64Payload, SelectionResult, []),
-
-        maplist(char_code, DecodedBase64Payload, DecodedBytes),
-        chars_utf8bytes(DecodedChars, DecodedBytes),
-        append([Prefix, ['"']], DecodedChars),
-        append([['"'], Suffix], Prefix),
-        to_json_chars(Suffix, JSONChars),
-        log_info([JSONChars]),
+        matching_criteria(SelectQuery, Rows),
+        writeln([popularity_rows|[Rows]], true),
         InsertionResult = ok)
     ).
 
+%% insert_without_unicity_check(+Row, -InsertionResult).
+insert_without_unicity_check(Row, InsertionResult) :-
+    catch(
+        do_insert_without_unicity_check(
+            Row,
+            InsertionResult
+        ),
+        CannotInsertPopularityWithoutUnicityCheckCause,
+        log_error([cannot_insert_popularity_without_unicity_check(CannotInsertPopularityWithoutUnicityCheckCause)])
+    )
+    ->  writeln([inserted_popularity_without_unicity_check_successfully|[]], true)
+    ;   writeln([cannot_insert_popularity_without_unicity_check(Row)], true).
+
+%% do_insert_without_unicity_check(+Row, -InsertionResult).
+do_insert_without_unicity_check(
+    row(
+        RecordId,
+        URI,
+        Likes,
+        RePosts
+    ),
+    InsertionResult
+) :-
+    table(Table),
+    uuidv4_string(Id),
+    number_chars(Likes, LikesChars),
+    number_chars(RePosts, RePostsChars),
+    append(
+        [
+            "INSERT INTO public.", Table, " (",
+            "   id,                 ",
+            "   status_id,          ",
+            "   publication_id,     ",
+            "   total_favorites,    ",
+            "   total_retweets,     ",
+            "   checked_at          ",
+            ") VALUES (             ",
+            "'", Id, "',            ",
+            "'", RecordId, "',      ",
+            "'", URI, "',           ",
+            "'", LikesChars, "',    ",
+            "'", RePostsChars, "',  ",
+            "NOW()                  ",
+            ");"
+        ],
+        Query
+    ),
+    writeln([insert_popularity_query|[Query]]),
+    once(query_result(
+        Query,
+        InsertionResult
+    )).
+
     %%% count_matching_records(+Row, -Result).
-    count_matching_records(row(ListURI, DID), Result) :-
+    count_matching_records(row(URI), Result) :-
         table(Table),
         append([
-            "SELECT count(*) how_many_records ",
-            "FROM public.", Table, " r ",
-            "WHERE name = '", ListURI, "' ",
-            "AND screen_name = '", DID, "';"
+            "SELECT COUNT(*) how_many_records ",
+            "FROM public.", Table, " r      ",
+            "WHERE r.publication_id = '", URI, "'   ;"
         ], SelectQuery),
         once(query_result(
             SelectQuery,
             Result
         )).
+
+    %% table(-Table)
+    table("status_popularity").
