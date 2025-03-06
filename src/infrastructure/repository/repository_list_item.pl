@@ -1,4 +1,4 @@
-:- module(repository_list_items, [
+:- module(repository_list_item, [
     event_by_screen_name/2,
     from_event/2,
     record_by_screen_name/2,
@@ -52,7 +52,7 @@
 %% count(-Count).
 count(Count) :-
     table(Table),
-    append(["SELECT count(*) AS Count FROM public.", Table], Query),
+    append(["SELECT count(*) AS matching_records_count FROM public.", Table], Query),
     query_result(
         Query,
         Count

@@ -9,12 +9,16 @@
 :- use_module(library(serialization/json)).
 :- use_module(library(time)).
 
-:- use_module('../../../../../infrastructure/repository/repository_statuses', [
+:- use_module('../../../../../infrastructure/repository/repository_status', [
     by_criteria/2,
     by_indexed_at/2,
+    id_hash/3,
     insert/2
 ]).
-:- use_module('../../../../../infrastructure/repository/repository_publications', [
+:- use_module('../../../../../infrastructure/repository/repository_popularity', [
+    insert_without_unicity_check/2
+]).
+:- use_module('../../../../../infrastructure/repository/repository_publication', [
     by_criteria/2,
     insert/2
 ]).
@@ -36,38 +40,37 @@
 
 %% onGetAuthorFeed(+Cursor, +TotalPosts, +Post, +Index)
 onGetAuthorFeed(Cursor, TotalPosts, Post, Index) :-
-    writeln(processing_post_at_index(Index/TotalPosts), true),
+    writeln([processing_post_at_index|[(Index/TotalPosts)]], true),
     onGetAuthorFeed(Cursor, Post).
 
     %% Handling onGetAuthorFeed Event
     %
-    %% onGetAuthorFeed(+Post)
+    %% onGetAuthorFeed(+Cursor, +Post)
     onGetAuthorFeed(Cursor, Post) :-
         insert_record_args(
             Post,
-            DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt
+            DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
+            likes(LikeCount)-reposts(RepostCount)
         ),
         by_indexed_at(indexed_at(Cursor)-handle(Handle), Rows),
         length(Rows, N),
         if_(
             N = 0,
-            writeln([found_no_pre_existing_post_at_cursor|[Cursor]], true),
+            writeln([no_records_found_by_cursor|[Cursor]], true),
             throw(already_indexed_post(uri(URI)))
         ),
 
         try_inserting_publication_record(
             DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
+            likes(LikeCount)-reposts(RepostCount),
             _PublicationInsertionResult
-        ),
-
-        try_inserting_status_record(
-            DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
-            _StatusInsertionResult
         ).
 
+        %% insert_record_args(+Post, -DisplayName, -Handle, -Text, -AuthorAvatar, -Payload, -URI, -CreatedAt, -Popularity)
         insert_record_args(
             Post,
-            DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt
+            DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
+            likes(LikeCount)-reposts(RepostCount)
         ) :-
             wrapped_pairs_to_assoc(Post, PostAssoc),
             writeln(post:Post),
@@ -83,7 +86,6 @@ onGetAuthorFeed(Cursor, TotalPosts, Post, Index) :-
 
             get_assoc(likeCount, FeedPost, LikeCount),
             get_assoc(repostCount, FeedPost, RepostCount),
-            writeln(likes(LikeCount)-reposts(RepostCount), true),
 
             get_assoc(record, FeedPost, Record),
             get_assoc(text, Record, Text),
@@ -92,13 +94,23 @@ onGetAuthorFeed(Cursor, TotalPosts, Post, Index) :-
             get_assoc(uri, FeedPost, URI),
             Payload = FeedPost.
 
-        %% try_inserting_publication_record(+DisplayName, +Handle, +Text, +AuthorAvatar, +Payload, +URI, +CreatedAt, -InsertionResult),
+        %% try_inserting_publication_record(
+        %%  +DisplayName, +Handle, +Text, +AuthorAvatar, +Payload, +URI, +CreatedAt,
+        %%  +Popularity,
+        %%  -InsertionResult
+        %% ),
         try_inserting_publication_record(
             DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
+            likes(LikeCount)-reposts(RepostCount),
             InsertionResult
         ) :-
+            try_inserting_status_record(
+                DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
+                likes(LikeCount)-reposts(RepostCount),
+                RecordId
+            ),
             catch(
-                (once(repository_publications:by_criteria(handle(Handle)-uri(URI), Rows)),
+                (once(repository_publication:by_criteria(handle(Handle)-uri(URI), Rows)),
                 ( ( nth0(0, Rows, FirstRow),
                     get_assoc(handle, FirstRow, PreExistingPostHandle) )
                 ->  writeln(['Pre-existing publication for handle'|[PreExistingPostHandle]], true)
@@ -107,7 +119,7 @@ onGetAuthorFeed(Cursor, TotalPosts, Post, Index) :-
                 Cause,
                 if_(
                     Cause = cannot_read_rows_selection,
-                   (repository_publications:insert(
+                   (repository_publication:insert(
                         row(
                             DisplayName,
                             Handle,
@@ -115,7 +127,8 @@ onGetAuthorFeed(Cursor, TotalPosts, Post, Index) :-
                             AuthorAvatar,
                             Payload,
                             URI,
-                            CreatedAt
+                            CreatedAt,
+                            RecordId
                         ),
                         InsertionResult
                     ),
@@ -125,34 +138,50 @@ onGetAuthorFeed(Cursor, TotalPosts, Post, Index) :-
                 )
             ).
 
-        %% try_inserting_status_record(+DisplayName, +Handle, +Text, +AuthorAvatar, +Payload, +URI, +CreatedAt, -InsertionResult),
+        %% try_inserting_status_record(+DisplayName, +Handle, +Text, +AuthorAvatar, +Payload, +URI, +CreatedAt, +Popularity, -RecordId),
         try_inserting_status_record(
             DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
-            InsertionResult
+            likes(LikeCount)-reposts(RepostCount),
+            RecordId
         ) :-
-            catch(
-                (once(repository_statuses:by_criteria(handle(Handle)-uri(URI), Rows)),
-                ( ( nth0(0, Rows, FirstRow),
-                    get_assoc(handle, FirstRow, PreExistingPostHandle) )
-                ->  writeln('Pre-existing status for handle':PreExistingPostHandle, true)
-                ;   true )),
-                Cause,
-                if_(
-                    Cause = cannot_read_rows_selection,
-                   (repository_statuses:insert(
-                        row(
-                            DisplayName,
-                            Handle,
-                            Text,
-                            AuthorAvatar,
-                            Payload,
-                            URI,
-                            CreatedAt
+            writeln([likes_reposts|[likes(LikeCount)-reposts(RepostCount)]], true),
+            if_(
+                repository_status:id_hash(handle(Handle)-uri(URI), RecordId),
+               (repository_popularity:insert_without_unicity_check(
+                    row(RecordId, URI, LikeCount, RepostCount),
+                    _PopularityInsertionResult
+                )),
+                catch(
+                    (once(repository_status:by_criteria(handle(Handle)-uri(URI), Rows)),
+                    ( ( nth0(0, Rows, FirstRow),
+                        get_assoc(handle, FirstRow, PreExistingPostHandle) )
+                    ->  writeln([pre_existing_status_for_handle|[PreExistingPostHandle]], true)
+                    ;   throw(cannot_read_rows_selection) )),
+                    Cause,
+                    if_(
+                        Cause = cannot_read_rows_selection,
+                       (repository_status:insert(
+                            row(
+                                DisplayName,
+                                Handle,
+                                Text,
+                                AuthorAvatar,
+                                Payload,
+                                URI,
+                                CreatedAt
+                            ),
+                            InsertionResult,
+                            RecordId
                         ),
-                        InsertionResult
-                    ),
-                    writeln(status_record_insertion(InsertionResult), true)),
-                   (writeln(could_not_insert_status_with_uri(URI), true),
-                    throw(pre_existing_author_feed_post(Cause)))
+                        once(( ground(RecordId) ; throw(invalid_publication_id) )),
+                        writeln([inserted_record_id|[RecordId]], true),
+                        repository_popularity:insert_without_unicity_check(
+                            row(RecordId, URI, LikeCount, RepostCount),
+                            _PopularityInsertionResult
+                        ),
+                        writeln([status_record_insertion|[InsertionResult]], true)),
+                       (writeln(could_not_insert_status_with_uri(URI), true),
+                        throw(pre_existing_author_feed_post(Cause)))
+                    )
                 )
             ).

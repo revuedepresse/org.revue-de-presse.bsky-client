@@ -8,10 +8,10 @@
 :- use_module(library(reif)).
 :- use_module(library(serialization/json)).
 
-:- use_module('../../../../../infrastructure/repository/repository_lists', [
+:- use_module('../../../../../infrastructure/repository/repository_list', [
     by_list_uri_or_throw/2
 ]).
-:- use_module('../../../../../infrastructure/repository/repository_publishers', [
+:- use_module('../../../../../infrastructure/repository/repository_publisher', [
     by_criteria/3,
     insert/2
 ]).
@@ -35,7 +35,7 @@
 %% onGetProfile(+ListURI, +DID, +Payload)
 onGetProfile(props(ListURI, FollowersCount, FollowsCount, DID, Payload)) :-
     catch(
-        (once(repository_publishers:by_criteria(list_uri(ListURI), did(DID), Rows)),
+        (once(repository_publisher:by_criteria(list_uri(ListURI), did(DID), Rows)),
         ( ( nth0(0, Rows, FirstRow),
             get_assoc(screen_name, FirstRow, PreExistingDID) )
         ->  log_debug(['Pre-existing record for did':PreExistingDID])
@@ -46,7 +46,7 @@ onGetProfile(props(ListURI, FollowersCount, FollowsCount, DID, Payload)) :-
             once((
                 by_list_uri_or_throw(list_uri(ListURI), ListUriPairs),
                 get_assoc(list_id, ListUriPairs, ListId),
-                repository_publishers:insert(
+                repository_publisher:insert(
                     row(
                         ListId,
                         ListURI,
