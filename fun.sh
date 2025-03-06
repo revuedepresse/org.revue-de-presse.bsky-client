@@ -85,7 +85,11 @@ function app__bsky__feed__getAuthorFeed() {
         return 1
     fi
 
-    scryer-prolog \
+    nice -n 10 \
+        taskset -c 1-3 \
+        cpulimit -l 30 -z -- \
+        timeout --kill-after=1m 45m \
+        scryer-prolog \
         -g 'app__bsky__feed__getAuthorFeed_without_memoization("'"${author}"'", Prop).' \
         -g halt \
         ./src/app/bsky/feed/getAuthorFeed.pl

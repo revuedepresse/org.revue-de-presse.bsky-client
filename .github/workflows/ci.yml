@@ -17,7 +17,13 @@ jobs:
           key: org-revue-de-presse-bsky-${{ hashFiles('deps') }}
 
       - if: ${{ steps.restore-dependencies.outputs.cache-hit != 'true' }}
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          # components: clippy, rustfmt # Add components if needed
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
 
       - if: ${{ steps.restore-dependencies.outputs.cache-hit != 'true' }}
         name: Install system dependencies
