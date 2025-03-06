@@ -1,4 +1,4 @@
-:- module(repository_publications, [
+:- module(repository_publication, [
     by_criteria/2,
     count/1,
     insert/2,
@@ -9,7 +9,6 @@
 :- use_module(library(assoc)).
 :- use_module(library(charsio)).
 :- use_module(library(clpz)).
-:- use_module(library(crypto)).
 :- use_module(library(dcgs)).
 :- use_module(library(files)).
 :- use_module(library(lists)).
@@ -25,6 +24,7 @@
 ]).
 :- use_module('../pg/client', [
     encode_field_value/2,
+    hash/2,
     matching_criteria/2,
     query_result/2,
     query_result_from_file/3,
@@ -49,7 +49,7 @@
 count(Count) :-
     table(Table),
     append(
-       ["SELECT count(*) AS Count FROM public.", Table],
+       ["SELECT count(*) AS matching_records_count FROM public.", Table],
        Query
     ),
     query_result(
@@ -140,16 +140,17 @@ next_id(NextId) :-
         )),
         read_rows(TmpFile, MaxId).
 
-        %% table(-Table)
-        table("publication").
-
 %% by_criteria(+Criteria, -HeadersAndRows).
 by_criteria(handle(Handle)-uri(URI), HeadersAndRows) :-
-    append([Handle, "|", URI], UniqueIdentifier),
-    crypto_data_hash(UniqueIdentifier, Hash, [algorithm(sha256)]),
-    writeln(hash(Hash)),
-
-    chars_si(URI),
+    hash(handle(Handle)-uri(URI), Hash),
+    catch(
+        once((
+            chars_si(Handle),
+            chars_si(URI)
+        )),
+        CannotSelectByCriteria,
+        throw(invalid_unique_identifier(CannotSelectByCriteria))
+    ),
     select_clause(SelectClause),
     from_clause(FromClause),
     append([
@@ -183,27 +184,27 @@ by_criteria(handle(Handle)-uri(URI), HeadersAndRows) :-
 insert(
     row(
         _FullName,
-        Name,
+        Handle,
         PreQuotingText,
         Avatar,
         PreEncodingPayload,
         URI,
-        CreatedAt
+        CreatedAt,
+        RecordId
     ),
     InsertionResult
 ) :-
-    append([Name, "|", URI], UniqueIdentifier),
-    crypto_data_hash(UniqueIdentifier, Hash, [algorithm(sha256)]),
+    hash(handle(Handle)-uri(URI), Hash),
 
     count_matching_records(row(Hash), TotalMatchingRecords),
+    writeln([total_matching_publication_records|[TotalMatchingRecords]], true),
+
     encode_field_value(PreEncodingPayload, Payload),
     encode_field_value(PreQuotingText, Text),
 
     if_(
-        dif(1, TotalMatchingRecords),
-       (next_id(NextId),
-        number_chars(NextId, NextIdChars),
-        uuidv4_string(PublicId),
+        TotalMatchingRecords = 0,
+       (uuidv4_string(PublicId),
         table(Table),
         append(
             [
@@ -219,9 +220,9 @@ insert(
                 "   published_at        ",
                 ") VALUES (             ",
                 "'", PublicId, "',      ",
-                "'", NextIdChars, "',   ",
+                "'", RecordId, "',   ",
                 "'", Hash, "',          ",
-                "'", Name, "',          ",
+                "'", Handle, "',          ",
                 "'", Text, "',          ",
                 "'", Avatar, "',        ",
                 "'", URI, "',           ",
@@ -229,40 +230,30 @@ insert(
                 "'", CreatedAt, "'      ",
                 ");"
             ],
-            Query
+            InsertPublicationRecordQuery
         ),
+        writeln([insert_publication_query|[InsertPublicationRecordQuery]]),
         once(query_result(
-            Query,
+            InsertPublicationRecordQuery,
             InsertionResult
         ))),
         (table(Table),
         append(
             [
-                "SELECT                                     ",
-                "r.screen_name as string__name,             ",
-                "r.hash as string__hash,                    ",
-                "r.text as string__text,                    ",
-                "r.avatar_url as string__avatar,            ",
-                "r.document_id as string__status_id,        ",
-                "r.published_at as string__created_at       ",
-                "FROM public.", Table, " r                  ",
-                "WHERE                                      ",
-                "r.hash = '", Hash, "'               ;"
+                "SELECT                                 ",
+                "r.screen_name as string__name,         ",
+                "r.hash as string__hash,                ",
+                "r.text as string__text,                ",
+                "r.avatar_url as string__avatar,        ",
+                "r.document_id as string__status_id,    ",
+                "r.published_at as string__created_at   ",
+                "FROM public.", Table, " r              ",
+                "WHERE                                  ",
+                "r.hash = '", Hash, "'                  "
             ],
-            SelectQuery
+            SelectPublicationRecordsQuery
         ),
-        once(query_result(
-            SelectQuery,
-            SelectionResult
-        )),
-        chars_base64(DecodedBase64Payload, SelectionResult, []),
-
-        maplist(char_code, DecodedBase64Payload, DecodedBytes),
-        chars_utf8bytes(DecodedChars, DecodedBytes),
-        append([Prefix, ['"']], DecodedChars),
-        append([['"'], Suffix], Prefix),
-        to_json_chars(Suffix, JSONChars),
-        log_info([JSONChars]),
+        matching_criteria(SelectPublicationRecordsQuery, _HeadersAndRows),
         InsertionResult = ok)
     ).
 
@@ -270,11 +261,14 @@ insert(
     count_matching_records(row(Hash), Result) :-
         table(Table),
         append([
-            "SELECT COUNT(*) how_many_records ",
-            "FROM public.", Table, " r      ",
-            "WHERE r.hash = '", Hash, "'   ;"
+            "SELECT COUNT(*) how_many_records   ",
+            "FROM public.", Table, " r          ",
+            "WHERE r.hash = '", Hash, "'       ;"
         ], SelectQuery),
         once(query_result(
             SelectQuery,
             Result
         )).
+
+    %% table(-Table)
+    table("publication").

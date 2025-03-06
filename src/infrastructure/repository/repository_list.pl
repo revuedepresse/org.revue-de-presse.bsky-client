@@ -1,4 +1,4 @@
-:- module(repository_lists, [
+:- module(repository_list, [
     by_list_uri/2,
     by_list_uri_or_throw/2,
     count/1,
@@ -49,7 +49,7 @@
 count(Count) :-
     table(Table),
     append(
-       ["SELECT count(*) AS Count FROM public.", Table],
+       ["SELECT count(*) AS matching_records_count FROM public.", Table],
        Query
     ),
     query_result(
@@ -340,7 +340,6 @@ insert(row(ListName, Payload), InsertionResult) :-
             SelectionResult
         )),
         chars_base64(DecodedBase64Payload, SelectionResult, []),
-
         maplist(char_code, DecodedBase64Payload, DecodedBytes),
         chars_utf8bytes(DecodedChars, DecodedBytes),
         append([Prefix, ['"']], DecodedChars),

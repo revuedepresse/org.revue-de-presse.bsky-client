@@ -1,5 +1,6 @@
 :- module('getAuthorFeed', [
-    app__bsky__feed__getAuthorFeed/2
+    app__bsky__feed__getAuthorFeed/2,
+    app__bsky__feed__getAuthorFeed_without_memoization/2
 ]).
 
 :- use_module(library(assoc)).
@@ -106,7 +107,10 @@ send_request(Params, ResponsePairs, StatusCode) :-
         response(ResponseHeaders, Stream)
     ),
     read_stream(Stream, BodyChars),
-    writeln(status_code(StatusCode), true),
+    writeln([status_code|[StatusCode]], true),
+
+    current_time(T), phrase(format_time("%Y/%m/%d (%H:%M:%S)", T), Time),
+    writeln([current_time|[Time]], true),
 
     phrase(json_chars(pairs(ResponsePairs)), BodyChars),
     pairs_to_assoc(ResponsePairs, FeedAssoc),
@@ -125,7 +129,7 @@ send_request(Params, ResponsePairs, StatusCode) :-
             E,
             if_(
                 E = already_indexed_post(URI),
-                writeln(post(URI)-was_indexed_before, true),
+                writeln([post_indexed_before|[URI]], true),
                 throw(could_not_iterate_over_all_author_feed_post(E))
             )
         )
@@ -156,34 +160,38 @@ send_request(Params, ResponsePairs, StatusCode) :-
             ;   throw(failed_http_request(Endpoint, Options)) )
         )).
 
-:- dynamic(app__bsky__feed__getAuthorFeed_memoized/2).
-
-%% memoize_app__bsky__feed__getAuthorFeed_memoized(+Params, -Props).
-memoize_app__bsky__feed__getAuthorFeed_memoized(Params, Props) :-
-    catch(
-        send_request(Params, Pairs, StatusCode),
-        E,
-        if_(
-            E = failed_http_request(Message, Pairs, StatusCode),
-            (log_error([Message]), fail),
-            (log_error([E]), fail)
-        )
-    ),
-
-    if_(
-        dif(StatusCode, 200),
-       (by_key("message", Pairs, ErrorMessageChars),
-        chars_si(ErrorMessageChars),
-        atom_chars(ErrorMessage, ErrorMessageChars),
-        log_error([ErrorMessage]), fail),
-        Props = Pairs
-    ),
-    assertz(app__bsky__feed__getAuthorFeed_memoized(Params, Props)).
-
 %% app__bsky__feed__getAuthorFeed(+Params, -Props).
 %
 % [app.bsky.feed.getAuthorFeed](https://docs.bsky.app/docs/api/app-bsky-feed-get-author-feed)
 app__bsky__feed__getAuthorFeed(Params, Props) :-
     app__bsky__feed__getAuthorFeed_memoized(Params, Props)
     ->  true
-    ;   memoize_app__bsky__feed__getAuthorFeed_memoized(Params, Props).
+    ;   memoize_app__bsky__feed__getAuthorFeed(Params, Props).
+
+:- dynamic(app__bsky__feed__getAuthorFeed_memoized/2).
+
+    %% memoize_app__bsky__feed__getAuthorFeed_memoized(+Params, -Props).
+    memoize_app__bsky__feed__getAuthorFeed(Params, Props) :-
+        app__bsky__feed__getAuthorFeed_without_memoization(Params, Props),
+        assertz(app__bsky__feed__getAuthorFeed_memoized(Params, Props)).
+
+        %% app__bsky__feed__getAuthorFeed_without_memoization(+Params, -Props).
+        app__bsky__feed__getAuthorFeed_without_memoization(Params, Props) :-
+            catch(
+                send_request(Params, Pairs, StatusCode),
+                E,
+                if_(
+                    E = failed_http_request(Message, Pairs, StatusCode),
+                    (log_error([Message]), fail),
+                    (log_error([E]), fail)
+                )
+            ),
+
+            if_(
+                dif(StatusCode, 200),
+               (by_key("message", Pairs, ErrorMessageChars),
+                chars_si(ErrorMessageChars),
+                atom_chars(ErrorMessage, ErrorMessageChars),
+                log_error([ErrorMessage]), fail),
+                Props = Pairs
+            ).

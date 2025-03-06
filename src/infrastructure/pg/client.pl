@@ -1,5 +1,6 @@
 :- module(client, [
     encode_field_value/2,
+    hash/2,
     matching_criteria/2,
     read_rows/2,
     query_result_from_file/3,
@@ -7,6 +8,7 @@
 ]).
 
 :- use_module(library(charsio)).
+:- use_module(library(crypto)).
 :- use_module(library(lists)).
 :- use_module(library(files)).
 :- use_module(library(pio)).
@@ -49,6 +51,11 @@ encode_field_value(FieldValue, EncodedFieldValue) :-
     chars_utf8bytes(QuotedFieldValue, Utf8Bytes),
     maplist(char_code_at, Utf8Bytes, FieldUtf8Bytes),
     chars_base64(FieldUtf8Bytes, EncodedFieldValue, []).
+
+%% hash(+UniqueIdentifier, -Hash).
+hash(handle(Handle)-uri(URI), Hash) :-
+    append([Handle, "|", URI], UniqueIdentifier),
+    crypto_data_hash(UniqueIdentifier, Hash, [algorithm(sha256)]).
 
 %% is_digit(+Char).
 is_digit(Char) :-
@@ -141,7 +148,7 @@ query(Query, RemoveResultFile, TuplesOnly, TempFile, Result) :-
         (   maplist(is_digit, IntermediateResult)
         ->  number_chars(Result, IntermediateResult)
         ;   Result = IntermediateResult ),
-        Result = ok
+        Result = no_records_found
     ),
 
     if_(
