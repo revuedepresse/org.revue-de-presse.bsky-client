@@ -25,24 +25,25 @@ read_stream(Stream, _In, Out) :-
 
 %% writeln(+L, +Cond).
 writeln([Key|Args], Cond) :-
-    writeln('%':[Key|Args], Cond).
+    once(writeln('%':[Key|Args], Cond)).
 
-    %% writeln(+Term, +Cond).
-    writeln(Term, Cond) :-
-        if_(
-            Cond = true,
-            once(writeln_(Term, true)),
-            true
-        ).
+%% writeln(+Term, +Cond).
+writeln(Term, Cond) :-
+    \+ list_si(Term),
+    if_(
+        Cond = true,
+        once(writeln_(Term, true)),
+        true
+    ).
 
-        %% writeln_(+Term, +Cond).
-        writeln_(_Term, false) :- !.
-        writeln_(Term, true) :-
-            write_term(Term, [double_quotes(true)]),
-            nl.
-        writeln_(Term, true) :-
-            \+ chars_si(Term),
-            write(Term),
-            nl.
+    %% writeln_(+Term, +Cond).
+    writeln_(_Term, false) :- !.
+    writeln_(Term, true) :-
+        write_term(Term, [double_quotes(true)]),
+        nl.
+    writeln_(Term, true) :-
+        \+ chars_si(Term),
+        write(Term),
+        nl.
 
-        writeln(_Term) :- !.
+    writeln(_Term) :- !.

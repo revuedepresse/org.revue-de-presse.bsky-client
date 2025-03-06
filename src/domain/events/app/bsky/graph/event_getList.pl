@@ -7,10 +7,10 @@
 :- use_module(library(lists)).
 :- use_module(library(serialization/json)).
 
-:- use_module('../../../../../infrastructure/repository/repository_lists', [
+:- use_module('../../../../../infrastructure/repository/repository_list', [
     insert/2
 ]).
-:- use_module('../../../../../infrastructure/repository/repository_list_items', [
+:- use_module('../../../../../infrastructure/repository/repository_list_item', [
     event_by_screen_name/2,
     from_event/2,
     record_by_screen_name/2,
@@ -38,7 +38,7 @@
 %% onGetList(+ListUri, -Payload)
 onGetList(ListUri, Payload) :-
     catch(
-        (once(repository_lists:by_list_uri(ListUri, Rows)),
+        (once(repository_list:by_list_uri(ListUri, Rows)),
         ( ( nth0(0, Rows, FirstRow),
             get_assoc(payload, FirstRow, FirstRowPayload) )
         ->  chars_base64(Utf8BytesPayload, FirstRowPayload, []),
@@ -60,7 +60,7 @@ onGetList(ListUri, Payload) :-
         cannot_read_rows_selected_by(_Selector),
         catch(
             once((
-                repository_lists:insert(
+                repository_list:insert(
                     row(
                         ListUri,
                         Payload
