@@ -1,10 +1,13 @@
 # BlueSky client for Revue-de-presse.org
 
-:uk: [Revue-de-presse.org](https://github.com/revuedepresse) serves press titles curated daily from official French Media Bluesky accounts.
+:uk: [Revue-de-presse.org](https://revue-de-presse.org/) serves press titles curated daily from official French Media Bluesky accounts.
 
 All development is delivered under free and open-source software licence.
 
-:fr: [Revue-de-presse.org](https://github.com/revuedepresse) est un projet citoyen indépendant qui s'adresse à toute personne curieuse de l'actualité et de l'influence des médias sur l'opinion.
+:fr: [Revue-de-presse.org](https://revue-de-presse.org/) est un projet citoyen indépendant qui s'adresse à toute personne curieuse de l'actualité et de l'influence des médias sur l'opinion.
+
+The [Revue-de-presse.org Android app](https://play.google.com/store/apps/details?id=org.revue_2_presse) is available on Google Play 📱:  
+https://play.google.com/store/apps/details?id=org.revue_2_presse 🦉
 
 ## Requirements
 
