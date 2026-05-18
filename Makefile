@@ -118,6 +118,10 @@ test-scram: compose-up ### Round-trip SCRAM-SHA-256 against the containerized Po
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./src/infrastructure/pg/scram_test.pl -g 'run_test'
 
+test-pg-query: compose-up ### Round-trip bind-param INSERT/SELECT through connection.pl
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./src/infrastructure/pg/pg_query_test.pl -g 'run_test'
+
 probe-prod-auth: ### Read-only auth probe against the DB defined in .env.local
 	@set -a; . ./.env.local; set +a; \
 	scryer-prolog ./src/infrastructure/pg/probe.pl -g 'run'
