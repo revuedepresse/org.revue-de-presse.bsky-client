@@ -1,3 +1,6 @@
 .env.local
 !.env.local.dist
+.env.test
+!.env.test.dist
 var/tmp/*
+tmp/
