@@ -130,49 +130,34 @@ onGetAuthorFeed(Cursor, TotalPosts, Post, Index) :-
             writeln(publication_record_insertion(InsertionResult), true).
 
         %% try_inserting_status_record(+DisplayName, +Handle, +Text, +AuthorAvatar, +Payload, +URI, +CreatedAt, +Popularity, -RecordId),
+        %
+        % repository_status:insert/3 is now idempotent at the DB layer
+        % (UNIQUE (ust_hash) + ON CONFLICT DO NOTHING RETURNING ust_id),
+        % and always yields a ust_id - either freshly minted or fetched
+        % via the post-conflict SELECT. Popularity is always appended.
         try_inserting_status_record(
             DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
             likes(LikeCount)-reposts(RepostCount),
             RecordId
         ) :-
             writeln([likes_reposts|[likes(LikeCount)-reposts(RepostCount)]], true),
-            if_(
-                repository_status:id_hash(handle(Handle)-uri(URI), RecordId),
-               (repository_popularity:insert_without_unicity_check(
-                    row(RecordId, URI, LikeCount, RepostCount),
-                    _PopularityInsertionResult
-                )),
-                catch(
-                    (once(repository_status:by_criteria(handle(Handle)-uri(URI), Rows)),
-                    ( ( nth0(0, Rows, FirstRow),
-                        get_assoc(handle, FirstRow, PreExistingPostHandle) )
-                    ->  writeln([pre_existing_status_for_handle|[PreExistingPostHandle]], true)
-                    ;   throw(cannot_read_rows_selection) )),
-                    Cause,
-                    if_(
-                        Cause = cannot_read_rows_selection,
-                       (repository_status:insert(
-                            row(
-                                DisplayName,
-                                Handle,
-                                Text,
-                                AuthorAvatar,
-                                Payload,
-                                URI,
-                                CreatedAt
-                            ),
-                            InsertionResult,
-                            RecordId
-                        ),
-                        once(( ground(RecordId) ; throw(invalid_publication_id) )),
-                        writeln([inserted_record_id|[RecordId]], true),
-                        repository_popularity:insert_without_unicity_check(
-                            row(RecordId, URI, LikeCount, RepostCount),
-                            _PopularityInsertionResult
-                        ),
-                        writeln([status_record_insertion|[InsertionResult]], true)),
-                       (writeln(could_not_insert_status_with_uri(URI), true),
-                        throw(pre_existing_author_feed_post(Cause)))
-                    )
-                )
+            repository_status:insert(
+                row(
+                    DisplayName,
+                    Handle,
+                    Text,
+                    AuthorAvatar,
+                    Payload,
+                    URI,
+                    CreatedAt
+                ),
+                InsertionResult,
+                RecordId
+            ),
+            once(( ground(RecordId) ; throw(invalid_publication_id) )),
+            writeln([status_record_insertion|[InsertionResult]], true),
+            writeln([inserted_record_id|[RecordId]], true),
+            repository_popularity:insert_without_unicity_check(
+                row(RecordId, URI, LikeCount, RepostCount),
+                _PopularityInsertionResult
             ).

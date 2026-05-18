@@ -32,6 +32,7 @@
     query_result_from_file/3,
     read_rows/2
 ]).
+:- use_module('../pg/connection', [pg_query/3]).
 :- use_module('../../logger', [
     log_debug/1,
     log_error/1,
@@ -184,7 +185,18 @@ by_criteria(handle(Handle)-uri(URI), HeadersAndRows) :-
             SelectClause
         ).
 
-%% insert(+Row, -InsertionResult, NextIdChars).
+%% insert(+Row, -InsertionResult, -InsertedRecordId).
+%
+% Bind-parameter INSERT through the wire client. Idempotent via
+% UNIQUE (ust_hash) + ON CONFLICT DO NOTHING RETURNING ust_id.
+%
+% InsertionResult is one of:
+%   - new(UstIdChars)       a row was inserted; ust_id from RETURNING.
+%   - duplicate(Hash)       the hash already existed; ust_id fetched
+%                           via a follow-up SELECT.
+%
+% InsertedRecordId is the ust_id of the row (new or pre-existing) as
+% a list of chars, ready to be bound back into popularity inserts.
 insert(
     row(
         _FullName,
@@ -199,53 +211,40 @@ insert(
     InsertedRecordId
 ) :-
     hash(handle(Handle)-uri(URI), Hash),
-
-    count_matching_records(row(Hash), TotalMatchingRecords),
-    writeln([total_matching_records|[TotalMatchingRecords]], true),
-
     encode_field_value(PreQuotingText, Text),
     encode_field_value(PreEncodingPayload, Payload),
+    status_insert_sql(SQL),
+    Params = [Hash, Handle, Handle, Text, Avatar, Payload, URI, "dummy_access_token", "true", CreatedAt],
+    pg_query(SQL, Params, Reply),
+    interpret_status_insert(Reply, Hash, InsertionResult, InsertedRecordId).
 
-    if_(
-        TotalMatchingRecords = 0,
-       (table(Table),
-        append(
-            [
-                "INSERT INTO public.", Table, " (",
-                "   ust_hash,           ",
-                "   ust_name,           ",
-                "   ust_full_name,      ",
-                "   ust_text,           ",
-                "   ust_avatar,         ",
-                "   ust_api_document,   ",
-                "   ust_status_id,      ",
-                "   ust_access_token,   ",
-                "   is_published,       ",
-                "   ust_created_at      ",
-                ") VALUES (             ",
-                "'", Hash, "',          ",
-                "'", Handle, "',        ",
-                "'", Handle, "',        ",
-                "'", Text, "',          ",
-                "'", Avatar, "',        ",
-                "'", Payload, "',       ",
-                "'", URI, "',           ",
-                "'dummy_access_token',  ",
-                "   true,               ",
-                "'", CreatedAt, "'      ",
-                ");"
-            ],
-            Query
-        ),
-        once(query_result(
-            Query,
-            InsertionResult
-        ))),
-        InsertionResult = ok
-    ),
+status_insert_sql(SQL) :-
+    table(Table),
+    append(
+        [
+            "INSERT INTO public.", Table, " (",
+            "ust_hash, ust_name, ust_full_name, ust_text, ust_avatar, ",
+            "ust_api_document, ust_status_id, ust_access_token, is_published, ust_created_at",
+            ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::boolean, $10) ",
+            "ON CONFLICT (ust_hash) DO NOTHING ",
+            "RETURNING ust_id::text"
+        ],
+        SQL
+    ).
 
-    by_hash(Hash, Assoc),
-    get_assoc(id, Assoc, InsertedRecordId).
+interpret_status_insert(data([[UstIdChars|_]|_]), _Hash, new(UstIdChars), UstIdChars) :-
+    !, writeln([status_inserted|[UstIdChars]], true).
+interpret_status_insert(data([]), Hash, duplicate(Hash), UstIdChars) :-
+    !,
+    writeln([status_duplicate_skipped|[Hash]], true),
+    table(Table),
+    append(["SELECT ust_id::text FROM public.", Table, " WHERE ust_hash = $1"], LookupSQL),
+    pg_query(LookupSQL, [Hash], Reply),
+    (   Reply = data([[UstIdChars|_]|_])
+    ->  true
+    ;   throw(status_lookup_after_conflict_returned(Reply)) ).
+interpret_status_insert(error(Err), _, _, _) :-
+    throw(pg_error(Err)).
 
     %% id_hash(+UniqueIdentifier, -RecordId, -Result).
     id_hash(UniqueIdentifier, RecordId, Result) :-
