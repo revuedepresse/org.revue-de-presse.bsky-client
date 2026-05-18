@@ -122,6 +122,10 @@ test-pg-query: compose-up ### Round-trip bind-param INSERT/SELECT through connec
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./src/infrastructure/pg/pg_query_test.pl -g 'run_test'
 
+test-idempotence: compose-up ### Verify ON CONFLICT (hash) DO NOTHING on the publication table
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./src/infrastructure/pg/idempotence_test.pl -g 'run_test'
+
 probe-prod-auth: ### Read-only auth probe against the DB defined in .env.local
 	@set -a; . ./.env.local; set +a; \
 	scryer-prolog ./src/infrastructure/pg/probe.pl -g 'run'

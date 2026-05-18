@@ -99,6 +99,11 @@ onGetAuthorFeed(Cursor, TotalPosts, Post, Index) :-
         %%  +Popularity,
         %%  -InsertionResult
         %% ),
+        %
+        % Idempotence is enforced at the DB layer via UNIQUE (hash);
+        % repository_publication:insert/2 uses INSERT ... ON CONFLICT DO
+        % NOTHING RETURNING legacy_id and tells us whether a row was
+        % actually written (new(_)) or skipped (duplicate(_)).
         try_inserting_publication_record(
             DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
             likes(LikeCount)-reposts(RepostCount),
@@ -109,34 +114,20 @@ onGetAuthorFeed(Cursor, TotalPosts, Post, Index) :-
                 likes(LikeCount)-reposts(RepostCount),
                 RecordId
             ),
-            catch(
-                (once(repository_publication:by_criteria(handle(Handle)-uri(URI), Rows)),
-                ( ( nth0(0, Rows, FirstRow),
-                    get_assoc(handle, FirstRow, PreExistingPostHandle) )
-                ->  writeln(['Pre-existing publication for handle'|[PreExistingPostHandle]], true)
-                ;   writeln(['No pre-existing publication for handle'|[Handle]], true),
-                    throw(cannot_read_rows_selection))),
-                Cause,
-                if_(
-                    Cause = cannot_read_rows_selection,
-                   (repository_publication:insert(
-                        row(
-                            DisplayName,
-                            Handle,
-                            Text,
-                            AuthorAvatar,
-                            Payload,
-                            URI,
-                            CreatedAt,
-                            RecordId
-                        ),
-                        InsertionResult
-                    ),
-                    writeln(publication_record_insertion(InsertionResult), true)),
-                   (writeln(could_not_insert_publication_with_uri(URI), true),
-                    throw(pre_existing_author_feed_post(Cause)))
-                )
-            ).
+            repository_publication:insert(
+                row(
+                    DisplayName,
+                    Handle,
+                    Text,
+                    AuthorAvatar,
+                    Payload,
+                    URI,
+                    CreatedAt,
+                    RecordId
+                ),
+                InsertionResult
+            ),
+            writeln(publication_record_insertion(InsertionResult), true).
 
         %% try_inserting_status_record(+DisplayName, +Handle, +Text, +AuthorAvatar, +Payload, +URI, +CreatedAt, +Popularity, -RecordId),
         try_inserting_status_record(

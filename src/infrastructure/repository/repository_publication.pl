@@ -30,6 +30,7 @@
     query_result_from_file/3,
     read_rows/2
 ]).
+:- use_module('../pg/connection', [pg_query/3]).
 :- use_module('../../logger', [
     log_debug/1,
     log_info/1
@@ -181,6 +182,14 @@ by_criteria(handle(Handle)-uri(URI), HeadersAndRows) :-
         ).
 
 %% insert(+Row, -InsertionResult).
+%
+% Bind-parameter INSERT through the wire client. Idempotent at the DB
+% layer via ON CONFLICT (hash) DO NOTHING; legacy_id is RETURNED on
+% successful insert, empty rows on duplicate.
+%
+% InsertionResult is one of:
+%   - new(LegacyIdChars)    a row was inserted, RETURNING gave us its legacy_id.
+%   - duplicate(Hash)       the hash already existed; no row added.
 insert(
     row(
         _FullName,
@@ -195,67 +204,33 @@ insert(
     InsertionResult
 ) :-
     hash(handle(Handle)-uri(URI), Hash),
-
-    count_matching_records(row(Hash), TotalMatchingRecords),
-    writeln([total_matching_publication_records|[TotalMatchingRecords]], true),
-
+    uuidv4_string(PublicId),
     encode_field_value(PreEncodingPayload, Payload),
     encode_field_value(PreQuotingText, Text),
+    publication_insert_sql(SQL),
+    Params = [PublicId, RecordId, Hash, Handle, Text, Avatar, URI, Payload, CreatedAt],
+    pg_query(SQL, Params, Reply),
+    interpret_publication_insert(Reply, Hash, InsertionResult).
 
-    if_(
-        TotalMatchingRecords = 0,
-       (uuidv4_string(PublicId),
-        table(Table),
-        append(
-            [
-                "INSERT INTO public.", Table, " (",
-                "   id,                 ",
-                "   legacy_id,          ",
-                "   hash,               ",
-                "   screen_name,        ",
-                "   text,               ",
-                "   avatar_url,         ",
-                "   document_id,        ",
-                "   document,           ",
-                "   published_at        ",
-                ") VALUES (             ",
-                "'", PublicId, "',      ",
-                "'", RecordId, "',   ",
-                "'", Hash, "',          ",
-                "'", Handle, "',          ",
-                "'", Text, "',          ",
-                "'", Avatar, "',        ",
-                "'", URI, "',           ",
-                "'", Payload, "',       ",
-                "'", CreatedAt, "'      ",
-                ");"
-            ],
-            InsertPublicationRecordQuery
-        ),
-        writeln([insert_publication_query|[InsertPublicationRecordQuery]]),
-        once(query_result(
-            InsertPublicationRecordQuery,
-            InsertionResult
-        ))),
-        (table(Table),
-        append(
-            [
-                "SELECT                                 ",
-                "r.screen_name as string__name,         ",
-                "r.hash as string__hash,                ",
-                "r.text as string__text,                ",
-                "r.avatar_url as string__avatar,        ",
-                "r.document_id as string__status_id,    ",
-                "r.published_at as string__created_at   ",
-                "FROM public.", Table, " r              ",
-                "WHERE                                  ",
-                "r.hash = '", Hash, "'                  "
-            ],
-            SelectPublicationRecordsQuery
-        ),
-        matching_criteria(SelectPublicationRecordsQuery, _HeadersAndRows),
-        InsertionResult = ok)
+publication_insert_sql(SQL) :-
+    table(Table),
+    append(
+        [
+            "INSERT INTO public.", Table, " (",
+            "id, legacy_id, hash, screen_name, text, avatar_url, document_id, document, published_at",
+            ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ",
+            "ON CONFLICT (hash) DO NOTHING ",
+            "RETURNING legacy_id"
+        ],
+        SQL
     ).
+
+interpret_publication_insert(data([[LegacyIdChars|_]|_]), _Hash, new(LegacyIdChars)) :-
+    !, writeln([publication_inserted|[LegacyIdChars]], true).
+interpret_publication_insert(data([]), Hash, duplicate(Hash)) :-
+    !, writeln([publication_duplicate_skipped|[Hash]], true).
+interpret_publication_insert(error(Err), _, _) :-
+    throw(pg_error(Err)).
 
     %%% count_matching_records(+Row, -Result).
     count_matching_records(row(Hash), Result) :-
