@@ -30,8 +30,10 @@
     query_result_from_file/3,
     read_rows/2
 ]).
+:- use_module('../pg/connection', [pg_query/3]).
 :- use_module('../../logger', [
     log_debug/1,
+    log_error/1,
     log_info/1
 ]).
 :- use_module('../../os_ext', [remove_temporary_file/1]).
@@ -246,6 +248,9 @@ insert_without_unicity_check(Row, InsertionResult) :-
     ;   writeln([cannot_insert_popularity_without_unicity_check(Row)], true).
 
 %% do_insert_without_unicity_check(+Row, -InsertionResult).
+%
+% Bind-parameter INSERT via the wire client. Append-only by design;
+% no UNIQUE constraint or ON CONFLICT clause.
 do_insert_without_unicity_check(
     row(
         RecordId,
@@ -255,35 +260,31 @@ do_insert_without_unicity_check(
     ),
     InsertionResult
 ) :-
-    table(Table),
     uuidv4_string(Id),
-    number_chars(Likes, LikesChars),
-    number_chars(RePosts, RePostsChars),
+    coerce_chars(Likes, LikesChars),
+    coerce_chars(RePosts, RePostsChars),
+    coerce_chars(RecordId, RecordIdChars),
+    popularity_insert_sql(SQL),
+    pg_query(SQL, [Id, RecordIdChars, URI, LikesChars, RePostsChars], Reply),
+    interpret_popularity_insert(Reply, InsertionResult).
+
+popularity_insert_sql(SQL) :-
+    table(Table),
     append(
         [
             "INSERT INTO public.", Table, " (",
-            "   id,                 ",
-            "   status_id,          ",
-            "   publication_id,     ",
-            "   total_favorites,    ",
-            "   total_retweets,     ",
-            "   checked_at          ",
-            ") VALUES (             ",
-            "'", Id, "',            ",
-            "'", RecordId, "',      ",
-            "'", URI, "',           ",
-            "'", LikesChars, "',    ",
-            "'", RePostsChars, "',  ",
-            "NOW()                  ",
-            ");"
+            "id, status_id, publication_id, total_favorites, total_retweets, checked_at",
+            ") VALUES ($1, $2, $3, $4::integer, $5::integer, NOW())"
         ],
-        Query
-    ),
-    writeln([insert_popularity_query|[Query]]),
-    once(query_result(
-        Query,
-        InsertionResult
-    )).
+        SQL
+    ).
+
+coerce_chars(N, Chars) :- integer(N), !, number_chars(N, Chars).
+coerce_chars(A, Chars) :- atom(A), !, atom_chars(A, Chars).
+coerce_chars(V, V).
+
+interpret_popularity_insert(data(_), ok) :- !.
+interpret_popularity_insert(error(Err), _) :- throw(pg_error(Err)).
 
     %%% count_matching_records(+Row, -Result).
     count_matching_records(row(URI), Result) :-

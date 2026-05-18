@@ -126,6 +126,10 @@ test-idempotence: compose-up ### Verify ON CONFLICT (hash) DO NOTHING on the pub
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./src/infrastructure/pg/idempotence_test.pl -g 'run_test'
 
+test-repository-inserts: compose-up ### Exercise repository_status:insert/3 and repository_popularity:do_insert_without_unicity_check/2 end-to-end
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./src/infrastructure/pg/repository_inserts_test.pl -g 'run_test'
+
 probe-prod-auth: ### Read-only auth probe against the DB defined in .env.local
 	@set -a; . ./.env.local; set +a; \
 	scryer-prolog ./src/infrastructure/pg/probe.pl -g 'run'
