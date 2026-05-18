@@ -1,7 +1,7 @@
 # https://hub.docker.com/r/arm64v8/rust/tags?name=slim-bulls
 FROM arm64v8/rust:1.85-slim-bullseye
 
-COPY ./scryer-prolog /opt/local/scryer-prolog
+COPY ./deps/scryer-prolog /opt/local/scryer-prolog
 COPY ./ /var/www/org.revue-de-presse.bsky
 
 WORKDIR /opt/local/scryer-prolog
