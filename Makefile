@@ -104,3 +104,20 @@ list-api-spec-values: ### List API spec values
 
 test: ## Test the client
 	@/bin/bash -c '. fun.sh && test'
+
+compose-up: ### Start the test Postgres container (waits until healthy)
+	@docker compose up -d postgres
+	@printf 'Waiting for postgres to become healthy '
+	@until [ "$$(docker compose ps --format '{{.Service}} {{.Health}}' 2>/dev/null | awk '$$1=="postgres"{print $$2}')" = "healthy" ]; do printf '.'; sleep 1; done
+	@echo ' ok'
+
+compose-down: ### Stop the test Postgres container and drop its volume
+	@docker compose down -v
+
+test-scram: compose-up ### Round-trip SCRAM-SHA-256 against the containerized Postgres
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./src/infrastructure/pg/scram_test.pl -g 'run_test'
+
+probe-prod-auth: ### Read-only auth probe against the DB defined in .env.local
+	@set -a; . ./.env.local; set +a; \
+	scryer-prolog ./src/infrastructure/pg/probe.pl -g 'run'
