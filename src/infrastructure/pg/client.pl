@@ -9,23 +9,16 @@
 
 :- use_module(library(charsio)).
 :- use_module(library(crypto)).
+:- use_module(library(format)).
 :- use_module(library(lists)).
 :- use_module(library(files)).
 :- use_module(library(pio)).
-:- use_module(library(os)).
-:- use_module(library(si)).
 :- use_module(library(reif)).
+:- use_module(library(si)).
 
 :- use_module('../repository/repository_dcgs', [
     rows//1,
     to_json/3
-]).
-:- use_module('../../configuration', [
-    database_db_name/1,
-    database_username/1,
-    database_port/1,
-    database_password/1,
-    database_host/1
 ]).
 :- use_module('../../logger', [
     log_debug/1,
@@ -45,7 +38,13 @@
     writeln/2
 ]).
 
+:- use_module('connection', [pg_query_simple/2]).
+
 %% encode_field_value(+FieldValue, -EncodedFieldValue)
+%
+% Legacy serializer kept for the existing INSERT-by-string-concat paths.
+% New hot-path callers pass values through bind parameters and do not
+% need this.
 encode_field_value(FieldValue, EncodedFieldValue) :-
     write_term_to_chars(FieldValue, [quoted(true), double_quotes(true)], QuotedFieldValue),
     chars_utf8bytes(QuotedFieldValue, Utf8Bytes),
@@ -62,140 +61,90 @@ is_digit(Char) :-
     char_type(Char, numeric).
 
 %% query_result(+Query, -Result).
+%
+% Executes Query through the wire client and adapts the response to the
+% legacy contract:
+%   - integer       if the first cell of the first row is all digits.
+%   - chars         for any other non-empty single-cell result.
+%   - no_records_found  if the query returned no rows or no result.
+%   - ok            for non-row-producing statements.
 query_result(Query, Result) :-
-    RemoveResultFile = true,
-    query(Query, RemoveResultFile, true, _TempFile, Result).
+    writeln(running_query(Query)),
+    pg_query_simple(Query, Reply),
+    adapt_simple_result(Reply, Result).
+
+adapt_simple_result(ok, ok) :- !.
+adapt_simple_result([], no_records_found) :- !.
+adapt_simple_result(data(_Headers, []), no_records_found) :- !.
+adapt_simple_result(data(_Headers, [[Cs|_]|_]), Result) :-
+    !,
+    (   Cs == null
+    ->  Result = no_records_found
+    ;   ( maplist(is_digit, Cs)
+        ->  number_chars(Result, Cs)
+        ;   Result = Cs ) ).
+adapt_simple_result(error(Err), _) :-
+    throw(pg_error(Err)).
 
 %% query_result_from_file(+Query, +TuplesOnly, -TempFile).
+%
+% Runs Query through the wire client and writes the result rows to a
+% tempfile in the legacy pipe-delimited format expected by
+% repository_dcgs:rows//1, so the existing read_rows/2 callers don't
+% need to change. When TuplesOnly is false, the header row is included
+% as the first line.
 query_result_from_file(Query, TuplesOnly, TempFile) :-
-    RemoveResultFile = false,
-    query(Query, RemoveResultFile, TuplesOnly, TempFile, _Result).
-
-%% query(+Query, +RemoveResultFile, +TuplesOnly, -TempFile, -Result).
-query(Query, RemoveResultFile, TuplesOnly, TempFile, Result) :-
-    database_db_name(DbName),
-    database_username(Username),
-    database_port(Port),
-    database_password(Password),
-    database_host(Host),
-
-    temporary_file("query_before_execution", QueryFile),
-    once(open(QueryFile, write, QueryFileStream, [type(text)])),
-    write_term(QueryFileStream, Query, [double_quotes(true)]),
-    close(QueryFileStream),
-
-    char_code(AntiSlash, 92),
-    char_code(DoubleQuote, 34),
+    writeln(running_query(Query)),
+    pg_query_simple(Query, Reply),
+    extract_headers_and_rows(Reply, Headers, Rows),
     temporary_file("query", TempFile),
+    once(open(TempFile, write, OutStream, [type(text)])),
+    (   TuplesOnly == false
+    ->  write_piped_row(OutStream, Headers)
+    ;   true ),
+    maplist(write_piped_row(OutStream), Rows),
+    close(OutStream).
 
-    writeln(creating_temporary_file(TempFile)-for_query(Query)-tuples_only(TuplesOnly)),
+extract_headers_and_rows(ok, [], []).
+extract_headers_and_rows([], [], []).
+extract_headers_and_rows(data(Headers, Rows), Headers, Rows).
+extract_headers_and_rows(error(Err), _, _) :-
+    throw(pg_error(Err)).
 
-    if_(
-        TuplesOnly = true,
-        TuplesOnlyOption = "--tuples-only ",
-        TuplesOnlyOption = ""
-    ),
+write_piped_row(Stream, Fields) :-
+    write_fields_piped(Stream, Fields),
+    format(Stream, "~n", []).
 
-    append(
-        [
-            "psql ",
-            TuplesOnlyOption,
-            "--csv ",
-            "--dbname='", DbName, "' ",
-            "--host='", Host, "' ",
-            "--no-align ",
-            "--no-readline ",
-            "--output='", TempFile, "' ",
-            "--port='", Port, "' ",
-            "--quiet ",
-            "--set ON_ERROR_STOP=1 ",
-            "--username='", Username, "' "
-        ],
-        CommandSuffix
-    ),
+write_fields_piped(_, []).
+write_fields_piped(Stream, [F]) :- !,
+    write_field(Stream, F).
+write_fields_piped(Stream, [F|Fs]) :-
+    write_field(Stream, F),
+    format(Stream, "|", []),
+    write_fields_piped(Stream, Fs).
 
-    (   append([
-            [AntiSlash], "cat ", QueryFile, " | ",
-            % Removing leading double quotes
-            "sed -E 's#^", [DoubleQuote], "##g' | ",
-            % Removing antislashes
-            "sed -E 's#", [AntiSlash], [AntiSlash], "##g' | ",
-            % Removing trailing double quotes
-            "sed -E 's#", [DoubleQuote], "$##g' | ",
-            "PGPASSWORD='", Password, "' ",
-            CommandSuffix
-        ], QueryCommand)
-    ->  true
-    ;   throw(cannot_execute_sql_query) ),
+write_field(Stream, null) :- !,
+    format(Stream, "", []).
+write_field(Stream, Cs) :-
+    format(Stream, "~s", [Cs]).
 
-    shell(QueryCommand, QueryExecutionStatus),
-
-    (   QueryExecutionStatus \= 0
-    ->  write_term(cmd:CommandSuffix, [quoted(false),double_quotes(true)]),
-        throw(unexpected_command_exit_code('Failed to execute query'))
-    ;   remove_temporary_file(QueryFile) ),
-
-    open(TempFile, read, Stream, [type(text)]),
-    read_stream(Stream, ReadResult),
-
-    char_code(Eol, 10),
-    (   append([IntermediateResult, [Eol]], ReadResult)
-    ->  true % results list end with EOL
-    ;   IntermediateResult = ReadResult ),
-
-    if_(
-        dif(IntermediateResult, []),
-        (   maplist(is_digit, IntermediateResult)
-        ->  number_chars(Result, IntermediateResult)
-        ;   Result = IntermediateResult ),
-        Result = no_records_found
-    ),
-
-    if_(
-        RemoveResultFile = true,
-        remove_temporary_file(TempFile),
-        true
-    ).
-
+%% matching_criteria(+Criteria, -HeadersAndRows).
+%
+% Direct path: one simple-protocol query returning headers + rows in
+% the wire client's structured shape; convert to the assoc form
+% repositories consume.
 matching_criteria(Criteria, HeadersAndRows) :-
-    append(
-        [
-            Criteria,
-            "LIMIT 0;"
-        ],
-        QueryHeaders
-    ),
-
-    once(query_result_from_file(
-        QueryHeaders,
-        false,
-        HeadersOnlyTempFile
-    )),
-    read_rows(HeadersOnlyTempFile, HeadersRows),
-
-    nth0(0, HeadersRows, Headers),
-    append(
-        [
-            Criteria,
-            "LIMIT ALL;"
-        ],
-        CriteriaWithoutLimit
-    ),
-    writeln(selection_query(CriteriaWithoutLimit)),
-
-    once(query_result_from_file(
-        CriteriaWithoutLimit,
-        true,
-        ByCriteriaTemporaryFile
-    )),
-    (   read_rows(ByCriteriaTemporaryFile, Rows)
-    ->  true
-    ;   throw(cannot_read_rows_selection) ),
-
+    append([Criteria, "LIMIT ALL;"], SQL),
+    writeln(selection_query(SQL)),
+    pg_query_simple(SQL, Reply),
+    extract_headers_and_rows(Reply, Headers, Rows),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
 %% read_rows(+TmpFile, -Rows).
+%
+% Parses a tempfile (written by query_result_from_file/3) into Rows
+% via the existing repository_dcgs:rows//1 DCG.
 read_rows(TmpFile, Rows) :-
     once(open(TmpFile, read, Stream, [type(text)])),
     once((
