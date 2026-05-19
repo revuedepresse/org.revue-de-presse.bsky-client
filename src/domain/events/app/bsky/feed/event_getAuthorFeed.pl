@@ -67,19 +67,23 @@ onGetAuthorFeed(Cursor, TotalPosts, Post, Index) :-
     %
     %% onGetAuthorFeed(+Cursor, +Post)
     onGetAuthorFeed(Cursor, Post) :-
+        writeln([step|insert_record_args], true),
         insert_record_args(
             Post,
             DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
             likes(LikeCount)-reposts(RepostCount)
         ),
+        writeln([step|by_indexed_at], true),
         by_indexed_at(indexed_at(Cursor)-handle(Handle), Rows),
         length(Rows, N),
+        writeln([step|check_already_indexed], true),
         if_(
             N = 0,
             writeln([no_records_found_by_cursor|[Cursor]], true),
             throw(already_indexed_post(uri(URI)))
         ),
 
+        writeln([step|try_inserting_publication_record], true),
         try_inserting_publication_record(
             DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
             likes(LikeCount)-reposts(RepostCount),
