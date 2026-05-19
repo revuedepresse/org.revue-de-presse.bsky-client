@@ -233,21 +233,14 @@ follow_or_finalize(NextCursor, ParamValue) :-
 %% app__bsky__feed__getAuthorFeed(+Params, -Props).
 %
 % [app.bsky.feed.getAuthorFeed](https://docs.bsky.app/docs/api/app-bsky-feed-get-author-feed)
+%
+% Pagination walks distinct cursors, so the per-(actor,cursor) cache
+% would never hit on a normal traversal; the kept-around dynamic
+% memo table also exceeded scryer's 255 max_arity on every real
+% response and crashed the worker. The predicate now delegates
+% straight to the network call.
 app__bsky__feed__getAuthorFeed(Params, Props) :-
-    once(getAuthorFeed_memoized_or_compute(Params, Props)).
-
-getAuthorFeed_memoized_or_compute(Params, Props) :-
-    app__bsky__feed__getAuthorFeed_memoized(Params, Props).
-getAuthorFeed_memoized_or_compute(Params, Props) :-
-    \+ app__bsky__feed__getAuthorFeed_memoized(Params, Props),
-    memoize_app__bsky__feed__getAuthorFeed(Params, Props).
-
-:- dynamic(app__bsky__feed__getAuthorFeed_memoized/2).
-
-    %% memoize_app__bsky__feed__getAuthorFeed_memoized(+Params, -Props).
-    memoize_app__bsky__feed__getAuthorFeed(Params, Props) :-
-        app__bsky__feed__getAuthorFeed_without_memoization(Params, Props),
-        assertz(app__bsky__feed__getAuthorFeed_memoized(Params, Props)).
+    app__bsky__feed__getAuthorFeed_without_memoization(Params, Props).
 
         %% app__bsky__feed__getAuthorFeed_without_memoization(+Params, -Props).
         app__bsky__feed__getAuthorFeed_without_memoization(Params, Props) :-
