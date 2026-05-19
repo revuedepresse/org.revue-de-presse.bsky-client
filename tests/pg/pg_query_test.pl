@@ -4,7 +4,7 @@
 :- use_module(library(lists)).
 :- use_module(library(os)).
 
-:- use_module('connection', [
+:- use_module('../../src/infrastructure/pg/connection', [
     pg_connection/1,
     pg_query/3,
     pg_query_simple/2

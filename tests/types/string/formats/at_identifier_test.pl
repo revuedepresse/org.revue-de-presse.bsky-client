@@ -1,9 +1,9 @@
 :- module(at_identifier_test, [main/0]).
 
 :- use_module(library(os)).
-:- use_module(at_identifier).
+:- use_module('../../../../src/types/string/formats/at_identifier').
 
-:- use_module('../../../assert', [
+:- use_module('../../../../src/assert', [
     assert/4,
     run_test_suite/2
 ]).

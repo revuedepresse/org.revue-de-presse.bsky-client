@@ -4,7 +4,7 @@
 :- use_module(library(lists)).
 :- use_module(library(os)).
 
-:- use_module('connection', [pg_query/3, pg_query_simple/2]).
+:- use_module('../../src/infrastructure/pg/connection', [pg_query/3, pg_query_simple/2]).
 
 env_or_die(Name) :-
     (   getenv(Name, _)
