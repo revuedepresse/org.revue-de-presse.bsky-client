@@ -6,6 +6,17 @@
     must_have_valid_percent_encoding/1
 ]).
 
+/**
+DID identifier validator.
+
+Implements [AT Protocol DID Identifier
+Syntax](https://atproto.com/specs/did#at-protocol-did-identifier-syntax):
+ASCII-only character set, mandatory `did:` prefix, three
+colon-separated segments (`did:<method>:<identifier>`), allowed
+characters, allowed percent-encoded codes, and a small allow
+list of supported methods (`web`, `plc`).
+*/
+
 :- use_module(library(clpz)).
 :- use_module(library(dif)).
 :- use_module(library(lists)).
@@ -21,7 +32,14 @@
 :- use_module(same_si, [same_si/2]).
 :- use_module(split_subject, [split_subject/3]).
 
-% See [AT Protocol DID Identifier Syntax](https://atproto.com/specs/did#at-protocol-did-identifier-syntax)
+%% is_valid_did_identifier(+Subject)
+%
+% Succeed iff `Subject` satisfies every step of the [AT
+% Protocol DID Identifier
+% Syntax](https://atproto.com/specs/did#at-protocol-did-identifier-syntax):
+% ASCII-only, allowed character set, `"did:"` prefix, valid
+% method format, valid identifier format, and a method we
+% support.
 is_valid_did_identifier(Subject) :-
     has_only_ascii_chars(Subject),
     has_only_allowed_chars(Subject),
@@ -30,7 +48,12 @@ is_valid_did_identifier(Subject) :-
     must_have_valid_identifier_format(Subject),
     must_be_supported_method(Subject).
 
-% has_only_allowed_chars(+Subject).
+%% has_only_allowed_chars(+Subject)
+%
+% Succeed iff every character of `Subject` is in the DID
+% allowed alphabet — ASCII alphanumerics plus `:`, `.`, `-`,
+% `%`, `_`. Throws `type_error/1` on the first disallowed
+% character.
 has_only_allowed_chars(Subject) :-
     once(has_only_allowed_chars_check(Subject)).
 
@@ -58,7 +81,11 @@ must_be_allowed_char(Char) :-
     ;   member(Code, [ColonCode,DotCode,HyphenCode,PercentSignCode,UnderscoreCode])
     ).
 
-% must_have_valid_identifier_format(+Subject).
+%% must_have_valid_identifier_format(+Subject)
+%
+% Verify the third segment of a `did:<method>:<id>` identifier:
+% allowed character set, no trailing `%`, and well-formed
+% percent encoding.
 must_have_valid_identifier_format(Subject) :-
     split_subject(Subject, ':', Segments),
     length(Segments, SegmentsLength),
@@ -94,6 +121,11 @@ must_have_at_least_n_characters(N, Subject) :-
     NChars #< N,
     throw(error_must_have_at_least_n_characters(N)).
 
+%% must_have_valid_percent_encoding(+Subject)
+%
+% Split `Subject` on `%`, then verify that each segment that
+% follows a `%` is at least two characters long and that the
+% leading two characters form an allowed hex code.
 must_have_valid_percent_encoding(Subject) :-
     split_subject(Subject, '%', Segments),
     Subject = [FirstChar|_Rest],
@@ -175,7 +207,10 @@ must_not_be_empty(Subject) :-
     \+ dif_si(N, 0),
     throw(error_must_not_be_empty).
 
-% must_have_valid_method_format(+Subject).
+%% must_have_valid_method_format(+Subject)
+%
+% Verify the second segment of a `did:<method>:<id>` identifier
+% is a non-empty lowercase-alpha-only string.
 must_have_valid_method_format(Subject) :-
     split_subject(Subject, ':', Segments),
     length(Segments, SegmentsLength),

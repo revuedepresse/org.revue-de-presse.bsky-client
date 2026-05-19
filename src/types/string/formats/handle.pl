@@ -14,6 +14,19 @@
     with_last_label_distinct_from_disallowed_top_level_domain/1
 ]).
 
+/**
+Handle validator for the AT Protocol.
+
+Implements every rule from the [Handle
+Identifier Syntax](https://atproto.com/specs/handle): length
+limits (≤ 253 chars overall, 1–63 per label), at least two
+dot-separated labels, ASCII letters/digits/hyphens only, no
+leading nor trailing dots, no leading nor trailing hyphens,
+no leading digit on the final label, and a configurable
+disallowed-TLD list whose `.test` entry is only enforced in
+production.
+*/
+
 :- use_module(library(debug)).
 :- use_module(library(charsio)).
 :- use_module(library(lists)).
@@ -34,10 +47,19 @@
 :- use_module(must_not_start_with, [must_not_start_with/2]).
 :- use_module(split_subject, [split_subject/3]).
 
-% See [String Formats](https://atproto.com/specs/lexicon#string-formats)
-% See [Handle Identifier Syntax](https://atproto.com/specs/handle)
+%% split_subject(+Subject, +Separator, -Labels)
 %
-% is_valid_handle(+Subject).
+% Re-exported from [[split_subject]]. Splits `Subject` on
+% `Separator` into a list of labels.
+
+%% is_valid_handle(+Subject)
+%
+% Succeed iff `Subject` is a valid AT Protocol handle. See
+% [String Formats](https://atproto.com/specs/lexicon#string-formats)
+% and [Handle Identifier
+% Syntax](https://atproto.com/specs/handle). The check is the
+% conjunction of every other exported predicate in this
+% module.
 is_valid_handle(Subject) :-
     has_valid_length(Subject),
     has_two_labels_at_least(Subject),
@@ -58,7 +80,11 @@ with_labels_having_allowed_chars(Subject) :-
     split_subject(Subject, '.', Labels),
     maplist(has_only_allowed_chars, Labels).
 
-% has_only_allowed_chars(+Subject).
+%% has_only_allowed_chars(+Subject)
+%
+% Succeed iff every character of `Subject` is an ASCII letter
+% (case-insensitive), digit, or hyphen. Handles are not
+% case-sensitive and should be normalized to lowercase.
 has_only_allowed_chars(Subject) :-
     maplist(must_be_allowed_char, Subject).
 has_only_allowed_chars(Subject) :-
@@ -84,17 +110,19 @@ must_be_allowed_char(Char) :-
 
 
 
-% […], and can be at most 253 characters long
-% (in practice, handles may be restricted to a slightly shorter length)
-% That is, "bare" top-level domains are not allowed as handles,
-% even if valid "hostnames" and "DNS names."
+%% has_valid_length(+Subject)
 %
-% has_valid_length(+Subject).
+% Succeed iff `Subject` is at most 253 characters long.
+% "Bare" top-level domains are not allowed as handles, even
+% if valid hostnames or DNS names.
 has_valid_length(Subject) :-
     length(Subject, Length),
     Length #=< 253.
 
-% with_labels_having_valid_length(+Subject).
+%% with_labels_having_valid_length(+Subject)
+%
+% Succeed iff every dot-separated label of `Subject` is
+% between 1 and 63 characters long, exclusive of the periods.
 with_labels_having_valid_length(Subject) :-
     split_subject(Subject, '.', Labels),
     maplist(label_has_valid_length, Labels).
@@ -120,10 +148,12 @@ with_last_label_not_starting_with_digit(Subject) :-
     reverse(Labels, [LastLabel|_]),
     not_starting_with_digit(LastLabel).
 
-% The .test TLD is intended for examples, testing, and development.
-% It may be used in atproto development, but should fail in real-world environments.
+%% with_last_label_distinct_from_disallowed_top_level_domain(+Subject)
 %
-% with_last_label_distinct_from_disallowed_top_level_domain(+Subject).
+% Succeed iff the last label of `Subject` is not in the
+% disallowed-TLD list (`alt`, `arpa`, `example`, `internal`,
+% `local`, `localhost`, `onion`, plus `test` outside the
+% `development` / `testing` environments).
 with_last_label_distinct_from_disallowed_top_level_domain(Subject) :-
     split_subject(Subject, '.', Labels),
     reverse(Labels, [LastLabel|_]),
@@ -141,9 +171,9 @@ must_not_start_nor_end_with_hyphen(Subject) :-
     not_starting_with_hyphen(Subject),
     not_ending_with_hyphen(Subject).
 
-% […], and there must be at least two segments.
+%% has_two_labels_at_least(+Subject)
 %
-% has_two_labels_at_least(+Subject).
+% Succeed iff `Subject` has at least two dot-separated labels.
 has_two_labels_at_least(Subject) :-
     split_subject(Subject, '.', Labels),
     length(Labels, N),
@@ -152,31 +182,37 @@ has_two_labels_at_least(Subject) :-
 assert_two_labels(N) :- N #>= 2.
 assert_two_labels(N) :- N #< 2, throw(error_must_have_two_labels_at_least).
 
-% No proceeding or trailing ASCII periods are allowed
+%% has_no_proceeding_ascii_period(+Subject)
 %
-% has_no_proceeding_ascii_period(+Subject).
+% Succeed iff `Subject` does not start with an ASCII period.
 has_no_proceeding_ascii_period(Subject) :-
     must_not_start_with(Subject, '.').
 
-% "Trailing dot" syntax for DNS names is not allowed for handles.
+%% has_no_trailing_ascii_period(+Subject)
 %
-% has_no_trailing_ascii_period(+Subject).
+% Succeed iff `Subject` does not end with an ASCII period.
+% "Trailing dot" syntax for DNS names is not allowed for
+% handles.
 has_no_trailing_ascii_period(Subject) :-
     must_not_end_with(Subject, '.').
 
-% Segments can not start […] with a hyphen
+%% not_starting_with_hyphen(+Subject)
 %
-% not_starting_with_hyphen(+Subject).
+% Succeed iff `Subject` does not start with a hyphen.
 not_starting_with_hyphen(Subject) :-
     must_not_start_with(Subject, '-').
 
-% […] or end with a hyphen
+%% not_ending_with_hyphen(+Subject)
 %
-% not_ending_with_hyphen(+Subject).
+% Succeed iff `Subject` does not end with a hyphen.
 not_ending_with_hyphen(Subject) :-
     must_not_end_with(Subject, '-').
 
-% not_starting_with_digit(+Subject).
+%% not_starting_with_digit(+Subject)
+%
+% Succeed iff the first character of `Subject` is not an
+% ASCII digit. Throws `error_must_not_start_with_digit` on
+% digit-led inputs.
 not_starting_with_digit([FirstChar|_]) :-
     char_code(FirstChar, FirstCharCode),
     char_code('0', DigitStartCode),
@@ -189,7 +225,12 @@ assert_not_digit(Code, Start, End) :-
     Code >= Start, Code =< End,
     throw(error_must_not_start_with_digit).
 
-% not_disallowed_top_level_domain(+TopLevelDomain).
+%% not_disallowed_top_level_domain(+TopLevelDomain)
+%
+% Succeed iff `TopLevelDomain` is not in the disallowed-TLD
+% list. The list grows with `"test"` outside the
+% `"development"` and `"testing"` environments (so production
+% rejects `.test`, but local dev allows it).
 not_disallowed_top_level_domain(TopLevelDomain) :-
     must_be_ground(TopLevelDomain),
 

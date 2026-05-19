@@ -49,10 +49,23 @@
     writeln/2
 ]).
 
+/**
+Repository for per-post popularity counters.
+
+Append-only by design: every poll appends a new
+`status_popularity` row with `total_favorites`,
+`total_retweets`, and a `checked_at` timestamp. There is no
+UNIQUE constraint, so the table grows linearly and downstream
+readers reduce by `publication_id` to pick the most recent
+sample.
+*/
+
 %% table(-Table)
 table("status_popularity").
 
-%% count(-Count).
+%% count(-Count)
+%
+% Total number of rows in `status_popularity`.
 count(Count) :-
     count_sql(SQL),
     value(SQL, [], Count).
@@ -61,7 +74,10 @@ count_sql(SQL) :-
     table(Table),
     append(["SELECT COUNT(*) AS matching_records_count FROM public.", Table], SQL).
 
-%% query(-HeadersAndRows).
+%% query(-HeadersAndRows)
+%
+% Two most recent `status_popularity` rows as header-keyed
+% assocs.
 query(HeadersAndRows) :-
     listing_headers(Headers),
     query(Rows, [], 2),
@@ -109,7 +125,9 @@ query(Rows, Headers, Limit) :-
     once(query_result_from_file(SQL, Params, Headers, TmpFile)),
     read_rows(TmpFile, Rows).
 
-%% next_id(-NextId).
+%% next_id(-NextId)
+%
+% Next available `status_id` for `status_popularity`.
 next_id(NextId) :-
     query_max_id_sql(SQL),
     value(SQL, [], MaxIdValue),
@@ -135,7 +153,10 @@ query_max_id_sql(SQL) :-
         SQL
     ).
 
-%% by_criteria(+Criteria, -HeadersAndRows).
+%% by_criteria(+Criteria, -HeadersAndRows)
+%
+% Look up all `status_popularity` rows matching the given
+% `record_id(_)` criterion as header-keyed assocs.
 by_criteria(record_id(RecordId), HeadersAndRows) :-
     chars_si(RecordId),
     by_criteria_headers(Headers),
@@ -164,7 +185,12 @@ by_criteria_sql(SQL) :-
         "OFFSET 0;"
     ], SQL).
 
-%% insert(+Row, -InsertionResult).
+%% insert(+Row, -InsertionResult)
+%
+% Pre-counts existing rows for `URI` and either inserts a new
+% one or logs the existing snapshot. Used by callers that want
+% per-URI uniqueness. Most production traffic instead goes
+% through [[repository_popularity#insert_without_unicity_check]].
 insert(
     row(
         RecordId,
@@ -228,7 +254,12 @@ select_by_uri_sql(SQL) :-
         SQL
     ).
 
-%% insert_without_unicity_check(+Row, -InsertionResult).
+%% insert_without_unicity_check(+Row, -InsertionResult)
+%
+% Append-only INSERT through the wire client. Skips the
+% pre-count, so every call adds a row regardless of duplicates.
+% This is the hot-path entry point used by
+% `event_getAuthorFeed`.
 insert_without_unicity_check(Row, InsertionResult) :-
     once(insert_without_unicity_check_attempt(Row, InsertionResult)).
 

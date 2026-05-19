@@ -50,10 +50,23 @@
     writeln/2
 ]).
 
+/**
+Repository for the `weaving_status` table.
+
+Mirrors the structure of `publication` for the legacy
+status-keyed pipeline. `insert/3` is the hot path: it uses
+`ON CONFLICT (ust_hash) DO NOTHING RETURNING ust_id` and falls
+back to a follow-up SELECT on conflict so the caller always
+receives a usable `ust_id`, whether the row was new or a
+duplicate of an existing observation.
+*/
+
 %% table(-Table)
 table("weaving_status").
 
-%% count(-Count).
+%% count(-Count)
+%
+% Total number of rows in `weaving_status`.
 count(Count) :-
     count_sql(SQL),
     value(SQL, [], Count).
@@ -62,7 +75,9 @@ count_sql(SQL) :-
     table(Table),
     append(["SELECT count(*) AS matching_records_count FROM public.", Table], SQL).
 
-%% query(-HeadersAndRows).
+%% query(-HeadersAndRows)
+%
+% Two most recent `weaving_status` rows as header-keyed assocs.
 query(HeadersAndRows) :-
     listing_headers(Headers),
     query(Rows, [], 2),
@@ -110,7 +125,9 @@ query(Rows, Headers, Limit) :-
     once(query_result_from_file(SQL, Params, Headers, TmpFile)),
     read_rows(TmpFile, Rows).
 
-%% next_id(-NextId).
+%% next_id(-NextId)
+%
+% Next available `ust_id` for `weaving_status`.
 next_id(NextId) :-
     query_max_id_sql(SQL),
     value(SQL, [], MaxIdValue),
@@ -136,7 +153,10 @@ query_max_id_sql(SQL) :-
         SQL
     ).
 
-%% by_criteria(+Criteria, -HeadersAndRows).
+%% by_criteria(+Criteria, -HeadersAndRows)
+%
+% Look up `weaving_status` rows whose `ust_hash` matches the
+% `handle(_)-uri(_)` criterion as header-keyed assocs.
 by_criteria(handle(Handle)-uri(URI), HeadersAndRows) :-
     log_if_invalid_unique_identifier(Handle, URI),
     hash(handle(Handle)-uri(URI), Hash),
@@ -318,7 +338,11 @@ count_matching_records_sql(SQL) :-
         "WHERE ust_hash = $1;"
     ], SQL).
 
-%% by_indexed_at(+Criteria, -HeadersAndRows).
+%% by_indexed_at(+Criteria, -HeadersAndRows)
+%
+% Look up `weaving_status` rows for a given handle and ISO-8601
+% `indexed_at` timestamp. The timestamp is rewritten to
+% Postgres' `YYYY-MM-DD HH:MM:SS` form before binding.
 by_indexed_at(indexed_at(IndexedAt)-handle(Handle), HeadersAndRows) :-
     length(Prefix, 10),
     length(Suffix, 8),

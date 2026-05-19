@@ -9,6 +9,17 @@
     wrapped_pairs_to_assoc/2
 ]).
 
+/**
+JSON wire-format helpers.
+
+Scryer's `serialization/json` DCG yields parse trees as tagged
+pair lists (`string(K)-string(V)`, `string(K)-number(V)`,
+`string(K)-pairs(...)`, etc). The helpers here unwrap that
+representation into native prolog assocs keyed by atoms, plus a
+few utilities for keyed lookup and shell-based JSON
+pretty-printing through `jq`.
+*/
+
 :- use_module(library(assoc)).
 :- use_module(library(lists)).
 :- use_module(library(os)).
@@ -29,11 +40,18 @@
     read_stream/2
 ]).
 
-%% char_code_at(+Code, -Char).
+%% char_code_at(+Code, -Char)
+%
+% Argument-flipped `char_code/2` for `maplist` convenience.
 char_code_at(Code, Char) :-
     char_code(Char, Code).
 
-%% to_json_chars(+Chars, -JSONChars).
+%% to_json_chars(+Chars, -JSONChars)
+%
+% Pretty-print a raw JSON char list `Chars` through `jq` and
+% return the formatted output as `JSONChars`. Writes through
+% two temporary files, the second of which is removed before
+% returning.
 to_json_chars(Chars, JSONChars) :-
     chars_si(Chars),
     atom_chars(Atom, Chars),
@@ -44,7 +62,10 @@ to_json_chars(Chars, JSONChars) :-
     once(beautify_json(JsonFile, JSONChars)),
     log_debug([JSONChars]).
 
-%% beautify_json(+JsonFile, -JSONChars).
+%% beautify_json(+JsonFile, -JSONChars)
+%
+% Run `cat | sed | jq` against `JsonFile`, read the formatted
+% output back as `JSONChars`, and remove the source temp file.
 beautify_json(TempFile, JSONChars) :-
     temporary_file("beautify_json", FormattedJsonFile),
     char_code(AntiSlash, 92),
@@ -70,9 +91,11 @@ beautify_json(TempFile, JSONChars) :-
     read_stream(ReadFromJsonStream, JSONChars),
     remove_temporary_file(FormattedJsonFile).
 
-%% by_key(+Key, +Pairs, -Value).
+%% by_key(+Key, +Pairs, -Value)
 %
-% Extract the value of a key from a list of key-value pairs.
+% Look up `Key` in a JSON-DCG pair list and unify `Value` with
+% the inner value (the unwrapped char list, not the `string/1`
+% wrapper). Throws `key_not_found/1` when the key is absent.
 by_key(Key, [], _) :-
     throw(key_not_found(Key)).
 by_key(Key, [string(OtherKey)-_Value|Pairs], Value) :-
@@ -81,22 +104,32 @@ by_key(Key, [string(OtherKey)-_Value|Pairs], Value) :-
 by_key(Key, [string(Key)-string(Value)|_Pairs], Value).
 by_key(Key, [string(Key)-pairs(Value)|_Pairs], Value).
 
+%% keys(+Pairs, +KeysIn, -KeysOut)
+%
+% Difference-list accumulator that gathers every top-level key
+% name from a JSON-DCG pair list as a list of char lists.
 keys([], Keys, Keys).
 keys([string(KeyChars)-_|RemainingKeys], KeysIn, KeysOut) :-
     append([KeysIn, [KeyChars]], Ks),
     keys(RemainingKeys, [], Keys),
     append([Ks, Keys], KeysOut).
 
-%% wrapped_pairs_to_assoc(+Pairs, -Assoc).
+%% wrapped_pairs_to_assoc(+Pairs, -Assoc)
+%
+% Unwrap a `pairs(_)`-wrapped JSON object then convert it to an
+% assoc keyed by atom keys.
 wrapped_pairs_to_assoc(pairs(UnwrappedPairs), Assoc) :-
     once(pairs_to_assoc(UnwrappedPairs, Assoc)).
 
-%% pairs_to_assoc(+Pair, -Assoc).
+%% pairs_to_assoc(+Pairs, -Assoc)
+%
+% Convert a JSON-DCG object pair list to a prolog assoc keyed
+% by atom keys. Nested `pairs(_)` values become nested assocs.
 pairs_to_assoc(Pairs, Assoc) :-
     once(maplist(without_type, Pairs, PairsOut)),
     list_to_assoc(PairsOut, Assoc).
 
-%% without_type(+Pair, -PairWithoutType).
+% without_type(+Pair, -PairWithoutType).
 %
 % Relates left string in chars representation with an atom
 % Relates right boolean, number, string, list with the same type
@@ -119,5 +152,7 @@ without_type(string(Key)-pairs(Value), KeyAtom-ValueAssoc) :-
 without_type(Left-Right, UnknownKind) :-
     throw(cannot_remove_type(Left, Right)-because_of(UnknownKind)).
 
-%% unwrap_pairs(+Pairs, -UnwrappedPairs).
+%% unwrap_pairs(+Pairs, -UnwrappedPairs)
+%
+% Strip the outer `pairs(_)` wrapper used by the JSON DCG.
 unwrap_pairs(pairs(UnwrappedPairs), UnwrappedPairs).

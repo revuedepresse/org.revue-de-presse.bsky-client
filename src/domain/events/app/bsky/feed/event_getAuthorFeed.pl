@@ -2,6 +2,19 @@
     onGetAuthorFeed/4
 ]).
 
+/**
+Domain event handler for `app.bsky.feed.getAuthorFeed`.
+
+Called once per post returned by the feed traversal. Decodes
+each post into the fields the repository layer expects,
+short-circuits if a status row already exists at this cursor,
+then chains three idempotent writes: `weaving_status` (with
+ON CONFLICT to recover an existing `ust_id`), `publication`
+(also with ON CONFLICT), and `status_popularity` (append-only).
+Idempotence is enforced at the database, not in prolog, so a
+re-run of the worker leaves no duplicates.
+*/
+
 :- use_module(library(assoc)).
 :- use_module(library(charsio)).
 :- use_module(library(lists)).
@@ -39,6 +52,13 @@
 ]).
 
 %% onGetAuthorFeed(+Cursor, +TotalPosts, +Post, +Index)
+%
+% Handle one post returned by `getAuthorFeed`. `Cursor` is the
+% feed cursor's ISO-8601 timestamp; `Post` is the JSON-DCG
+% pair list for the post; `Index` and `TotalPosts` carry the
+% post's position on the current page for logging. Writes
+% `weaving_status`, `publication`, and `status_popularity` in
+% sequence, each idempotent at the DB layer.
 onGetAuthorFeed(Cursor, TotalPosts, Post, Index) :-
     writeln([processing_post_at_index|[(Index/TotalPosts)]], true),
     onGetAuthorFeed(Cursor, Post).

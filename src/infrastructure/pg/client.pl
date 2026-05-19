@@ -8,6 +8,20 @@
     value/3
 ]).
 
+/**
+Bind-parameter Postgres client over the wire-protocol connection.
+
+Every repository module talks to Postgres through the four
+public verbs here: `execute/2` for INSERT/UPDATE/DELETE
+without RETURNING, `value/3` for single-cell SELECTs and
+`RETURNING` clauses, `query_result_from_file/4` for multi-row
+SELECTs streamed through a pipe-delimited tempfile, and
+`matching_criteria/4` for multi-row SELECTs that fold each
+row into a typed assoc. SQL placeholders use the extended
+protocol's `$1`, `$2`, … form; no caller-controlled value is
+ever concatenated into the SQL text.
+*/
+
 :- use_module(library(charsio)).
 :- use_module(library(crypto)).
 :- use_module(library(format)).

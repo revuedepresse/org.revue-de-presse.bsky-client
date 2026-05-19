@@ -2,6 +2,16 @@
     onGetListItem/2
 ]).
 
+/**
+Domain event handler for each item in `app.bsky.graph.getList`.
+
+Encodes the item's pair list to a base64 payload, then either
+logs the existing event row for the same handle or inserts a
+new one and seeds the `weaving_user` record. Used once per
+list member during the fan-out from
+[[event_getList#onGetList]].
+*/
+
 :- use_module(library(assoc)).
 :- use_module(library(charsio)).
 :- use_module(library(lists)).
@@ -37,9 +47,13 @@
     writeln/2
 ]).
 
-%% Handling onGetListItem Event
-%
 %% onGetListItem(+ItemAssoc, +Pairs)
+%
+% Handle a single list member. `ItemAssoc` is the assoc form
+% of the item; `Pairs` is the raw JSON-DCG pair list, which is
+% serialised and base64-encoded for storage. Existing rows are
+% logged; missing rows are inserted into
+% `member_profile_collected_event` and `weaving_user`.
 onGetListItem(ItemAssoc, pairs(UnwrappedPairs)) :-
     write_term_to_chars(UnwrappedPairs, [quoted(true),double_quotes(true)], Chars),
 

@@ -45,10 +45,21 @@
     writeln/2
 ]).
 
+/**
+Repository for individual `publishers_list` rows.
+
+Each row binds a DID to a list (via `list_id`) and carries
+the human-readable name / handle. Reads scope on DID and list
+URI; writes go through a pre-count + insert pattern so
+duplicates are reported rather than written twice.
+*/
+
 %% table(-Table)
 table("publishers_list").
 
-%% count(-Count).
+%% count(-Count)
+%
+% Total number of rows in `publishers_list`.
 count(Count) :-
     count_sql(SQL),
     value(SQL, [], Count).
@@ -57,7 +68,9 @@ count_sql(SQL) :-
     table(Table),
     append(["SELECT count(*) AS matching_records_count FROM public.", Table], SQL).
 
-%% query(-HeadersAndRows).
+%% query(-HeadersAndRows)
+%
+% All `publishers_list` rows as header-keyed assocs.
 query(HeadersAndRows) :-
     listing_headers(Headers),
     query(Rows, [], "ALL"),
@@ -106,7 +119,9 @@ query(Rows, Headers, Limit) :-
     once(query_result_from_file(SQL, Params, Headers, TmpFile)),
     read_rows(TmpFile, Rows).
 
-%% next_id(-NextId).
+%% next_id(-NextId)
+%
+% Next available `id` for `publishers_list`.
 next_id(NextId) :-
     query_max_id_sql(SQL),
     value(SQL, [], MaxIdValue),
@@ -132,7 +147,10 @@ query_max_id_sql(SQL) :-
         SQL
     ).
 
-%% by_criteria(+ListURI, +DID, -HeadersAndRows).
+%% by_criteria(+ListURI, +DID, -HeadersAndRows)
+%
+% Look up `publishers_list` rows for the given list URI and
+% DID combination as header-keyed assocs.
 by_criteria(list_uri(ListURI), did(DID), HeadersAndRows) :-
     chars_si(DID),
     by_criteria_headers(Headers),
@@ -165,7 +183,11 @@ by_criteria_sql(SQL) :-
         "OFFSET 0;"
     ], SQL).
 
-%% insert(+Row, -InsertionResult).
+%% insert(+Row, -InsertionResult)
+%
+% Insert a new `publishers_list` row, or report the existing
+% row id if `(ListURI, DID)` already exists. Always succeeds
+% with `ok`.
 insert(row(ListId, ListURI, _FollowersCount, _FollowsCount, DID, _), InsertionResult) :-
     count_matching_records(row(ListURI, DID), TotalMatchingRecords),
     if_(
