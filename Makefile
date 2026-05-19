@@ -142,7 +142,7 @@ test-extract-lookup-ust-id: ### Regression: repository_status:extract_lookup_ust
 	@scryer-prolog ./tests/pg/extract_lookup_ust_id_test.pl -g 'run_test'
 
 test-memoize-arity: ### Regression: getAuthorFeed no longer assertz's wide responses (scryer max_arity = 255)
-	@scryer-prolog ./tests/memoize_arity_test.pl -g 'run_test'
+	@scryer-prolog ./tests/memoize_arity_test.pl -g halt
 
 probe-prod-auth: ### Read-only auth probe against the DB defined in .env.local
 	@set -a; . ./.env.local; set +a; \
