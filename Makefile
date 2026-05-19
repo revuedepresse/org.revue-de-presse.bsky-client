@@ -138,14 +138,27 @@ test-repository-list: compose-up ### Exercise repository_list:insert/2 (new path
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test'
 
+test-extract-lookup-ust-id: ### Regression: repository_status:extract_lookup_ust_id/2 rejects malformed lookup replies
+	@scryer-prolog ./tests/pg/extract_lookup_ust_id_test.pl -g 'run_test'
+
+test-memoize-arity: ### Regression: getAuthorFeed no longer assertz's wide responses (scryer max_arity = 255)
+	@scryer-prolog ./tests/memoize_arity_test.pl -g halt
+
 probe-prod-auth: ### Read-only auth probe against the DB defined in .env.local
 	@set -a; . ./.env.local; set +a; \
 	scryer-prolog ./src/infrastructure/pg/probe.pl -g 'run'
 
 doc-setup: ### Clone doclog's own dependencies (teruel, djota) into deps/doclog
+	@if [ ! -f deps/doclog/Makefile ]; then \
+		echo "Initializing deps/doclog submodule"; \
+		git submodule update --init deps/doclog; \
+	fi
 	@$(MAKE) -C deps/doclog setup
 
 doc: ### Generate HTML documentation from doclog comments into ./doc/html
+	@if [ ! -d deps/doclog/teruel ] || [ ! -d deps/doclog/djota ] || [ ! -d deps/doclog/scryer-prolog ]; then \
+		$(MAKE) doc-setup; \
+	fi
 	@mkdir -p doc/html
 	@bash deps/doclog/doclog.sh . doc/html
 

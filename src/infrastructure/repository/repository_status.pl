@@ -2,6 +2,7 @@
     by_criteria/2,
     by_indexed_at/2,
     count/1,
+    extract_lookup_ust_id/2,
     id_hash/3,
     insert/3,
     next_id/1,
@@ -250,9 +251,10 @@ interpret_status_insert(data([]), Hash, duplicate(Hash), UstIdChars) :-
 interpret_status_insert(error(Err), _, _, _) :-
     throw(pg_error(Err)).
 
-extract_lookup_ust_id(data([[UstIdChars|_]|_]), UstIdChars).
+extract_lookup_ust_id(data([[UstIdChars|_]|_]), UstIdChars) :-
+    chars_si(UstIdChars).
 extract_lookup_ust_id(Reply, _) :-
-    dif(Reply, data([[_|_]|_])),
+    \+ ( Reply = data([[Chars|_]|_]), chars_si(Chars) ),
     throw(status_lookup_after_conflict_returned(Reply)).
 
 status_lookup_by_hash_sql(SQL) :-
