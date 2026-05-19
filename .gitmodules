@@ -4,4 +4,8 @@
 [submodule "deps/postgresql-prolog"]
 	path = deps/postgresql-prolog
 	url = https://github.com/thierrymarianne/postgresql-prolog.git
-	branch = scram-sha-256-auth
+	branch = main
+[submodule "deps/doclog"]
+	path = deps/doclog
+	url = https://github.com/thierrymarianne/contrib-doclog.git
+	branch = honor-omit-in-file-walk

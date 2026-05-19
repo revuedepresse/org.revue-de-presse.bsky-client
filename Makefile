@@ -1,6 +1,6 @@
 SHELL:=/bin/bash
 
-.PHONY: configure create_session create_poste 
+.PHONY: configure create_session create_poste doc doc-setup doc-clean doc-serve
 
 COMPOSE_PROJECT_NAME ?= 'org_example_bsky'
 WORKER ?= 'org.example.bsky'
@@ -141,3 +141,19 @@ test-repository-list: compose-up ### Exercise repository_list:insert/2 (new path
 probe-prod-auth: ### Read-only auth probe against the DB defined in .env.local
 	@set -a; . ./.env.local; set +a; \
 	scryer-prolog ./src/infrastructure/pg/probe.pl -g 'run'
+
+doc-setup: ### Clone doclog's own dependencies (teruel, djota) into deps/doclog
+	@$(MAKE) -C deps/doclog setup
+
+doc: ### Generate HTML documentation from doclog comments into ./doc/html
+	@mkdir -p doc/html
+	@bash deps/doclog/doclog.sh . doc/html
+
+doc-clean: ### Remove generated documentation under doc/html
+	@rm -rf doc/html
+
+DOC_PORT ?= 8000
+
+doc-serve: doc ### Rebuild then serve doc/html on http://localhost:$(DOC_PORT)
+	@echo "Serving doc/html on http://localhost:$(DOC_PORT)"
+	@python3 -m http.server $(DOC_PORT) --directory doc/html
