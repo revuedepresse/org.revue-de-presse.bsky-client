@@ -143,9 +143,16 @@ probe-prod-auth: ### Read-only auth probe against the DB defined in .env.local
 	scryer-prolog ./src/infrastructure/pg/probe.pl -g 'run'
 
 doc-setup: ### Clone doclog's own dependencies (teruel, djota) into deps/doclog
+	@if [ ! -f deps/doclog/Makefile ]; then \
+		echo "Initializing deps/doclog submodule"; \
+		git submodule update --init deps/doclog; \
+	fi
 	@$(MAKE) -C deps/doclog setup
 
 doc: ### Generate HTML documentation from doclog comments into ./doc/html
+	@if [ ! -d deps/doclog/teruel ] || [ ! -d deps/doclog/djota ] || [ ! -d deps/doclog/scryer-prolog ]; then \
+		$(MAKE) doc-setup; \
+	fi
 	@mkdir -p doc/html
 	@bash deps/doclog/doclog.sh . doc/html
 
