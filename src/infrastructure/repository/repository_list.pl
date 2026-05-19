@@ -47,13 +47,26 @@
 ]).
 :- use_module('../../temporal', [date_iso8601/1]).
 
+/**
+Repository for curated lists of Bluesky authors.
+
+Persists list metadata and the most recent payload event in
+the `publishers_list` and `publishers_list_collected_event`
+tables. All reads go through `value/3` /
+`query_result_from_file/4`; all writes go through `execute/2`
+with bind parameters, so no caller-controlled value is ever
+concatenated into SQL.
+*/
+
 %% table(-Table)
 table("publishers_list").
 
 %% event_table(-EventTable).
 event_table("publishers_list_collected_event").
 
-%% count(-Count).
+%% count(-Count)
+%
+% Total number of rows in `publishers_list`.
 count(Count) :-
     count_sql(SQL),
     value(SQL, [], Count).
@@ -62,7 +75,9 @@ count_sql(SQL) :-
     table(Table),
     append(["SELECT count(*) AS matching_records_count FROM public.", Table], SQL).
 
-%% query(-HeadersAndRows).
+%% query(-HeadersAndRows)
+%
+% All `publishers_list` rows as a list of header-keyed assocs.
 query(HeadersAndRows) :-
     headers(Headers),
     query(Rows, [], "ALL"),
@@ -113,7 +128,10 @@ query(Rows, Headers, Limit) :-
     once(query_result_from_file(SQL, Params, Headers, TmpFile)),
     read_rows(TmpFile, Rows).
 
-%% next_id(-NextId).
+%% next_id(-NextId)
+%
+% Next available primary key for `publishers_list`: the
+% current `MAX(id) + 1`, or `1` if the table is empty.
 next_id(NextId) :-
     query_max_id_sql(SQL),
     value(SQL, [], MaxIdValue),
@@ -121,7 +139,10 @@ next_id(NextId) :-
     NextId #= MaxId + 1,
     validate_id(NextId).
 
-%% next_event_id(-NextEventId).
+%% next_event_id(-NextEventId)
+%
+% Next available `list_id` for
+% `publishers_list_collected_event`.
 next_event_id(NextEventId) :-
     query_event_max_id_sql(SQL),
     value(SQL, [], EventMaxIdValue),
@@ -159,7 +180,12 @@ query_event_max_id_sql(SQL) :-
         SQL
     ).
 
-%% by_list_uri_or_throw(+MainListAtUri, -Assoc).
+%% by_list_uri_or_throw(+MainListAtUri, -Assoc)
+%
+% Read the first event row for `MainListAtUri`, base64-decode
+% its JSON payload, and merge in the persisted `list_id`.
+% Throws `cannot_find_publishers_list_by_uri` when no row
+% matches.
 by_list_uri_or_throw(list_uri(MainListAtUri), Assoc) :-
     once(by_list_uri_or_throw_attempt(MainListAtUri, Assoc)).
 
@@ -183,7 +209,11 @@ by_list_uri_or_throw_attempt(MainListAtUri, Assoc) :-
 by_list_uri_or_throw_attempt(_, _) :-
     throw(cannot_find_publishers_list_by_uri).
 
-%% by_list_uri(+ListURI, -HeadersAndRows).
+%% by_list_uri(+ListURI, -HeadersAndRows)
+%
+% Multi-row read of `publishers_list_collected_event` for the
+% given list AT-URI; each row is returned as a header-keyed
+% assoc.
 by_list_uri(ListURI, HeadersAndRows) :-
     chars_si(ListURI),
     by_list_uri_headers(Headers),
@@ -230,7 +260,11 @@ count_matching_records_sql(SQL) :-
         "WHERE list_id::bigint = $1;"
     ], SQL).
 
-%% insert(+Row, -InsertionResult).
+%% insert(+Row, -InsertionResult)
+%
+% Insert a new `publishers_list_collected_event` row, or log
+% the existing payload if a row with the matching `list_id`
+% already exists. `InsertionResult` is always `ok`.
 insert(row(ListName, Payload), InsertionResult) :-
     next_id(NextId),
     count_matching_records(NextId, TotalMatchingRecords),

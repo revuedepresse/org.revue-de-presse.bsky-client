@@ -47,10 +47,23 @@
     writeln/2
 ]).
 
+/**
+Repository for the `publication` table.
+
+Each Bluesky post that the worker observes becomes a row.
+Uniqueness is enforced at the DB layer by a UNIQUE index on
+`hash` (computed from `handle|uri`), and the `insert/2` hot
+path uses `ON CONFLICT (hash) DO NOTHING RETURNING legacy_id`
+so duplicate observations cost a single round trip and no
+extra SELECT.
+*/
+
 %% table(-Table)
 table("publication").
 
-%% count(-Count).
+%% count(-Count)
+%
+% Total number of rows in `publication`.
 count(Count) :-
     count_sql(SQL),
     value(SQL, [], Count).
@@ -59,7 +72,9 @@ count_sql(SQL) :-
     table(Table),
     append(["SELECT count(*) AS matching_records_count FROM public.", Table], SQL).
 
-%% query(-HeadersAndRows).
+%% query(-HeadersAndRows)
+%
+% Two most recent `publication` rows as header-keyed assocs.
 query(HeadersAndRows) :-
     listing_headers(Headers),
     query(Rows, [], 2),
@@ -105,7 +120,9 @@ query(Rows, Headers, Limit) :-
     once(query_result_from_file(SQL, Params, Headers, TmpFile)),
     read_rows(TmpFile, Rows).
 
-%% next_id(-NextId).
+%% next_id(-NextId)
+%
+% Next available `legacy_id` for `publication`.
 next_id(NextId) :-
     query_max_id_sql(SQL),
     value(SQL, [], MaxIdValue),
@@ -131,7 +148,11 @@ query_max_id_sql(SQL) :-
         SQL
     ).
 
-%% by_criteria(+Criteria, -HeadersAndRows).
+%% by_criteria(+Criteria, -HeadersAndRows)
+%
+% Look up all `publication` rows whose `hash` matches the
+% `handle(_)-uri(_)` criterion, returning each as a
+% header-keyed assoc.
 by_criteria(handle(Handle)-uri(URI), HeadersAndRows) :-
     hash(handle(Handle)-uri(URI), Hash),
     validate_unique_identifier_chars(Handle, URI),

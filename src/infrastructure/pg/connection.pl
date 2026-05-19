@@ -5,6 +5,19 @@
     pg_transaction/1
 ]).
 
+/**
+Process-wide Postgres connection holder.
+
+Wraps `deps/postgresql-prolog` with a tiny facade that
+authenticates once per Scryer run (via SCRAM-SHA-256 when the
+server demands it), caches the connection in the global
+blackboard, and exposes three call shapes: extended-protocol
+`pg_query/3` with bind parameters, simple-protocol
+`pg_query_simple/2` for ad-hoc reads, and a
+`pg_transaction/1` wrapper that commits on success and rolls
+back on throw.
+*/
+
 :- use_module(library(lists)).
 :- use_module(library(iso_ext), [bb_get/2, bb_put/2]).
 

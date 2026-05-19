@@ -51,13 +51,26 @@
 ]).
 :- use_module('../../temporal', [date_iso8601/1]).
 
+/**
+Repository for individual authors listed inside a curated list.
+
+Reads and writes `weaving_user` (the canonical member records
+that downstream callers select by handle) and
+`member_profile_collected_event` (the append-only log of every
+profile snapshot we've collected). The public surface mirrors
+the rest of the repository layer: `count/1`, `query/1`,
+`insert/2`, `next_id/1`, plus screen-name lookups.
+*/
+
 %% table(-Table).
 table("weaving_user").
 
 %% event_table(-EventTable).
 event_table("member_profile_collected_event").
 
-%% count(-Count).
+%% count(-Count)
+%
+% Total number of rows in `weaving_user`.
 count(Count) :-
     count_sql(SQL),
     value(SQL, [], Count).
@@ -66,7 +79,9 @@ count_sql(SQL) :-
     table(Table),
     append(["SELECT count(*) AS matching_records_count FROM public.", Table], SQL).
 
-%% query(-HeadersAndRows).
+%% query(-HeadersAndRows)
+%
+% First 15 rows of `weaving_user` as header-keyed assocs.
 query(HeadersAndRows) :-
     listing_headers(Headers),
     query(Rows, [], 15),
@@ -119,7 +134,9 @@ query(Rows, Headers, Limit) :-
     once(query_result_from_file(SQL, Params, Headers, TmpFile)),
     read_rows(TmpFile, Rows).
 
-%% next_id(-NextId).
+%% next_id(-NextId)
+%
+% Next available `usr_id` for `weaving_user`.
 next_id(NextId) :-
     query_max_id_sql(SQL),
     value(SQL, [], MaxIdValue),
@@ -145,7 +162,10 @@ query_max_id_sql(SQL) :-
         SQL
     ).
 
-%% event_by_screen_name(+ScreenName, -HeadersAndRows).
+%% event_by_screen_name(+ScreenName, -HeadersAndRows)
+%
+% Multi-row read of `member_profile_collected_event` for the
+% given handle, restricted to events from 2025 onward.
 event_by_screen_name(ScreenName, HeadersAndRows) :-
     chars_si(ScreenName),
     event_by_screen_name_headers(Headers),
@@ -174,7 +194,10 @@ event_by_screen_name_sql(SQL) :-
         "OFFSET 0 LIMIT ALL;"
     ], SQL).
 
-%% record_by_screen_name(+ScreenName, -HeadersAndRows).
+%% record_by_screen_name(+ScreenName, -HeadersAndRows)
+%
+% Full denormalised `weaving_user` row for the given handle,
+% returned as a single-row list of header-keyed assocs.
 record_by_screen_name(ScreenName, HeadersAndRows) :-
     chars_si(ScreenName),
     record_by_screen_name_headers(Headers),
@@ -249,7 +272,11 @@ record_by_screen_name_sql(SQL) :-
         "OFFSET 0 LIMIT ALL;"
     ], SQL).
 
-%% insert(+Row, -InsertionResult).
+%% insert(+Row, -InsertionResult)
+%
+% Insert a new `member_profile_collected_event` for
+% `ScreenName` carrying `Payload`, or log the existing payload
+% if an event already exists. Always succeeds with `ok`.
 insert(row(ScreenName, Payload), InsertionResult) :-
     count_matching_events(ScreenName, TotalMatchingEvents),
     if_(
@@ -321,7 +348,10 @@ encode_field_value(FieldValue, EncodedFieldValue) :-
     maplist(char_code_at, Utf8Bytes, FieldUtf8Bytes),
     chars_base64(FieldUtf8Bytes, EncodedFieldValue, []).
 
-%% insert_record(+Row, -InsertionResult).
+%% insert_record(+Row, -InsertionResult)
+%
+% Insert a new `weaving_user` row for the given handle, or log
+% the existing record's id if one already exists.
 insert_record(
     row(
         Avatar,
@@ -421,7 +451,11 @@ count_matching_records_sql(SQL) :-
         "WHERE r.usr_user_name::text = $1;"
     ], SQL).
 
-%% insert_list_items_if_not_exists(+Row, -HeadersAndRowsSelectedByHandle).
+%% insert_list_items_if_not_exists(+Row, -HeadersAndRowsSelectedByHandle)
+%
+% Composite of `record_by_screen_name/2` and
+% `insert_record/2`: try to read the existing record first;
+% on a miss, fall through to insert and log the outcome.
 insert_list_items_if_not_exists(
     row(
         Avatar,
@@ -453,7 +487,12 @@ insert_list_items_if_not_exists(
         ))
     ).
 
-%% from_event(+Payload, -Row).
+%% from_event(+Payload, -Row)
+%
+% Decode a base64-encoded event payload as a list-item `row/5`
+% with `Avatar`, `Description`, `DID`, `Handle`, and
+% `DisplayName`, defaulting the description to `""` when the
+% upstream profile omitted it.
 from_event(Payload, row(Avatar, Description, DID, Handle, DisplayName)) :-
     chars_base64(Utf8BytesPayload, Payload, []),
     maplist(char_code, Utf8BytesPayload, Utf8Bytes),

@@ -1,5 +1,17 @@
 :- module(probe, [run/0]).
 
+/**
+Read-only Postgres authentication probe.
+
+Connects to the database described by `DATABASE_*` env vars
+using the SCRAM-SHA-256 capable client and prints the
+server's `version()`, `current_user`, `password_encryption`,
+and `ssl` settings. Used to verify production credentials and
+SCRAM support without touching any application data. Exits
+`0` on success, `1` on an unexpected result shape, or `2` on
+a missing env var.
+*/
+
 :- use_module(library(format)).
 :- use_module(library(os)).
 

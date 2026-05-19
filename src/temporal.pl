@@ -4,6 +4,16 @@
     date_iso8601_days_before/3
 ]).
 
+/**
+ISO-8601 date helpers.
+
+Each predicate shells out to `date(1)` because Scryer has no
+built-in for `%Y-%m-%dT%H:%M:%SZ` formatting. The command line
+tries the GNU `date -d` form first and falls back to the BSD
+`date -v` form, so the same predicate works under Debian (the
+production image) and macOS (local development).
+*/
+
 :- use_module(library(os)).
 :- use_module(library(lists)).
 
@@ -24,8 +34,11 @@ check_shell_status(Status, Msg) :-
     Status \= 0,
     throw(unexpected_command_exit_code(Msg)).
 
-% See [date command --iso-8601 option](https://unix.stackexchange.com/a/629504)
-% date_iso8601(-Date).
+%% date_iso8601(-Iso8601Date)
+%
+% Current UTC date and time as char list
+% `YYYY-MM-DDTHH:MM:SSZ`. See [the date command
+% `--iso-8601` option](https://unix.stackexchange.com/a/629504).
 date_iso8601(Iso8601Date) :-
     temporary_file("date-iso-8601", TempFile),
 
@@ -41,12 +54,12 @@ date_iso8601(Iso8601Date) :-
 
     remove_temporary_file(TempFile).
 
-% date_iso8601_days_ago(+DaysAgo, -Iso8601Date).
+%% date_iso8601_days_ago(+DaysAgo, -Iso8601Date)
 %
-% Returns the current UTC date/time minus DaysAgo days, in ISO-8601
-% (YYYY-MM-DDTHH:MM:SSZ). Tries GNU `date -d 'N days ago'` first and
-% falls back to BSD/macOS `date -v -Nd`, so it works in both prod
-% (Debian, see Dockerfile) and local dev (macOS).
+% Current UTC date/time minus `DaysAgo` days, formatted as
+% `YYYY-MM-DDTHH:MM:SSZ`. Tries GNU `date -d 'N days ago'`
+% first and falls back to BSD/macOS `date -v -Nd`, so it works
+% in both prod (Debian, see Dockerfile) and local dev (macOS).
 date_iso8601_days_ago(DaysAgo, Iso8601Date) :-
     temporary_file("date-iso-8601-days-ago", TempFile),
 
@@ -70,11 +83,12 @@ date_iso8601_days_ago(DaysAgo, Iso8601Date) :-
 
     remove_temporary_file(TempFile).
 
-% date_iso8601_days_before(+DaysBefore, +AnchorIso, -ResultDate).
+%% date_iso8601_days_before(+DaysBefore, +AnchorIso, -ResultDate)
 %
-% Returns AnchorIso (an ISO-8601 timestamp; only the leading
-% YYYY-MM-DD is consumed) minus DaysBefore days, formatted as
-% YYYY-MM-DD. Same GNU/BSD fallback as date_iso8601_days_ago/2.
+% `AnchorIso` minus `DaysBefore` days, formatted as
+% `YYYY-MM-DD`. Only the leading `YYYY-MM-DD` of the anchor is
+% read, so the predicate accepts any ISO-8601 timestamp prefix.
+% Same GNU-then-BSD fallback as [[temporal#date_iso8601_days_ago]].
 date_iso8601_days_before(DaysBefore, AnchorIso, ResultDate) :-
     length(AnchorDateChars, 10),
     append(AnchorDateChars, _, AnchorIso),
