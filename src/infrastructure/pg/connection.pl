@@ -30,9 +30,9 @@
 % handshake cost once. Stored in the global blackboard because the
 % wire client's connection term wraps an opaque stream.
 pg_connection(Conn) :-
-    catch(bb_get(pg_conn, Conn), _, fail),
-    Conn \= [], !.
+    cached_connection(Conn).
 pg_connection(Conn) :-
+    \+ cached_connection(_),
     database_username(User),
     database_password(Pass),
     database_host(Host),
@@ -41,6 +41,10 @@ pg_connection(Conn) :-
     database_db_name(DB),
     connect(User, Pass, Host, Port, DB, Conn),
     bb_put(pg_conn, Conn).
+
+cached_connection(Conn) :-
+    catch(bb_get(pg_conn, Conn), _, fail),
+    Conn \= [].
 
 %% pg_query(+SQL, +Params, -Result)
 %

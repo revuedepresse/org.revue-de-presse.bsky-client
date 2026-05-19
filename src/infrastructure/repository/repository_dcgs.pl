@@ -53,18 +53,14 @@ build_pair(Row, Header, In-PairsIn, Out-PairsOut) :-
     Out #= In + 1.
 
 %% key_typed_value(+Key, +Type, +Value, -TypedValue).
-key_typed_value(Key, Type, Value, TypedValue) :-
-    (   Type = "string"
-    ->  TypedValue = string(Key)-string(Value)
-    ;   Type = "number"
-    ->  TypedValue = string(Key)-number(Value)
-    ;   Type = "boolean"
-    ->  TypedValue = string(Key)-boolean(Value)
-    ;   Type = "list"
-    ->  TypedValue = string(Key)-list(Value)
-    ;   Type = "pairs"
-    ->  TypedValue = string(Key)-pairs(Value)
-    ;   throw(unsupported_type) ).
+key_typed_value(Key, "string",  Value, string(Key)-string(Value)).
+key_typed_value(Key, "number",  Value, string(Key)-number(Value)).
+key_typed_value(Key, "boolean", Value, string(Key)-boolean(Value)).
+key_typed_value(Key, "list",    Value, string(Key)-list(Value)).
+key_typed_value(Key, "pairs",   Value, string(Key)-pairs(Value)).
+key_typed_value(_, Type, _, _) :-
+    \+ member(Type, ["string", "number", "boolean", "list", "pairs"]),
+    throw(unsupported_type).
 
 %% value_type(+Header, -Type, -Name).
 value_type(Header, Type, Name) :-

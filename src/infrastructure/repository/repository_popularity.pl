@@ -14,6 +14,7 @@
 :- use_module(library(files)).
 :- use_module(library(lists)).
 :- use_module(library(pio)).
+:- use_module(library(dif)).
 :- use_module(library(reif)).
 :- use_module(library(serialization/json)).
 :- use_module(library(si)).
@@ -25,10 +26,11 @@
 ]).
 :- use_module('../pg/client', [
     encode_field_value/2,
-    matching_criteria/2,
-    query_result/2,
-    query_result_from_file/3,
-    read_rows/2
+    execute/2,
+    matching_criteria/4,
+    query_result_from_file/4,
+    read_rows/2,
+    value/3
 ]).
 :- use_module('../pg/connection', [pg_query/3]).
 :- use_module('../../logger', [
@@ -47,133 +49,120 @@
     writeln/2
 ]).
 
+%% table(-Table)
+table("status_popularity").
+
 %% count(-Count).
 count(Count) :-
+    count_sql(SQL),
+    value(SQL, [], Count).
+
+count_sql(SQL) :-
     table(Table),
-    append(
-       ["SELECT COUNT(*) AS matching_records_count FROM public.", Table],
-       Query
-    ),
-    query_result(
-        Query,
-        Count
-    ).
+    append(["SELECT COUNT(*) AS matching_records_count FROM public.", Table], SQL).
 
 %% query(-HeadersAndRows).
 query(HeadersAndRows) :-
-    % Executed to fetch column names
-    query(EmptyResults, false, 0),
-    nth0(0, EmptyResults, Headers),
-    query(Rows, true, 2),
+    listing_headers(Headers),
+    query(Rows, [], 2),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
-%% all_clauses(-Query, +Limit).
-all_clauses(Query, Limit) :-
-    select_clause(SelectClause),
-    from_clause(FromClause),
+listing_headers([
+    "string__id",
+    "string__id",
+    "number__likes",
+    "number__reposts",
+    "number__string"
+]).
 
-    % Accepting "ALL" as limit
-    % and sufficiently instantiated integers
-    ( ( integer_si(Limit),
-        number_chars(Limit, LimitClause) )
-    ->  true
-    ;   Limit = "ALL",
-        LimitClause = Limit ),
+%% all_clauses(-SQL, -Params, +Limit).
+all_clauses(SQL, [], "ALL") :-
+    all_clauses_template("ALL", SQL).
+all_clauses(SQL, [LimitChars], Limit) :-
+    integer_si(Limit),
+    number_chars(Limit, LimitChars),
+    all_clauses_template("$1", SQL).
 
-
-    append(
-        SelectClause,
-        FromClause,
-        SelectFromClauses
-    ),
-
+all_clauses_template(LimitClause, SQL) :-
+    table(Table),
     append(
         [
-            SelectFromClauses,
-            "ORDER BY ",
-            "status_id DESC ",
+            "SELECT ",
+            "r.id as string__id, ",
+            "r.publication_id as string__id, ",
+            "r.total_favorites as number__likes, ",
+            "r.total_retweets as number__reposts, ",
+            "r.checked_at as number__string ",
+            "FROM public.", Table, " r ",
+            "ORDER BY status_id DESC ",
             "OFFSET 0 ",
             "LIMIT ", LimitClause, ";"
         ],
-        Query
+        SQL
     ).
 
-%% query(-Rows, +TuplesOnly, +Limit).
-query(Rows, TuplesOnly, Limit) :-
-    all_clauses(Query, Limit),
-    writeln(query:Query, true),
-    once(query_result_from_file(
-        Query,
-        TuplesOnly,
-        TmpFile
-    )),
+%% query(-Rows, +Headers, +Limit).
+query(Rows, Headers, Limit) :-
+    once(all_clauses(SQL, Params, Limit)),
+    writeln(query:SQL, true),
+    once(query_result_from_file(SQL, Params, Headers, TmpFile)),
     read_rows(TmpFile, Rows).
 
-%% Query max id, then increment it by 1 to declare what next max id will be.
-%
 %% next_id(-NextId).
 next_id(NextId) :-
-    query_max_id(Rows),
-    nth0(0, Rows, Headers),
-    nth0(0, Headers, SingleField),
-    number_chars(MaxId, SingleField),
+    query_max_id_sql(SQL),
+    value(SQL, [], MaxIdValue),
+    coerce_no_records(MaxIdValue, MaxId),
     NextId #= MaxId + 1,
-    (   integer_si(NextId)
-    ->  true
-    ;   throw(invalid_list_id(NextId)) ).
+    validate_id(NextId).
 
-    %% query_max_id(-MaxId).
-    query_max_id(MaxId) :-
-        table(Table),
-        append(
-            [
-                "SELECT COALESCE(r.status_id::bigint, 0) pk ",
-                "FROM ", Table, " r ",
-                "ORDER BY r.status_id DESC ",
-                "LIMIT 1;"
-            ],
-            Query
-        ),
-        once(query_result_from_file(
-            Query,
-            true,
-            TmpFile
-        )),
-        read_rows(TmpFile, MaxId).
+coerce_no_records(no_records_found, 0).
+coerce_no_records(V, V) :- dif(V, no_records_found).
+
+validate_id(N) :- integer_si(N).
+validate_id(N) :- \+ integer_si(N), throw(invalid_list_id(N)).
+
+query_max_id_sql(SQL) :-
+    table(Table),
+    append(
+        [
+            "SELECT COALESCE(r.status_id::bigint, 0) pk ",
+            "FROM ", Table, " r ",
+            "ORDER BY r.status_id DESC ",
+            "LIMIT 1;"
+        ],
+        SQL
+    ).
 
 %% by_criteria(+Criteria, -HeadersAndRows).
 by_criteria(record_id(RecordId), HeadersAndRows) :-
     chars_si(RecordId),
-    select_clause(SelectClause),
-    from_clause(FromClause),
+    by_criteria_headers(Headers),
+    by_criteria_sql(SQL),
+    matching_criteria(SQL, [RecordId], Headers, HeadersAndRows).
+
+by_criteria_headers([
+    "string__id",
+    "string__id",
+    "number__likes",
+    "number__reposts",
+    "number__string"
+]).
+
+by_criteria_sql(SQL) :-
+    table(Table),
     append([
-        SelectClause,
-        FromClause, " ",
-        "WHERE ",
-        "r.publication_id = '", RecordId, "' ",
-        "OFFSET 0 "
-    ], SelectByCriteria),
-    matching_criteria(SelectByCriteria, HeadersAndRows).
-
-    %% from_clause(-FromClause).
-    from_clause(FromClause) :-
-        table(Table),
-        append(["FROM public.", Table, " r "], FromClause).
-
-    %% select_clause(-SelectClause).
-    select_clause(SelectClause) :-
-        append(
-            [
-                "SELECT ",
-                "r.id as string__id,                   ",
-                "r.publication_id as string__id,       ",
-                "r.total_favorites as number__likes,   ",
-                "r.total_retweets as number__reposts,  ",
-                "r.checked_at as number__string        "
-            ],
-            SelectClause
-        ).
+        "SELECT ",
+        "r.id as string__id, ",
+        "r.publication_id as string__id, ",
+        "r.total_favorites as number__likes, ",
+        "r.total_retweets as number__reposts, ",
+        "r.checked_at as number__string ",
+        "FROM public.", Table, " r ",
+        "WHERE r.publication_id = $1 ",
+        "OFFSET 0;"
+    ], SQL).
 
 %% insert(+Row, -InsertionResult).
 insert(
@@ -186,66 +175,72 @@ insert(
     InsertionResult
 ) :-
     count_matching_records(row(URI), TotalMatchingRecords),
-
     if_(
         dif(1, TotalMatchingRecords),
-       (uuidv4_string(Id),
-        table(Table),
-        append(
-            [
-                "INSERT INTO public.", Table, " (",
-                "   id,                 ",
-                "   status_id,          ",
-                "   publication_id,     ",
-                "   total_favorites,    ",
-                "   total_retweets,     ",
-                "   checked_at          ",
-                ") VALUES (             ",
-                "'", Id, "',            ",
-                "'", RecordId, "', ",
-                "'", URI, "', ",
-                "'", Likes, "',         ",
-                "'", RePosts, "',       ",
-                "NOW()                  ",
-                ");"
-            ],
-            Query
-        ),
-        once(query_result(
-            Query,
-            InsertionResult
-        ))),
-        (table(Table),
-        append(
-            [
-                "SELECT                                 ",
-                "r.publication_id as string__id,        ",
-                "r.total_favorites as number__likes,    ",
-                "r.total_retweets as number__reposts    ",
-                "r.checked_at as number__string         ",
-                "FROM public.", Table, " r              ",
-                "WHERE                                  ",
-                "r.publication_id = '", URI, "'        ;"
-            ],
-            SelectQuery
-        ),
-        matching_criteria(SelectQuery, Rows),
-        writeln([popularity_rows|[Rows]], true),
-        InsertionResult = ok)
+        insert_new_popularity(RecordId, URI, Likes, RePosts, InsertionResult),
+        report_existing_popularity(URI, InsertionResult)
+    ).
+
+insert_new_popularity(RecordId, URI, Likes, RePosts, ok) :-
+    uuidv4_string(Id),
+    coerce_chars(Likes, LikesChars),
+    coerce_chars(RePosts, RePostsChars),
+    coerce_chars(RecordId, RecordIdChars),
+    insert_sql(SQL),
+    execute(SQL, [Id, RecordIdChars, URI, LikesChars, RePostsChars]).
+
+report_existing_popularity(URI, ok) :-
+    select_by_uri_headers(SelectHeaders),
+    select_by_uri_sql(SelectSQL),
+    matching_criteria(SelectSQL, [URI], SelectHeaders, Rows),
+    writeln([popularity_rows|[Rows]], true).
+
+insert_sql(SQL) :-
+    table(Table),
+    append(
+        [
+            "INSERT INTO public.", Table, " (",
+            "id, status_id, publication_id, total_favorites, total_retweets, checked_at",
+            ") VALUES ($1, $2, $3, $4::integer, $5::integer, NOW());"
+        ],
+        SQL
+    ).
+
+select_by_uri_headers([
+    "string__id",
+    "number__likes",
+    "number__reposts",
+    "number__string"
+]).
+
+select_by_uri_sql(SQL) :-
+    table(Table),
+    append(
+        [
+            "SELECT ",
+            "r.publication_id as string__id, ",
+            "r.total_favorites as number__likes, ",
+            "r.total_retweets as number__reposts, ",
+            "r.checked_at as number__string ",
+            "FROM public.", Table, " r ",
+            "WHERE r.publication_id = $1;"
+        ],
+        SQL
     ).
 
 %% insert_without_unicity_check(+Row, -InsertionResult).
 insert_without_unicity_check(Row, InsertionResult) :-
+    once(insert_without_unicity_check_attempt(Row, InsertionResult)).
+
+insert_without_unicity_check_attempt(Row, InsertionResult) :-
     catch(
-        do_insert_without_unicity_check(
-            Row,
-            InsertionResult
-        ),
-        CannotInsertPopularityWithoutUnicityCheckCause,
-        log_error([cannot_insert_popularity_without_unicity_check(CannotInsertPopularityWithoutUnicityCheckCause)])
-    )
-    ->  writeln([inserted_popularity_without_unicity_check_successfully|[]], true)
-    ;   writeln([cannot_insert_popularity_without_unicity_check(Row)], true).
+        do_insert_without_unicity_check(Row, InsertionResult),
+        Cause,
+        log_error([cannot_insert_popularity_without_unicity_check(Cause)])
+    ),
+    writeln([inserted_popularity_without_unicity_check_successfully|[]], true).
+insert_without_unicity_check_attempt(Row, _) :-
+    writeln([cannot_insert_popularity_without_unicity_check(Row)], true).
 
 %% do_insert_without_unicity_check(+Row, -InsertionResult).
 %
@@ -279,25 +274,22 @@ popularity_insert_sql(SQL) :-
         SQL
     ).
 
-coerce_chars(N, Chars) :- integer(N), !, number_chars(N, Chars).
-coerce_chars(A, Chars) :- atom(A), !, atom_chars(A, Chars).
-coerce_chars(V, V).
+coerce_chars(N, Chars) :- integer(N), number_chars(N, Chars).
+coerce_chars(A, Chars) :- \+ integer(A), atom(A), atom_chars(A, Chars).
+coerce_chars(V, V) :- \+ integer(V), \+ atom(V).
 
-interpret_popularity_insert(data(_), ok) :- !.
+interpret_popularity_insert(data(_), ok).
 interpret_popularity_insert(error(Err), _) :- throw(pg_error(Err)).
 
-    %%% count_matching_records(+Row, -Result).
-    count_matching_records(row(URI), Result) :-
-        table(Table),
-        append([
-            "SELECT COUNT(*) how_many_records ",
-            "FROM public.", Table, " r      ",
-            "WHERE r.publication_id = '", URI, "'   ;"
-        ], SelectQuery),
-        once(query_result(
-            SelectQuery,
-            Result
-        )).
+%% count_matching_records(+Row, -Result).
+count_matching_records(row(URI), Result) :-
+    count_matching_records_sql(SQL),
+    value(SQL, [URI], Result).
 
-    %% table(-Table)
-    table("status_popularity").
+count_matching_records_sql(SQL) :-
+    table(Table),
+    append([
+        "SELECT COUNT(*) how_many_records ",
+        "FROM public.", Table, " r ",
+        "WHERE r.publication_id = $1;"
+    ], SQL).
