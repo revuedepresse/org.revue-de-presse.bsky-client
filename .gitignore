@@ -1,3 +1,11 @@
 .env.local
 !.env.local.dist
+.env.test
+!.env.test.dist
 var/tmp/*
+tmp/
+doc/html/
+deps/doclog/teruel/
+deps/doclog/djota/
+deps/doclog/scryer-prolog/
+deps/doclog/output/

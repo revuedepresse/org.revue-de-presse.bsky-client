@@ -1,3 +1,11 @@
 [submodule "scryer-prolog"]
-	path = scryer-prolog
+	path = deps/scryer-prolog
 	url = https://github.com/mthom/scryer-prolog
+[submodule "deps/postgresql-prolog"]
+	path = deps/postgresql-prolog
+	url = https://github.com/thierrymarianne/postgresql-prolog.git
+	branch = main
+[submodule "deps/doclog"]
+	path = deps/doclog
+	url = https://github.com/thierrymarianne/contrib-doclog.git
+	branch = honor-omit-in-file-walk

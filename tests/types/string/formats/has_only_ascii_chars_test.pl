@@ -2,11 +2,11 @@
 
 :- use_module(library(lists)).
 
-:- use_module('../../../assert', [
+:- use_module('../../../../src/assert', [
     assert/4,
     run_test_suite/2
 ]).
-:- use_module(has_only_ascii_chars).
+:- use_module('../../../../src/types/string/formats/has_only_ascii_chars').
 
 test(Spec) :-
     Spec = 'has_only_ascii_chars:has_only_ascii_chars',

@@ -5,47 +5,102 @@ on: [push, pull_request]
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: revue_de_presse_test
+          POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+          POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d revue_de_presse_test"
+          --health-interval 1s
+          --health-timeout 3s
+          --health-retries 30
+
+    env:
+      DATABASE_HOST: 127.0.0.1
+      DATABASE_PORT: "55432"
+      DATABASE_DB_NAME: revue_de_presse_test
+      DATABASE_USERNAME: test
+      DATABASE_PASSWORD: test
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Resolve scryer-prolog submodule SHA
+        id: scryer-sha
+        run: echo "sha=$(git rev-parse HEAD:deps/scryer-prolog)" >> "$GITHUB_OUTPUT"
 
       - name: Restore cache
         uses: actions/cache/restore@v4
         id: restore-dependencies
         with:
           path: |
-            ./scryer-prolog/target/release/scryer-prolog
-          key: org-revue-de-presse-bsky-${{ hashFiles('deps') }}
+            ./deps/scryer-prolog/target/release/scryer-prolog
+          key: org-revue-de-presse-bsky-scryer-${{ steps.scryer-sha.outputs.sha }}
 
       - if: ${{ steps.restore-dependencies.outputs.cache-hit != 'true' }}
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - if: ${{ steps.restore-dependencies.outputs.cache-hit != 'true' }}
-        name: Install system dependencies
+        name: Build scryer-prolog
         run: |
-          sudo apt-get update
-          sudo apt-get install -yq wget git
-          git clone https://github.com/thierrymarianne/contrib-scryer-prolog \
-          scryer-prolog \
-          -b "$(\cat ./deps | head -n1)"
-          cd scryer-prolog
+          cd deps/scryer-prolog
           cargo build --bin scryer-prolog --release
 
       - if: ${{ steps.restore-dependencies.outputs.cache-hit != 'true' }}
         name: Cache dependencies
         uses: actions/cache/save@v4
-        id: cache-dependencies
         with:
           path: |
-            ./scryer-prolog/target/release/scryer-prolog
-          key: org-revue-de-presse-bsky-${{ hashFiles('deps') }}
+            ./deps/scryer-prolog/target/release/scryer-prolog
+          key: org-revue-de-presse-bsky-scryer-${{ steps.scryer-sha.outputs.sha }}
 
       # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
       - name: Add scryer-prolog to system path
         run: |
-          chmod +x ./scryer-prolog/target/release/scryer-prolog
-          echo "$PWD/scryer-prolog/target/release" >> "$GITHUB_PATH"
+          chmod +x ./deps/scryer-prolog/target/release/scryer-prolog
+          echo "$PWD/deps/scryer-prolog/target/release" >> "$GITHUB_PATH"
 
-      - name: Run tests
+      - name: Install postgresql-client
         run: |
-          echo $PATH
-          make test
+          sudo apt-get update -yq
+          sudo apt-get install -yq postgresql-client
+
+      - name: Apply schema init scripts
+        env:
+          PGPASSWORD: test
+        run: |
+          for f in docker/postgres/init/*.sql; do
+            echo "Applying $f"
+            psql -h 127.0.0.1 -p 55432 -U test -d revue_de_presse_test -v ON_ERROR_STOP=1 -f "$f"
+          done
+
+      - name: Run string-format tests
+        run: make test
+
+      - name: Run SCRAM round-trip test
+        run: scryer-prolog ./tests/pg/scram_test.pl -g 'run_test'
+
+      - name: Run pg_query bind-param test
+        run: scryer-prolog ./tests/pg/pg_query_test.pl -g 'run_test'
+
+      - name: Run idempotence test
+        run: scryer-prolog ./tests/pg/idempotence_test.pl -g 'run_test'
+
+      - name: Run repository inserts test
+        run: scryer-prolog ./tests/pg/repository_inserts_test.pl -g 'run_test'
+
+      - name: Run repository publisher test
+        run: scryer-prolog ./tests/pg/repository_publisher_test.pl -g 'run_test'
+
+      - name: Run repository list test
+        run: scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test'

@@ -1,5 +1,17 @@
 :- module(split_subject, [split_subject/3]).
 
+/**
+Split a char list into labels around a separator character.
+
+Walks the input one character at a time, accumulating each
+label as a char list and emitting a labels list whenever the
+separator is hit. The arity-3 public predicate is memoized in
+`[[memoize]]`, because handle and DID validation each call
+into split for the same subject many times during a single
+request.
+*/
+
+:- use_module(library(clpz)).
 :- use_module(library(lists)).
 :- use_module(library(reif)).
 :- use_module(has_only_ascii_chars, [
@@ -20,14 +32,13 @@
 subject_and_separator_must_be_valid(Subject, Separator) :-
     must_be_chars(Subject),
     must_be_ground(Separator),
-
     length(Subject, Length),
-    (   Length #> 1
-    ->  Subject = [Char|_Rest]
-    ;   Subject = [Char] ),
-
+    once(first_char_for_length(Length, Subject, _Char)),
     has_only_ascii_chars(Subject),
     must_be_ascii_char(Separator).
+
+first_char_for_length(Length, [Char|_Rest], Char) :- Length > 1.
+first_char_for_length(Length, [Char], Char) :- Length =< 1.
 
 % The overall handle is split in to multiple segments
 % (referred to as "labels" in standards documents),
@@ -59,8 +70,20 @@ split_subject(Subject, Separator, LabelAcc, AccIn, AccOut) :-
     ),
     split_subject(Rest, Separator, NextLabelAcc, NextAccIn, AccOut).
 
-% split_subject(+Subject, +Separator, -Labels).
+%% split_subject(+Subject, +Separator, -Labels)
+%
+% Unify `Labels` with the list of char lists obtained by
+% splitting `Subject` on `Separator`. The result is memoized
+% by `(Subject, Separator)` so repeated calls during a single
+% validation pass are O(1).
 split_subject(Subject, Separator, Labels) :-
-    memoized_goal(split_subject:split_subject(Subject, Separator, "", [], Labels), [Subject, Separator, "", [], Labels])
-    ->  true
-    ;   memoize_goal(split_subject:split_subject(Subject, Separator, "", [], Labels), [Subject, Separator, "", [], Labels]).
+    once(split_subject_memoized_or_compute(Subject, Separator, Labels)).
+
+split_subject_memoized_or_compute(Subject, Separator, Labels) :-
+    memoized_goal(split_subject:split_subject(Subject, Separator, "", [], Labels),
+                  [Subject, Separator, "", [], Labels]).
+split_subject_memoized_or_compute(Subject, Separator, Labels) :-
+    \+ memoized_goal(split_subject:split_subject(Subject, Separator, "", [], Labels),
+                     [Subject, Separator, "", [], Labels]),
+    memoize_goal(split_subject:split_subject(Subject, Separator, "", [], Labels),
+                 [Subject, Separator, "", [], Labels]).

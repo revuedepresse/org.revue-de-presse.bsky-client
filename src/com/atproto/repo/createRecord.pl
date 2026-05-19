@@ -95,9 +95,12 @@ send_request(Text, Pairs, StatusCode) :-
 
     phrase(json_chars(pairs(Pairs)), BodyChars),
 
-    (   StatusCode = 200
-    ->  writeln(status_code(StatusCode), true)
-    ;   throw(failed_http_request('com.atproto.repo.createRecord call failed', Pairs, StatusCode)) ).
+    handle_create_record_send_status(StatusCode, Pairs).
+
+handle_create_record_send_status(200, _) :- writeln(status_code(200), true).
+handle_create_record_send_status(StatusCode, Pairs) :-
+    StatusCode \= 200,
+    throw(failed_http_request('com.atproto.repo.createRecord call failed', Pairs, StatusCode)).
 
 % memoize_com__atproto__repo__createRecord_response(+Text, -Props).
 memoize_com__atproto__repo__createRecord_response(Text, Props) :-
@@ -107,24 +110,33 @@ memoize_com__atproto__repo__createRecord_response(Text, Props) :-
         log_info([Message])
     ),
 
-    (   StatusCode \= 200
-    ->  by_key("message", Pairs, ErrorMessageChars),
-        atom_chars(ErrorMessage, ErrorMessageChars),
-        log_info([ErrorMessage]), fail
-    ;   by_key("cid", Pairs, CidChars),
-        atom_chars(Cid, CidChars),
-        by_key("uri", Pairs, UriChars),
-        atom_chars(Uri, UriChars),
-        by_key("validationStatus", Pairs, ValidationStatusChars),
-        atom_chars(ValidationStatus, ValidationStatusChars),
-        by_key("commit", Pairs, CommitPairs),
-        by_key("cid", CommitPairs, CommitCid),
-        by_key("rev", CommitPairs, Rev),
-        Props = [Cid-Uri-ValidationStatus-CommitCid-Rev] ),
+    handle_create_record_response_status(StatusCode, Pairs, Props),
     assertz(com__atproto__repo__createRecord_memoized(Text, Props)).
+
+handle_create_record_response_status(StatusCode, Pairs, _) :-
+    StatusCode \= 200,
+    by_key("message", Pairs, ErrorMessageChars),
+    atom_chars(ErrorMessage, ErrorMessageChars),
+    log_info([ErrorMessage]),
+    fail.
+handle_create_record_response_status(200, Pairs, Props) :-
+    by_key("cid", Pairs, CidChars),
+    atom_chars(Cid, CidChars),
+    by_key("uri", Pairs, UriChars),
+    atom_chars(Uri, UriChars),
+    by_key("validationStatus", Pairs, ValidationStatusChars),
+    atom_chars(ValidationStatus, ValidationStatusChars),
+    by_key("commit", Pairs, CommitPairs),
+    by_key("cid", CommitPairs, CommitCid),
+    by_key("rev", CommitPairs, Rev),
+    Props = [Cid-Uri-ValidationStatus-CommitCid-Rev].
 
 % com__atproto__repo__createRecord(+Text, -Props).
 com__atproto__repo__createRecord(Text, Props) :-
-    com__atproto__repo__createRecord_memoized(Text, Props)
-    ->  true
-    ;   memoize_com__atproto__repo__createRecord_response(Text, Props).
+    once(create_record_memoized_or_compute(Text, Props)).
+
+create_record_memoized_or_compute(Text, Props) :-
+    com__atproto__repo__createRecord_memoized(Text, Props).
+create_record_memoized_or_compute(Text, Props) :-
+    \+ com__atproto__repo__createRecord_memoized(Text, Props),
+    memoize_com__atproto__repo__createRecord_response(Text, Props).

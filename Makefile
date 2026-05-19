@@ -1,6 +1,6 @@
 SHELL:=/bin/bash
 
-.PHONY: configure create_session create_poste 
+.PHONY: configure create_session create_poste doc doc-setup doc-clean doc-serve
 
 COMPOSE_PROJECT_NAME ?= 'org_example_bsky'
 WORKER ?= 'org.example.bsky'
@@ -104,3 +104,56 @@ list-api-spec-values: ### List API spec values
 
 test: ## Test the client
 	@/bin/bash -c '. fun.sh && test'
+
+compose-up: ### Start the test Postgres container (waits until healthy)
+	@docker compose up -d postgres
+	@printf 'Waiting for postgres to become healthy '
+	@until [ "$$(docker compose ps --format '{{.Service}} {{.Health}}' 2>/dev/null | awk '$$1=="postgres"{print $$2}')" = "healthy" ]; do printf '.'; sleep 1; done
+	@echo ' ok'
+
+compose-down: ### Stop the test Postgres container and drop its volume
+	@docker compose down -v
+
+test-scram: compose-up ### Round-trip SCRAM-SHA-256 against the containerized Postgres
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/scram_test.pl -g 'run_test'
+
+test-pg-query: compose-up ### Round-trip bind-param INSERT/SELECT through connection.pl
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/pg_query_test.pl -g 'run_test'
+
+test-idempotence: compose-up ### Verify ON CONFLICT (hash) DO NOTHING on the publication table
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/idempotence_test.pl -g 'run_test'
+
+test-repository-inserts: compose-up ### Exercise repository_status:insert/3 and repository_popularity:do_insert_without_unicity_check/2 end-to-end
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/repository_inserts_test.pl -g 'run_test'
+
+test-repository-publisher: compose-up ### Exercise repository_publisher:insert/2 (new + duplicate paths) and the $$1::bigint / $$2::bigint bind casts
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/repository_publisher_test.pl -g 'run_test'
+
+test-repository-list: compose-up ### Exercise repository_list:insert/2 (new path) and the $$2::bigint bind cast on list_id
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test'
+
+probe-prod-auth: ### Read-only auth probe against the DB defined in .env.local
+	@set -a; . ./.env.local; set +a; \
+	scryer-prolog ./src/infrastructure/pg/probe.pl -g 'run'
+
+doc-setup: ### Clone doclog's own dependencies (teruel, djota) into deps/doclog
+	@$(MAKE) -C deps/doclog setup
+
+doc: ### Generate HTML documentation from doclog comments into ./doc/html
+	@mkdir -p doc/html
+	@bash deps/doclog/doclog.sh . doc/html
+
+doc-clean: ### Remove generated documentation under doc/html
+	@rm -rf doc/html
+
+DOC_PORT ?= 8000
+
+doc-serve: doc ### Rebuild then serve doc/html on http://localhost:$(DOC_PORT)
+	@echo "Serving doc/html on http://localhost:$(DOC_PORT)"
+	@python3 -m http.server $(DOC_PORT) --directory doc/html

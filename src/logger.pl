@@ -4,6 +4,16 @@
     log_info/1
 ]).
 
+/**
+Level-gated logging to stdout.
+
+The threshold is read from `LOG_LEVEL`. Each `log_*` predicate
+fails silently when its level is below the threshold and
+otherwise prints a heterogeneous list of messages — atoms,
+integers, char lists, and arbitrary terms are each rendered
+with sensible formatting and a trailing newline.
+*/
+
 :- use_module(library(os)).
 :- use_module(library(si)).
 
@@ -24,34 +34,41 @@ above_debug_level :-
 
 log([]) :- nl.
 log([Message|Rest]) :-
-    (   atomic_si(Message)
-    ->  LogMessage = Message,
-        write(LogMessage),
-        MessageRest = Rest
-    ;   integer(Message),
-        number_chars(Message, MessageChars),
-        atom_chars(AtomicMessage, MessageChars),
-        LogMessage = AtomicMessage,
-        write(LogMessage),
-        MessageRest = Rest
-    ;   chars_si(Message),
-        atom_chars(AtomicMessage,Message),
-        LogMessage = AtomicMessage,
-        write(LogMessage),
-        MessageRest = Rest,
-        write(' ')
-    ;   list_si(Message),
-        LogMessage = Message,
-        write(LogMessage),
-        MessageRest = Rest,
-        write(' ')
-    ;   LogMessage = Message,
-        writeq(LogMessage),
-        MessageRest = Rest,
-        write(' ')
-    ),
-    log(MessageRest).
+    once(write_message(Message)),
+    log(Rest).
 
+write_message(Message) :- atomic_si(Message), write(Message).
+write_message(Message) :-
+    \+ atomic_si(Message),
+    integer(Message),
+    number_chars(Message, MessageChars),
+    atom_chars(AtomicMessage, MessageChars),
+    write(AtomicMessage).
+write_message(Message) :-
+    \+ atomic_si(Message),
+    \+ integer(Message),
+    chars_si(Message),
+    atom_chars(AtomicMessage, Message),
+    write(AtomicMessage),
+    write(' ').
+write_message(Message) :-
+    \+ atomic_si(Message),
+    \+ integer(Message),
+    \+ chars_si(Message),
+    list_si(Message),
+    write(Message),
+    write(' ').
+write_message(Message) :-
+    \+ atomic_si(Message),
+    \+ integer(Message),
+    \+ chars_si(Message),
+    \+ list_si(Message),
+    writeq(Message),
+    write(' ').
+
+%% log_debug(+Messages)
+%
+% Print `Messages` if `LOG_LEVEL` is at `info` or more verbose.
 log_debug(Messages) :-
     once(debug(Messages)).
 
@@ -61,6 +78,10 @@ log_debug(Messages) :-
     debug(Messages) :-
         log(Messages).
 
+%% log_info(+Messages)
+%
+% Print `Messages` if `LOG_LEVEL` is at `notice`/`warning`/
+% `error` or more verbose.
 log_info(Messages) :-
     once(info(Messages)).
 
@@ -70,6 +91,10 @@ log_info(Messages) :-
     info(Messages) :-
         log(Messages).
 
+%% log_error(+Messages)
+%
+% Print `Messages` if `LOG_LEVEL` is at `critical`/`alert`/
+% `emergency`.
 log_error(Messages) :-
     once(error(Messages)).
 

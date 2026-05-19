@@ -2,6 +2,16 @@
     onGetListItem/2
 ]).
 
+/**
+Domain event handler for each item in `app.bsky.graph.getList`.
+
+Encodes the item's pair list to a base64 payload, then either
+logs the existing event row for the same handle or inserts a
+new one and seeds the `weaving_user` record. Used once per
+list member during the fan-out from
+[[event_getList#onGetList]].
+*/
+
 :- use_module(library(assoc)).
 :- use_module(library(charsio)).
 :- use_module(library(lists)).
@@ -37,9 +47,13 @@
     writeln/2
 ]).
 
-%% Handling onGetListItem Event
-%
 %% onGetListItem(+ItemAssoc, +Pairs)
+%
+% Handle a single list member. `ItemAssoc` is the assoc form
+% of the item; `Pairs` is the raw JSON-DCG pair list, which is
+% serialised and base64-encoded for storage. Existing rows are
+% logged; missing rows are inserted into
+% `member_profile_collected_event` and `weaving_user`.
 onGetListItem(ItemAssoc, pairs(UnwrappedPairs)) :-
     write_term_to_chars(UnwrappedPairs, [quoted(true),double_quotes(true)], Chars),
 
@@ -51,31 +65,33 @@ onGetListItem(ItemAssoc, pairs(UnwrappedPairs)) :-
     get_assoc(handle, Subject, ScreenName),
 
     catch(
-        (once(repository_list_item:event_by_screen_name(ScreenName, Rows)),
-        ( ( nth0(0, Rows, FirstRow),
-            get_assoc(payload, FirstRow, Payload) )
-        ->
-            from_event(Payload, row(_,_,_,Handle,_)),
-            writeln('list item value related to "subject" key':Handle, true)
-        ;   true )),
+        on_get_list_item_log_existing(ScreenName, Payload),
         E,
         if_(
             E = cannot_read_rows_selected_by(_),
-            (once(repository_list_item:insert(
-                row(ScreenName, Payload),
-                InsertionResult
-            )),
-
-            from_event(Payload, RowFromPayload),
-            insert_list_items_if_not_exists(
-                RowFromPayload,
-                _
-            ),
-
-            writeln(screen_name:ScreenName, true),
-            writeln(insertion_result:InsertionResult, true),
-
-            log_info([payload:Payload])),
+            on_get_list_item_insert(ScreenName, Payload),
             log_error([unexpected_error(E)])
         )
     ).
+
+on_get_list_item_log_existing(ScreenName, Payload) :-
+    once(repository_list_item:event_by_screen_name(ScreenName, Rows)),
+    once(log_existing_list_item_payload(Rows, Payload)).
+
+log_existing_list_item_payload(Rows, Payload) :-
+    nth0(0, Rows, FirstRow),
+    get_assoc(payload, FirstRow, Payload),
+    from_event(Payload, row(_,_,_,Handle,_)),
+    writeln('list item value related to "subject" key':Handle, true).
+log_existing_list_item_payload(_, _).
+
+on_get_list_item_insert(ScreenName, Payload) :-
+    once(repository_list_item:insert(
+        row(ScreenName, Payload),
+        InsertionResult
+    )),
+    from_event(Payload, RowFromPayload),
+    insert_list_items_if_not_exists(RowFromPayload, _),
+    writeln(screen_name:ScreenName, true),
+    writeln(insertion_result:InsertionResult, true),
+    log_info([payload:Payload]).

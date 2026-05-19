@@ -57,9 +57,7 @@ memoize_jw_tokens(AccessJwt, RefreshJwt) :-
     once(http_open(Endpoint, Stream, Options)),
     log_debug(['Response headers: ', ResponseHeaders]),
 
-    (   StatusCode = 200
-    ->  writeln(status_code(StatusCode))
-    ;   throw(cannot_create_session('Failed to create session', StatusCode)) ),
+    handle_create_session_status(StatusCode),
 
     read_stream(Stream, BodyChars),
     phrase(json_chars(pairs(Pairs)), BodyChars),
@@ -68,9 +66,18 @@ memoize_jw_tokens(AccessJwt, RefreshJwt) :-
     by_key("refreshJwt", Pairs, RefreshJwt),
     assertz(com__atproto__server__createSession_memoized(AccessJwt, RefreshJwt)).
 
+handle_create_session_status(200) :- writeln(status_code(200)).
+handle_create_session_status(StatusCode) :-
+    StatusCode \= 200,
+    throw(cannot_create_session('Failed to create session', StatusCode)).
+
 % com__atproto__server__createSession(-AccessJwt, -RefreshJwt).
 com__atproto__server__createSession(AccessJwt, RefreshJwt) :-
-    com__atproto__server__createSession_memoized(AccessJwt, RefreshJwt)
-    ->  true
-    ;   memoize_jw_tokens(AccessJwt, RefreshJwt).
+    once(create_session_memoized_or_compute(AccessJwt, RefreshJwt)).
+
+create_session_memoized_or_compute(AccessJwt, RefreshJwt) :-
+    com__atproto__server__createSession_memoized(AccessJwt, RefreshJwt).
+create_session_memoized_or_compute(AccessJwt, RefreshJwt) :-
+    \+ com__atproto__server__createSession_memoized(AccessJwt, RefreshJwt),
+    memoize_jw_tokens(AccessJwt, RefreshJwt).
 
