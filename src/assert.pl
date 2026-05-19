@@ -8,27 +8,30 @@
 
 assert(Spec, Goal, Expected, Actual) :-
     must_be_ground(Expected),
-
-    (   \+ ( call(Goal), freeze(Actual, \+ dif_si(Expected, Actual) ) )
-    ->  write('[KO] '), WriteDiff = true
-    ;   write('[OK] ')
-    ),
+    once(write_outcome(Goal, Expected, Actual, WriteDiff)),
     write(Spec), nl,
+    maybe_write_diff(WriteDiff, Goal, Expected, Actual).
 
-    (   ground(WriteDiff)
-    ->
-        (
-            call(Goal),
+write_outcome(Goal, Expected, Actual, true) :-
+    \+ ( call(Goal), freeze(Actual, \+ dif_si(Expected, Actual) ) ),
+    write('[KO] ').
+write_outcome(Goal, Expected, Actual, false) :-
+    ( call(Goal), freeze(Actual, \+ dif_si(Expected, Actual) ) ),
+    write('[OK] ').
+
+maybe_write_diff(true, Goal, Expected, Actual) :-
+    \+ \+ ( call(Goal),
             write('expected: '), writeq(Expected), nl,
-            write('actual: '), writeq(Actual), nl,
-            fail
-        )
-    ;   true ).
+            write('actual: '), writeq(Actual), nl ).
+maybe_write_diff(false, _, _, _).
 
-test_suite(TestModule,Spec, Acc, Result) :-
-    \+  (TestModule:test(Spec))
-    ->  append([Acc, [ko]], Result)
-    ;   append([Acc, [ok]], Result).
+test_suite(TestModule, Spec, Acc, Result) :-
+    findall(s, TestModule:test(Spec), Sols),
+    classify_outcome(Sols, Outcome),
+    append([Acc, [Outcome]], Result).
+
+classify_outcome([], ko).
+classify_outcome([_|_], ok).
 
 run_test_suite(TestModule, Specs) :-
     foldl(test_suite(TestModule), Specs, [], Sol),

@@ -2,6 +2,9 @@
 
 % must_be_ground(+Subject).
 must_be_ground(Subject) :-
-    (   \+ ground(Subject)
-    ->  throw(instantiation_error('Subject must be ground.'))
-    ;   true ).
+    once(must_be_ground_or_throw(Subject)).
+
+must_be_ground_or_throw(Subject) :- ground(Subject).
+must_be_ground_or_throw(Subject) :-
+    \+ ground(Subject),
+    throw(instantiation_error('Subject must be ground.')).

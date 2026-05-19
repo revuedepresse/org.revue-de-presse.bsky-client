@@ -8,6 +8,9 @@ must_not_start_with(Subject, Char) :-
     must_be_ground(Subject),
     must_be_ground(Char),
     Subject = [FirstChar|_],
-    (   \+ dif_si(FirstChar, Char)
-    ->  throw(error_must_not_start_with(Char))
-    ;   true ).
+    assert_first_differs(FirstChar, Char).
+
+assert_first_differs(FirstChar, Char) :- dif_si(FirstChar, Char).
+assert_first_differs(FirstChar, Char) :-
+    \+ dif_si(FirstChar, Char),
+    throw(error_must_not_start_with(Char)).

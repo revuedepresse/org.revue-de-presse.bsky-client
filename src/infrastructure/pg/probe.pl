@@ -5,10 +5,11 @@
 
 :- use_module('../../../deps/postgresql-prolog/postgresql', [connect/6, query/3]).
 
-env_or_die(Name, Value) :-
-    (   getenv(Name, V)
-    ->  Value = V
-    ;   format("[KO] missing env var ~s~n", [Name]), halt(2) ).
+env_or_die(Name, Value) :- getenv(Name, Value).
+env_or_die(Name, _) :-
+    \+ getenv(Name, _),
+    format("[KO] missing env var ~s~n", [Name]),
+    halt(2).
 
 %% run/0
 %

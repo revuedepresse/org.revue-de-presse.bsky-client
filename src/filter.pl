@@ -12,11 +12,14 @@ include(PartialGoal, [Head|Tail], In, Out) :-
     PartialGoal =.. [Functor|Args],
     append([Args, [Head]], Arguments),
     Goal =.. [Functor|Arguments],
-
-    (   call(Goal)
-    ->  append([In, [Head]], NextIn)
-    ;   NextIn = In ),
+    once(accumulate_if_match(Goal, Head, In, NextIn)),
     include(PartialGoal, Tail, NextIn, Out).
+
+accumulate_if_match(Goal, Head, In, NextIn) :-
+    call(Goal),
+    append([In, [Head]], NextIn).
+accumulate_if_match(Goal, _, In, In) :-
+    \+ call(Goal).
 
 include(PartialGoal, L, Out) :-
     list_si(L),

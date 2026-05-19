@@ -96,11 +96,7 @@ send_request(Params, ResponsePairs, StatusCode) :-
         headers(ResponseHeaders)
     ],
 
-    (   Params = (actor(ParamValue)-cursor(Cursor))
-    ->  app__bsky__feed__getAuthorFeed_endpoint(OperationId, ParamName, ParamValue, EndpointWithoutCursor),
-        append([EndpointWithoutCursor, "&cursor=", Cursor], Endpoint)
-    ;   ParamValue = Params,
-        app__bsky__feed__getAuthorFeed_endpoint(OperationId, ParamName, ParamValue, Endpoint) ),
+    once(resolve_endpoint(Params, OperationId, ParamName, ParamValue, Endpoint)),
 
     submit_request_once(
         request(Endpoint, Options),
@@ -116,30 +112,13 @@ send_request(Params, ResponsePairs, StatusCode) :-
     pairs_to_assoc(ResponsePairs, FeedAssoc),
     get_assoc(feed, FeedAssoc, Feed),
 
-    (   get_assoc(cursor, FeedAssoc, NextCursor)
-    ->  true
-    ;   NextCursor = 'none' ),
+    once(resolve_next_cursor(FeedAssoc, NextCursor)),
     writeln([next_cursor|[NextCursor]], true),
 
     length(Feed, HowManyPostsInFeed),
     numlist(HowManyPostsInFeed, IndicesStartingAt1),
 
-    (   catch(
-            maplist(onGetAuthorFeed(NextCursor, HowManyPostsInFeed), Feed, IndicesStartingAt1),
-            E,
-            if_(
-                E = already_indexed_post(URI),
-                writeln([post_indexed_before|[URI]], true),
-                throw(could_not_iterate_over_all_author_feed_post(E))
-            )
-        )
-    ->  if_(
-            NextCursor = 'none',
-            writeln('fetched all available feed posts', true),
-           (NextParams = actor(ParamValue)-cursor(NextCursor),
-            app__bsky__feed__getAuthorFeed(NextParams, _Props))
-        )
-    ;   writeln([onGetAuthorFeed_failed_with_posts_count|HowManyPostsInFeed], true) ),
+    once(iterate_or_report_failure(NextCursor, HowManyPostsInFeed, Feed, IndicesStartingAt1, ParamValue)),
 
     append([OperationId, " call failed"], FailedHttpRequestErrorMessage),
     chars_si(FailedHttpRequestErrorMessage),
@@ -153,20 +132,57 @@ send_request(Params, ResponsePairs, StatusCode) :-
 
     %% submit_request_once(+request, -Response).
     submit_request_once(request(Endpoint, Options), response(ResponseHeaders, Stream)) :-
-        once((
-            writeln([endpoint|[Endpoint]], true),
-            (   once(http_open(Endpoint, Stream, Options))
-            ->  writeln(response_headers: ResponseHeaders)
-            ;   throw(failed_http_request(Endpoint, Options)) )
-        )).
+        writeln([endpoint|[Endpoint]], true),
+        once(submit_open_or_throw(Endpoint, Stream, Options, ResponseHeaders)).
+
+    submit_open_or_throw(Endpoint, Stream, Options, ResponseHeaders) :-
+        http_open(Endpoint, Stream, Options),
+        writeln(response_headers: ResponseHeaders).
+    submit_open_or_throw(Endpoint, _Stream, Options, _ResponseHeaders) :-
+        \+ http_open(Endpoint, _, Options),
+        throw(failed_http_request(Endpoint, Options)).
+
+resolve_endpoint(actor(ParamValue)-cursor(Cursor), OperationId, ParamName, ParamValue, Endpoint) :-
+    app__bsky__feed__getAuthorFeed_endpoint(OperationId, ParamName, ParamValue, EndpointWithoutCursor),
+    append([EndpointWithoutCursor, "&cursor=", Cursor], Endpoint).
+resolve_endpoint(Params, OperationId, ParamName, Params, Endpoint) :-
+    \+ ( Params = actor(_)-cursor(_) ),
+    app__bsky__feed__getAuthorFeed_endpoint(OperationId, ParamName, Params, Endpoint).
+
+resolve_next_cursor(FeedAssoc, NextCursor) :- get_assoc(cursor, FeedAssoc, NextCursor).
+resolve_next_cursor(FeedAssoc, 'none') :- \+ get_assoc(cursor, FeedAssoc, _).
+
+iterate_or_report_failure(NextCursor, HowManyPostsInFeed, Feed, Indices, ParamValue) :-
+    catch(
+        maplist(onGetAuthorFeed(NextCursor, HowManyPostsInFeed), Feed, Indices),
+        E,
+        if_(
+            E = already_indexed_post(URI),
+            writeln([post_indexed_before|[URI]], true),
+            throw(could_not_iterate_over_all_author_feed_post(E))
+        )
+    ),
+    follow_or_finalize(NextCursor, ParamValue).
+iterate_or_report_failure(_NextCursor, HowManyPostsInFeed, _Feed, _Indices, _ParamValue) :-
+    writeln([onGetAuthorFeed_failed_with_posts_count|HowManyPostsInFeed], true).
+
+follow_or_finalize('none', _ParamValue) :- writeln('fetched all available feed posts', true).
+follow_or_finalize(NextCursor, ParamValue) :-
+    dif(NextCursor, 'none'),
+    NextParams = actor(ParamValue)-cursor(NextCursor),
+    app__bsky__feed__getAuthorFeed(NextParams, _Props).
 
 %% app__bsky__feed__getAuthorFeed(+Params, -Props).
 %
 % [app.bsky.feed.getAuthorFeed](https://docs.bsky.app/docs/api/app-bsky-feed-get-author-feed)
 app__bsky__feed__getAuthorFeed(Params, Props) :-
-    app__bsky__feed__getAuthorFeed_memoized(Params, Props)
-    ->  true
-    ;   memoize_app__bsky__feed__getAuthorFeed(Params, Props).
+    once(getAuthorFeed_memoized_or_compute(Params, Props)).
+
+getAuthorFeed_memoized_or_compute(Params, Props) :-
+    app__bsky__feed__getAuthorFeed_memoized(Params, Props).
+getAuthorFeed_memoized_or_compute(Params, Props) :-
+    \+ app__bsky__feed__getAuthorFeed_memoized(Params, Props),
+    memoize_app__bsky__feed__getAuthorFeed(Params, Props).
 
 :- dynamic(app__bsky__feed__getAuthorFeed_memoized/2).
 

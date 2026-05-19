@@ -6,6 +6,9 @@
 % must_be_chars(+Subject).
 must_be_chars(Subject) :-
     must_be_ground(Subject),
-    (   \+ chars_si(Subject)
-    ->  throw(type_error('Subject must be chars.'))
-    ;   true ).
+    once(assert_chars(Subject)).
+
+assert_chars(Subject) :- chars_si(Subject).
+assert_chars(Subject) :-
+    \+ chars_si(Subject),
+    throw(type_error('Subject must be chars.')).

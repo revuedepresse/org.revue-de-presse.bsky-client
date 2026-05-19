@@ -35,30 +35,43 @@
 %% onGetProfile(+ListURI, +DID, +Payload)
 onGetProfile(props(ListURI, FollowersCount, FollowsCount, DID, Payload)) :-
     catch(
-        (once(repository_publisher:by_criteria(list_uri(ListURI), did(DID), Rows)),
-        ( ( nth0(0, Rows, FirstRow),
-            get_assoc(screen_name, FirstRow, PreExistingDID) )
-        ->  log_debug(['Pre-existing record for did':PreExistingDID])
-        ;   true )),
+        on_get_profile_check_existing(ListURI, DID),
         Cause,
         if_(
             Cause = cannot_read_rows_selection,
-            once((
-                by_list_uri_or_throw(list_uri(ListURI), ListUriPairs),
-                get_assoc(list_id, ListUriPairs, ListId),
-                repository_publisher:insert(
-                    row(
-                        ListId,
-                        ListURI,
-                        FollowersCount,
-                        FollowsCount,
-                        DID,
-                        Payload
-                    ),
-                    InsertionResult
-                ),
-                log_info([list_insertion_result(InsertionResult)])
-            )),
-            throw(pre_existing_publisher(PreExistingDID))
+            on_get_profile_insert(ListURI, FollowersCount, FollowsCount, DID, Payload),
+            on_get_profile_propagate(Cause)
         )
     ).
+
+on_get_profile_check_existing(ListURI, DID) :-
+    once(repository_publisher:by_criteria(list_uri(ListURI), did(DID), Rows)),
+    once(report_existing_publisher_row(Rows)).
+
+report_existing_publisher_row(Rows) :-
+    nth0(0, Rows, FirstRow),
+    get_assoc(screen_name, FirstRow, PreExistingDID),
+    log_debug(['Pre-existing record for did':PreExistingDID]),
+    throw(pre_existing_publisher(PreExistingDID)).
+report_existing_publisher_row(_).
+
+on_get_profile_insert(ListURI, FollowersCount, FollowsCount, DID, Payload) :-
+    once((
+        by_list_uri_or_throw(list_uri(ListURI), ListUriPairs),
+        get_assoc(list_id, ListUriPairs, ListId),
+        repository_publisher:insert(
+            row(
+                ListId,
+                ListURI,
+                FollowersCount,
+                FollowsCount,
+                DID,
+                Payload
+            ),
+            InsertionResult
+        ),
+        log_info([list_insertion_result(InsertionResult)])
+    )).
+
+on_get_profile_propagate(pre_existing_publisher(PreExistingDID)) :-
+    throw(pre_existing_publisher(PreExistingDID)).

@@ -25,9 +25,14 @@
 
 %% remove_temporary_file(+TempFile).
 remove_temporary_file(TempFile) :-
-    (   delete_file(TempFile)
-    ->  writeln(removed(TempFile))
-    ;   throw(unexpected_command_exit_code('Failed to remove temporary file'))).
+    once(remove_temporary_file_or_throw(TempFile)).
+
+remove_temporary_file_or_throw(TempFile) :-
+    delete_file(TempFile),
+    writeln(removed(TempFile)).
+remove_temporary_file_or_throw(TempFile) :-
+    \+ delete_file(TempFile),
+    throw(unexpected_command_exit_code('Failed to remove temporary file', TempFile)).
 
 %% temporary_file(+Prefix, +Suffix, -TempFile).
 temporary_file(Prefix, Suffix, TempFile) :-

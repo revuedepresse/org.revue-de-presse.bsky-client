@@ -17,6 +17,11 @@
     read_stream/2
 ]).
 
+check_shell_status(0, _).
+check_shell_status(Status, Msg) :-
+    Status \= 0,
+    throw(unexpected_command_exit_code(Msg)).
+
 % See [date command --iso-8601 option](https://unix.stackexchange.com/a/629504)
 % date_iso8601(-Date).
 date_iso8601(Iso8601Date) :-
@@ -27,9 +32,7 @@ date_iso8601(Iso8601Date) :-
 
     shell(GetDateCmd, GetDateStatus),
     log_debug(['GetDateStatus: ', GetDateStatus]),
-    ( GetDateStatus \= 0
-    ->  throw(unexpected_command_exit_code('Failed to get date'))
-    ;   true ),
+    check_shell_status(GetDateStatus, 'Failed to get date'),
 
     open(TempFile, read, Stream, [type(text)]),
     read_stream(Stream, Iso8601Date),
