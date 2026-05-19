@@ -24,33 +24,37 @@ above_debug_level :-
 
 log([]) :- nl.
 log([Message|Rest]) :-
-    (   atomic_si(Message)
-    ->  LogMessage = Message,
-        write(LogMessage),
-        MessageRest = Rest
-    ;   integer(Message),
-        number_chars(Message, MessageChars),
-        atom_chars(AtomicMessage, MessageChars),
-        LogMessage = AtomicMessage,
-        write(LogMessage),
-        MessageRest = Rest
-    ;   chars_si(Message),
-        atom_chars(AtomicMessage,Message),
-        LogMessage = AtomicMessage,
-        write(LogMessage),
-        MessageRest = Rest,
-        write(' ')
-    ;   list_si(Message),
-        LogMessage = Message,
-        write(LogMessage),
-        MessageRest = Rest,
-        write(' ')
-    ;   LogMessage = Message,
-        writeq(LogMessage),
-        MessageRest = Rest,
-        write(' ')
-    ),
-    log(MessageRest).
+    once(write_message(Message)),
+    log(Rest).
+
+write_message(Message) :- atomic_si(Message), write(Message).
+write_message(Message) :-
+    \+ atomic_si(Message),
+    integer(Message),
+    number_chars(Message, MessageChars),
+    atom_chars(AtomicMessage, MessageChars),
+    write(AtomicMessage).
+write_message(Message) :-
+    \+ atomic_si(Message),
+    \+ integer(Message),
+    chars_si(Message),
+    atom_chars(AtomicMessage, Message),
+    write(AtomicMessage),
+    write(' ').
+write_message(Message) :-
+    \+ atomic_si(Message),
+    \+ integer(Message),
+    \+ chars_si(Message),
+    list_si(Message),
+    write(Message),
+    write(' ').
+write_message(Message) :-
+    \+ atomic_si(Message),
+    \+ integer(Message),
+    \+ chars_si(Message),
+    \+ list_si(Message),
+    writeq(Message),
+    write(' ').
 
 log_debug(Messages) :-
     once(debug(Messages)).

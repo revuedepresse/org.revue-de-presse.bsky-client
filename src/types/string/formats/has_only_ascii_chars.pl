@@ -16,6 +16,9 @@ has_only_ascii_chars(Subject) :-
 % must_be_ascii_char(+Char).
 must_be_ascii_char(Char) :-
     atom_si(Char),
-    (   \+ char_type(Char, ascii)
-    ->  throw(type_error('Subject must start with an ascii char.'))
-    ;   true ).
+    assert_ascii(Char).
+
+assert_ascii(Char) :- char_type(Char, ascii).
+assert_ascii(Char) :-
+    \+ char_type(Char, ascii),
+    throw(type_error('Subject must start with an ascii char.')).

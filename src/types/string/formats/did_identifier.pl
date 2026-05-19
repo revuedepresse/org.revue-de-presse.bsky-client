@@ -7,6 +7,7 @@
 ]).
 
 :- use_module(library(clpz)).
+:- use_module(library(dif)).
 :- use_module(library(lists)).
 :- use_module(library(si)).
 :- use_module('../../../memoize', [memoize_goal/2, memoized_goal/2]).
@@ -21,13 +22,6 @@
 :- use_module(split_subject, [split_subject/3]).
 
 % See [AT Protocol DID Identifier Syntax](https://atproto.com/specs/did#at-protocol-did-identifier-syntax)
-%
-% - The URI is case-sensitive
-% - Percent-sign (%) is used for "percent encoding" in the identifier section,
-%   and must always be followed by two hex characters
-% - Query (?) and fragment (#) sections are allowed in DID URIs, but not in DID identifiers.
-%   In the context of atproto, the query and fragment parts are not allowed.
-% - The URI starts with lowercase `did`:
 is_valid_did_identifier(Subject) :-
     has_only_ascii_chars(Subject),
     has_only_allowed_chars(Subject),
@@ -36,197 +30,180 @@ is_valid_did_identifier(Subject) :-
     must_have_valid_identifier_format(Subject),
     must_be_supported_method(Subject).
 
-% The entire URI is made up of a subset of ASCII, containing letters (`A-Z`, `a-z`),
-% digits (`0-9`), period, underscore, colon, percent sign, or hyphen (`._:%-`)
-%
 % has_only_allowed_chars(+Subject).
 has_only_allowed_chars(Subject) :-
-    \+  maplist(did_identifier:must_be_allowed_char, Subject)
-    ->  throw(type_error('Subject must contain only allowed characters.'))
-    ;   true.
+    once(has_only_allowed_chars_check(Subject)).
+
+has_only_allowed_chars_check(Subject) :-
+    maplist(did_identifier:must_be_allowed_char, Subject).
+has_only_allowed_chars_check(Subject) :-
+    \+ maplist(did_identifier:must_be_allowed_char, Subject),
+    throw(type_error('Subject must contain only allowed characters.')).
 
 % must_be_allowed_char(+Char).
 must_be_allowed_char(Char) :-
     char_code('A', AlphaStartCode),
     char_code('Z', AlphaEndCode),
-
     char_code('0', DigitStartCode),
     char_code('9', DigitEndCode),
-
     char_code(':', ColonCode),
     char_code('.', DotCode),
     char_code('-', HyphenCode),
     char_code('%', PercentSignCode),
     char_code('_', UnderscoreCode),
-
     char_code(Char, Code),
-
     (   must_be_lowercase_alpha(Char)
     ;   Code #>= AlphaStartCode, Code #=< AlphaEndCode
     ;   Code #>= DigitStartCode, Code #=< DigitEndCode
-    ;   member(Code, [ColonCode,DotCode,HyphenCode,PercentSignCode,UnderscoreCode]) ).
+    ;   member(Code, [ColonCode,DotCode,HyphenCode,PercentSignCode,UnderscoreCode])
+    ).
 
-% In the context of atproto, implementations do not need to validate percent encoding.
-% The percent symbol is allowed in DID identifier segments,
-% but the identifier should not end in a percent symbol.
-% - The remainder of the URI (the identifier) may contain any of the above-allowed ASCII characters,
-%   except for percent-sign (`%`)
-% - The URI (and thus the remaining identifier) may not end in `:`.
-%
 % must_have_valid_identifier_format(+Subject).
 must_have_valid_identifier_format(Subject) :-
     split_subject(Subject, ':', Segments),
     length(Segments, SegmentsLength),
-
-    (   SegmentsLength #< 3
-    ->  throw(error_not_enough_segments)
-    ;   true ),
-
-    (   SegmentsLength #> 3
-    ->  throw(error_too_many_segments)
-    ;   true ),
-
+    once(assert_segments_at_least_3(SegmentsLength)),
+    once(assert_segments_at_most_3(SegmentsLength)),
     nth0(2, Segments, Identifier),
-
-    (   \+ has_only_allowed_chars(Identifier)
-    ->  throw(error_identifier_must_have_allowed_chars)
-    ;   true ),
-
+    assert_identifier_chars(Identifier),
     catch(
         must_not_end_with(Subject, '%'),
         _E,
         throw(error_identifier_must_not_end_with('%'))
     ),
-
     must_have_valid_percent_encoding(Identifier).
+
+assert_segments_at_least_3(N) :- N >= 3.
+assert_segments_at_least_3(N) :- N < 3, throw(error_not_enough_segments).
+
+assert_segments_at_most_3(N) :- N =< 3.
+assert_segments_at_most_3(N) :- N > 3, throw(error_too_many_segments).
+
+assert_identifier_chars(Identifier) :- once(assert_identifier_chars_check(Identifier)).
+
+assert_identifier_chars_check(Identifier) :- has_only_allowed_chars(Identifier).
+assert_identifier_chars_check(Identifier) :-
+    \+ has_only_allowed_chars(Identifier),
+    throw(error_identifier_must_have_allowed_chars).
 
 must_have_at_least_n_characters(N, Subject) :-
     length(Subject, NChars),
-    NChars #< N
-    ->  throw(error_must_have_at_least_n_characters(N))
-    ;   true.
+    NChars #>= N.
+must_have_at_least_n_characters(N, Subject) :-
+    length(Subject, NChars),
+    NChars #< N,
+    throw(error_must_have_at_least_n_characters(N)).
 
 must_have_valid_percent_encoding(Subject) :-
     split_subject(Subject, '%', Segments),
-
     Subject = [FirstChar|_Rest],
+    apply_min_length(FirstChar, Segments),
+    apply_encoding_validation(FirstChar, Segments).
 
-    (   catch(same_si(FirstChar, '%'), _E, fail)
-    ->  maplist(must_have_at_least_n_characters(2), Segments)
-    ;   Segments = [_|SegmentsMinusFirst],
-        maplist(must_have_at_least_n_characters(2), SegmentsMinusFirst) ),
+apply_min_length(FirstChar, Segments) :-
+    starts_with_percent(FirstChar),
+    maplist(must_have_at_least_n_characters(2), Segments).
+apply_min_length(FirstChar, Segments) :-
+    \+ starts_with_percent(FirstChar),
+    Segments = [_|SegmentsMinusFirst],
+    maplist(must_have_at_least_n_characters(2), SegmentsMinusFirst).
 
-    (   catch(same_si(FirstChar, '%'), _E, fail)
-    ->  maplist(must_be_valid_percent_encoding, Segments)
-    ;   Segments = [_|SegmentsMinusFirst],
-        maplist(must_be_valid_percent_encoding, SegmentsMinusFirst) ).
+apply_encoding_validation(FirstChar, Segments) :-
+    starts_with_percent(FirstChar),
+    maplist(must_be_valid_percent_encoding, Segments).
+apply_encoding_validation(FirstChar, Segments) :-
+    \+ starts_with_percent(FirstChar),
+    Segments = [_|SegmentsMinusFirst],
+    maplist(must_be_valid_percent_encoding, SegmentsMinusFirst).
 
-% See [Percent-encoding](https://developer.mozilla.org/en-US/docs/Glossary/Percent-encoding)
-%
+starts_with_percent(FirstChar) :- catch(same_si(FirstChar, '%'), _E, fail).
+
 % must_be_valid_percent_encoding(+Segment).
 must_be_valid_percent_encoding(Segment) :-
     length(Segment, N),
-    (   N #< 2
-    ->  throw(error_percent_encoding_must_have_two_hex_chars)
-    ;   true ),
-
+    assert_percent_pair_length(N),
     Segment = [FirstChar|[SecondChar|_]],
-
     append([[FirstChar],[SecondChar]], Code),
+    assert_percent_code_allowed(Code).
 
-    \+ member(Code, [
-        "3A", % `:`
-        "2F", % `/`
-        "3F", % `?`
-        "23", % `#`
-        "5B", % `[`
-        "5D", % `]`
-        "2A", % `*`
-        "2B", % `+`
-        "2C", % `,`
-        "3B", % `;`
-        "3D", % `=`
-        "3a", % `:`
-        "2f", % `/`
-        "3f", % `?`
-        "23", % `#`
-        "5b", % `[`
-        "5d", % `]`
-        "2a", % `*`
-        "2b", % `+`
-        "2c", % `,`
-        "3b", % `;`
-        "3d", % `=`
-        "21", % `!`
-        "24", % `$`
-        "25", % `%`
-        "26", % `&`
-        "27", % `'`
-        "28", % `(`
-        "29", % `)`
-        "20", % ` `
-        "40"  % `@`
-    ])
-    ->  throw(error_invalid_percent_encoding)
-    ;   true.
+assert_percent_pair_length(N) :- N #>= 2.
+assert_percent_pair_length(N) :-
+    N #< 2,
+    throw(error_percent_encoding_must_have_two_hex_chars).
+
+allowed_percent_code("3A").
+allowed_percent_code("2F").
+allowed_percent_code("3F").
+allowed_percent_code("23").
+allowed_percent_code("5B").
+allowed_percent_code("5D").
+allowed_percent_code("2A").
+allowed_percent_code("2B").
+allowed_percent_code("2C").
+allowed_percent_code("3B").
+allowed_percent_code("3D").
+allowed_percent_code("3a").
+allowed_percent_code("2f").
+allowed_percent_code("3f").
+allowed_percent_code("5b").
+allowed_percent_code("5d").
+allowed_percent_code("2a").
+allowed_percent_code("2b").
+allowed_percent_code("2c").
+allowed_percent_code("3b").
+allowed_percent_code("3d").
+allowed_percent_code("21").
+allowed_percent_code("24").
+allowed_percent_code("25").
+allowed_percent_code("26").
+allowed_percent_code("27").
+allowed_percent_code("28").
+allowed_percent_code("29").
+allowed_percent_code("20").
+allowed_percent_code("40").
+
+assert_percent_code_allowed(Code) :- allowed_percent_code(Code).
+assert_percent_code_allowed(Code) :-
+    \+ allowed_percent_code(Code),
+    throw(error_invalid_percent_encoding).
 
 must_not_be_empty(Subject) :-
     length(Subject, N),
-    \+ dif_si(N, 0)
-    ->  throw(error_must_not_be_empty)
-    ;   true.
+    dif_si(N, 0).
+must_not_be_empty(Subject) :-
+    length(Subject, N),
+    \+ dif_si(N, 0),
+    throw(error_must_not_be_empty).
 
-% The method segment is one or more lowercase letters (`a-z`),
-% followed by `:`
-%
 % must_have_valid_method_format(+Subject).
 must_have_valid_method_format(Subject) :-
     split_subject(Subject, ':', Segments),
     length(Segments, SegmentsLength),
-
     maplist(must_not_be_empty, Segments),
-
-    (   SegmentsLength #< 3
-    ->  throw(error_not_enough_segments)
-    ;   true ),
-
+    assert_segments_at_least_3(SegmentsLength),
     nth0(1, Segments, Method),
+    assert_method_lowercase_alpha(Method).
 
-    (   \+ must_have_lowercase_alpha_chars_only(Method)
-    ->  throw(error_method_must_be_lowercase_alpha_only)
-    ;   true ).
-
-% Currently, atproto supports two DID methods:
-%
-% `did:web`, which is a W3C standard based on HTTPS (and DNS).
-% The identifier section is a hostname. This method is supported in atproto
-% to provide an independent alternative to did:plc.
-% The method is inherently tied to the domain name used,
-% and does not provide a mechanism for migration or recovering from loss of control of the domain name.
-% In the context of atproto, only hostname-level did:web DIDs are supported:
-% path-based DIDs are not supported.
-% The same restrictions on top-level domains that apply to handles (eg, no .arpa) also apply to did:web domains.
-% The special localhost hostname is allowed, but only in testing and development environments.
-% Port numbers (with separating colon hex-encoded) are only allowed for localhost,
-% and only in testing and development.
-% `did:plc`, which is a novel DID method developed by Bluesky.
-% See the [did-method-plc](https://github.com/did-method-plc/did-method-plc) GitHub repository for details.
+assert_method_lowercase_alpha(Method) :- must_have_lowercase_alpha_chars_only(Method).
+assert_method_lowercase_alpha(Method) :-
+    \+ must_have_lowercase_alpha_chars_only(Method),
+    throw(error_method_must_be_lowercase_alpha_only).
 
 % must_be_supported_method(+Subject).
 must_be_supported_method(Subject) :-
     split_subject(Subject, ':', Segments),
     length(Segments, SegmentsLength),
-
-    (   SegmentsLength #< 3
-    ->  throw(error_not_enough_segments)
-    ;   true ),
-
+    assert_segments_at_least_3(SegmentsLength),
     nth0(1, Segments, Method),
+    assert_method_supported(Method).
 
-    SupportedMethods = ["web","plc"],
-    (   \+ member(Method, SupportedMethods)
-    ->  throw(error_method_must_be_supported)
-    ;   true ).
+supported_method("web").
+supported_method("plc").
+
+assert_method_supported(Method) :- supported_method(Method).
+assert_method_supported(Method) :-
+    \+ supported_method(Method),
+    throw(error_method_must_be_supported).
 
 % must_have_lowercase_alpha_chars_only(+Subject).
 must_have_lowercase_alpha_chars_only(Subject) :-

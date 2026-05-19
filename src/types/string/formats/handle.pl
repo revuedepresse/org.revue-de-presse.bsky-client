@@ -18,6 +18,7 @@
 :- use_module(library(charsio)).
 :- use_module(library(lists)).
 :- use_module(library(clpz)).
+:- use_module(library(dif)).
 :- use_module(library(reif)).
 :- use_module(library(si)).
 
@@ -59,9 +60,10 @@ with_labels_having_allowed_chars(Subject) :-
 
 % has_only_allowed_chars(+Subject).
 has_only_allowed_chars(Subject) :-
-    \+  maplist(must_be_allowed_char, Subject)
-    ->  throw(type_error('Subject must contain only allowed characters.'))
-    ;   true.
+    maplist(must_be_allowed_char, Subject).
+has_only_allowed_chars(Subject) :-
+    \+ maplist(must_be_allowed_char, Subject),
+    throw(type_error('Subject must contain only allowed characters.')).
 
 % must_be_allowed_char(+Char).
 must_be_allowed_char(Char) :-
@@ -103,12 +105,12 @@ with_labels_having_valid_length(Subject) :-
 % label_has_valid_length(+Subject).
 label_has_valid_length(Subject) :-
     length(Subject, Length),
-    (
-        Length #>= 1,
-        Length #=< 63
-    )
-    ->  true
-    ;   throw(invalid_label_length).
+    Length >= 1,
+    Length =< 63.
+label_has_valid_length(Subject) :-
+    length(Subject, Length),
+    \+ ( Length >= 1, Length =< 63 ),
+    throw(invalid_label_length).
 
 % The last segment (the "top level domain") can not start with a numeric digit
 %
@@ -145,9 +147,10 @@ must_not_start_nor_end_with_hyphen(Subject) :-
 has_two_labels_at_least(Subject) :-
     split_subject(Subject, '.', Labels),
     length(Labels, N),
-    (   N #< 2
-    ->  throw(error_must_have_two_labels_at_least)
-    ;   true ).
+    assert_two_labels(N).
+
+assert_two_labels(N) :- N #>= 2.
+assert_two_labels(N) :- N #< 2, throw(error_must_have_two_labels_at_least).
 
 % No proceeding or trailing ASCII periods are allowed
 %
@@ -178,13 +181,13 @@ not_starting_with_digit([FirstChar|_]) :-
     char_code(FirstChar, FirstCharCode),
     char_code('0', DigitStartCode),
     char_code('9', DigitEndCode),
+    assert_not_digit(FirstCharCode, DigitStartCode, DigitEndCode).
 
-    ( (
-        FirstCharCode #>= DigitStartCode,
-        FirstCharCode #=< DigitEndCode
-    )
-    ->  throw(error_must_not_start_with_digit)
-    ;   true ).
+assert_not_digit(Code, Start, _End) :- Code < Start.
+assert_not_digit(Code, _Start, End) :- Code > End.
+assert_not_digit(Code, Start, End) :-
+    Code >= Start, Code =< End,
+    throw(error_must_not_start_with_digit).
 
 % not_disallowed_top_level_domain(+TopLevelDomain).
 not_disallowed_top_level_domain(TopLevelDomain) :-
@@ -201,12 +204,18 @@ not_disallowed_top_level_domain(TopLevelDomain) :-
     ],
 
     environment(Environment),
+    select_disallowed_top_level_domains(Environment, BaseDisallowedTopLevelDomains, DisallowedTopLevelDomains),
+    assert_top_level_domain_allowed(TopLevelDomain, DisallowedTopLevelDomains).
 
-    ( (   Environment = "development"
-        ;   Environment = "testing" )
-    ->  DisallowedTopLevelDomains = BaseDisallowedTopLevelDomains
-    ;   append([BaseDisallowedTopLevelDomains, ["test"]], DisallowedTopLevelDomains) ),
+select_disallowed_top_level_domains("development", Base, Base).
+select_disallowed_top_level_domains("testing", Base, Base).
+select_disallowed_top_level_domains(Env, Base, Out) :-
+    dif(Env, "development"),
+    dif(Env, "testing"),
+    append([Base, ["test"]], Out).
 
-    (   member(TopLevelDomain, DisallowedTopLevelDomains)
-    ->  throw(disallowed_top_level_domain(TopLevelDomain))
-    ;   true ).
+assert_top_level_domain_allowed(TopLevelDomain, Disallowed) :-
+    \+ member(TopLevelDomain, Disallowed).
+assert_top_level_domain_allowed(TopLevelDomain, Disallowed) :-
+    member(TopLevelDomain, Disallowed),
+    throw(disallowed_top_level_domain(TopLevelDomain)).

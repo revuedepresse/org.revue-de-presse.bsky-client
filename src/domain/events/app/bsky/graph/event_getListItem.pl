@@ -51,31 +51,33 @@ onGetListItem(ItemAssoc, pairs(UnwrappedPairs)) :-
     get_assoc(handle, Subject, ScreenName),
 
     catch(
-        (once(repository_list_item:event_by_screen_name(ScreenName, Rows)),
-        ( ( nth0(0, Rows, FirstRow),
-            get_assoc(payload, FirstRow, Payload) )
-        ->
-            from_event(Payload, row(_,_,_,Handle,_)),
-            writeln('list item value related to "subject" key':Handle, true)
-        ;   true )),
+        on_get_list_item_log_existing(ScreenName, Payload),
         E,
         if_(
             E = cannot_read_rows_selected_by(_),
-            (once(repository_list_item:insert(
-                row(ScreenName, Payload),
-                InsertionResult
-            )),
-
-            from_event(Payload, RowFromPayload),
-            insert_list_items_if_not_exists(
-                RowFromPayload,
-                _
-            ),
-
-            writeln(screen_name:ScreenName, true),
-            writeln(insertion_result:InsertionResult, true),
-
-            log_info([payload:Payload])),
+            on_get_list_item_insert(ScreenName, Payload),
             log_error([unexpected_error(E)])
         )
     ).
+
+on_get_list_item_log_existing(ScreenName, Payload) :-
+    once(repository_list_item:event_by_screen_name(ScreenName, Rows)),
+    once(log_existing_list_item_payload(Rows, Payload)).
+
+log_existing_list_item_payload(Rows, Payload) :-
+    nth0(0, Rows, FirstRow),
+    get_assoc(payload, FirstRow, Payload),
+    from_event(Payload, row(_,_,_,Handle,_)),
+    writeln('list item value related to "subject" key':Handle, true).
+log_existing_list_item_payload(_, _).
+
+on_get_list_item_insert(ScreenName, Payload) :-
+    once(repository_list_item:insert(
+        row(ScreenName, Payload),
+        InsertionResult
+    )),
+    from_event(Payload, RowFromPayload),
+    insert_list_items_if_not_exists(RowFromPayload, _),
+    writeln(screen_name:ScreenName, true),
+    writeln(insertion_result:InsertionResult, true),
+    log_info([payload:Payload]).

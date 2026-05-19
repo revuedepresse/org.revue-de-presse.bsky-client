@@ -21,16 +21,18 @@
 :- use_module(library(serialization/json)).
 
 %% get_env_or_throw(+Name, -Value, +Error).
-assert_env_var_is_declared(Name, Value, Error) :-
-    (   getenv(Name, Value)
-    ->  true
-    ;   throw(Error)    ).
+assert_env_var_is_declared(_Name, Value, _Error) :-
+    getenv(_Name, Value).
+assert_env_var_is_declared(Name, _Value, Error) :-
+    \+ getenv(Name, _),
+    throw(Error).
 
+assert_env_var_non_empty(_Name, Value) :-
+    length(Value, N),
+    N #> 0.
 assert_env_var_non_empty(Name, Value) :-
-    (   ( length(Value, N),
-        N #> 0 )
-    ->  true
-    ;   throw(empty_env_var_value(Name))    ).
+    \+ ( length(Value, N), N #> 0 ),
+    throw(empty_env_var_value(Name)).
 
 %% personal_data_server_host(-PersonalDataServerHost).
 personal_data_server_host(PersonalDataServerHost) :-

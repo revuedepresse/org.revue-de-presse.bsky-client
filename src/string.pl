@@ -9,9 +9,9 @@
 % concat_as_string(+List, +ConcatenationIn, -ConcatenationOut).
 concat_as_string([], In, In).
 concat_as_string([Head|Tail], ConcatenationIn, ConcatenationOut) :-
-    (   atomic_si(Head)
-    ->  atom_chars(Head, HeadChars)
-    ;   Head = HeadChars ),
-
+    head_chars(Head, HeadChars),
     append([ConcatenationIn, HeadChars], Out),
     concat_as_string(Tail, Out, ConcatenationOut).
+
+head_chars(Head, HeadChars) :- atomic_si(Head), atom_chars(Head, HeadChars).
+head_chars(Head, Head) :- \+ atomic_si(Head).

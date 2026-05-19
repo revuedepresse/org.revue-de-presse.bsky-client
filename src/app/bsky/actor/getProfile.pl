@@ -112,12 +112,15 @@ send_request(ParamValue, ResponsePairs, StatusCode) :-
 
     %% submit_request_once(+request, -Response).
     submit_request_once(request(Endpoint, Options), response(ResponseHeaders, Stream)) :-
-        once((
-            writeln(endpoint: Endpoint, true),
-            (   once(http_open(Endpoint, Stream, Options))
-            ->  writeln(response_headers: ResponseHeaders)
-            ;   throw(failed_http_request(Endpoint, Options)) )
-        )).
+        writeln(endpoint: Endpoint, true),
+        once(open_or_throw(Endpoint, Stream, Options, ResponseHeaders)).
+
+    open_or_throw(Endpoint, Stream, Options, ResponseHeaders) :-
+        http_open(Endpoint, Stream, Options),
+        writeln(response_headers: ResponseHeaders).
+    open_or_throw(Endpoint, _Stream, Options, _ResponseHeaders) :-
+        \+ http_open(Endpoint, _, Options),
+        throw(failed_http_request(Endpoint, Options)).
 
 :- dynamic(app__bsky__actor__getProfile_memoized/2).
 
@@ -147,6 +150,10 @@ memoize_app__bsky__actor__getProfile_memoized(ParamValue, Props) :-
 %
 % [app.bsky.actor.getProfile](https://docs.bsky.app/docs/api/app-bsky-actor-get-profile)
 app__bsky__actor__getProfile(ParamValue, Props) :-
-    app__bsky__actor__getProfile_memoized(ParamValue, Props)
-    ->  true
-    ;   memoize_app__bsky__actor__getProfile_memoized(ParamValue, Props).
+    once(app__bsky__actor__getProfile_memoized_or_compute(ParamValue, Props)).
+
+app__bsky__actor__getProfile_memoized_or_compute(ParamValue, Props) :-
+    app__bsky__actor__getProfile_memoized(ParamValue, Props).
+app__bsky__actor__getProfile_memoized_or_compute(ParamValue, Props) :-
+    \+ app__bsky__actor__getProfile_memoized(ParamValue, Props),
+    memoize_app__bsky__actor__getProfile_memoized(ParamValue, Props).

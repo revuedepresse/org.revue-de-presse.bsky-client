@@ -11,10 +11,17 @@
 :- multifile(memoized_goal/2).
 
 memoize_goal(Goal, Args) :-
-   Goal =.. [Term|_GoalArgs],
+    Goal =.. [Term|_GoalArgs],
+    once(memoize_or_compute(Term, Goal, Args)).
 
-    memoized_goal(Term, Args)
-    ->  once((log_debug(["memoized args: ", Args]), true))
-    ;   (   call(Goal)
-        ->  assertz(memoized_goal(Term, Args))
-        ;   throw(error_cannot_memoize_failing_goal) ).
+memoize_or_compute(Term, _, Args) :-
+    memoized_goal(Term, Args),
+    log_debug(["memoized args: ", Args]).
+memoize_or_compute(Term, Goal, Args) :-
+    \+ memoized_goal(Term, Args),
+    call(Goal),
+    assertz(memoized_goal(Term, Args)).
+memoize_or_compute(Term, Goal, Args) :-
+    \+ memoized_goal(Term, Args),
+    \+ call(Goal),
+    throw(error_cannot_memoize_failing_goal).

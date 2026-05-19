@@ -4,6 +4,11 @@
 :- use_module(library(lists)).
 :- use_module(must_be_chars, [must_be_chars/1]).
 
+assert_starts_with(Substring, Substring).
+assert_starts_with(SubStr, Substring) :-
+    SubStr \= Substring,
+    throw(error_must_start_with(Substring)).
+
 % must_start_with(+Subject, +Substring).
 must_start_with(Subject, Substring) :-
     must_be_chars(Subject),
@@ -17,6 +22,4 @@ must_start_with(Subject, Substring) :-
     sub_atom(SubjectAtom, 0, SubstringLength, _, SubAtom),
     atom_chars(SubAtom, SubStr),
 
-    SubStr \= Substring
-    ->  throw(error_must_start_with(Substring))
-    ;   true.
+    assert_starts_with(SubStr, Substring).

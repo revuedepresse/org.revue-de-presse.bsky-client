@@ -45,6 +45,13 @@ user:goal_expansion(Goal, ExpandedGoal) :-
        (expand_endpoint_spec_pairs(Pairs, SourceAtom, ExpandedGoal))
     ).
 
+extract_endpoint_or_throw(CanonicalSourceChars, RootDir, Endpoint) :-
+    append([Prefix, ".pl"], CanonicalSourceChars),
+    append([RootDir, "src/", Endpoint], Prefix).
+extract_endpoint_or_throw(CanonicalSourceChars, _, _) :-
+    \+ append([_, ".pl"], CanonicalSourceChars),
+    throw(cannot_find_endpoint(CanonicalSourceChars)).
+
 %% replaces '/' with '.' in endpoint, producing endpoint spec basename
 %
 %% expand_endpoint_spec_pairs(+SourceAtom, -Spec.
@@ -53,9 +60,7 @@ expand_endpoint_spec_pairs(Pairs, SourceAtom, endpoint_spec_pairs(Pairs, true)) 
     atom_chars(SourceAtom, SourceChars),
     path_canonical(SourceChars, CanonicalSourceChars),
 
-    (   append([Prefix, ".pl"], CanonicalSourceChars)
-    ->  append([RootDir, "src/", Endpoint], Prefix)
-    ;   throw(cannot_find_endpoint(CanonicalSourceChars)) ),
+    extract_endpoint_or_throw(CanonicalSourceChars, RootDir, Endpoint),
 
     foldl(replace('/', '.'), Endpoint, "", Basename),
     append([RootDir, "doc/endpoints/", Basename, ".value.json"], EndpointSpecJson),
