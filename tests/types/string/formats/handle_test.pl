@@ -4,11 +4,11 @@
 :- use_module(library(os)).
 :- use_module(library(si)).
 
-:- use_module('../../../assert', [
+:- use_module('../../../../src/assert', [
     assert/4,
     run_test_suite/2
 ]).
-:- use_module(handle).
+:- use_module('../../../../src/types/string/formats/handle').
 
 test(Spec) :-
     Spec = 'handle:has_at_most_253_characters:failing',

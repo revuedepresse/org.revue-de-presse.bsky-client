@@ -116,19 +116,27 @@ compose-down: ### Stop the test Postgres container and drop its volume
 
 test-scram: compose-up ### Round-trip SCRAM-SHA-256 against the containerized Postgres
 	@set -a; . ./.env.test; set +a; \
-	scryer-prolog ./src/infrastructure/pg/scram_test.pl -g 'run_test'
+	scryer-prolog ./tests/pg/scram_test.pl -g 'run_test'
 
 test-pg-query: compose-up ### Round-trip bind-param INSERT/SELECT through connection.pl
 	@set -a; . ./.env.test; set +a; \
-	scryer-prolog ./src/infrastructure/pg/pg_query_test.pl -g 'run_test'
+	scryer-prolog ./tests/pg/pg_query_test.pl -g 'run_test'
 
 test-idempotence: compose-up ### Verify ON CONFLICT (hash) DO NOTHING on the publication table
 	@set -a; . ./.env.test; set +a; \
-	scryer-prolog ./src/infrastructure/pg/idempotence_test.pl -g 'run_test'
+	scryer-prolog ./tests/pg/idempotence_test.pl -g 'run_test'
 
 test-repository-inserts: compose-up ### Exercise repository_status:insert/3 and repository_popularity:do_insert_without_unicity_check/2 end-to-end
 	@set -a; . ./.env.test; set +a; \
-	scryer-prolog ./src/infrastructure/pg/repository_inserts_test.pl -g 'run_test'
+	scryer-prolog ./tests/pg/repository_inserts_test.pl -g 'run_test'
+
+test-repository-publisher: compose-up ### Exercise repository_publisher:insert/2 (new + duplicate paths) and the $$1::bigint / $$2::bigint bind casts
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/repository_publisher_test.pl -g 'run_test'
+
+test-repository-list: compose-up ### Exercise repository_list:insert/2 (new path) and the $$2::bigint bind cast on list_id
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test'
 
 probe-prod-auth: ### Read-only auth probe against the DB defined in .env.local
 	@set -a; . ./.env.local; set +a; \

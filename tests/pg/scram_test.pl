@@ -4,7 +4,7 @@
 :- use_module(library(lists)).
 :- use_module(library(os)).
 
-:- use_module('../../../deps/postgresql-prolog/postgresql', [connect/6, query/3]).
+:- use_module('../../deps/postgresql-prolog/postgresql', [connect/6, query/3]).
 
 env_or_die(Name, Value) :-
     (   getenv(Name, V)
