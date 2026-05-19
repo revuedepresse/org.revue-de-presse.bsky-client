@@ -7,6 +7,7 @@
 :- use_module(library(between)).
 :- use_module(library(charsio)).
 :- use_module(library(dcgs)).
+:- use_module(library(dif)).
 :- use_module(library(http/http_open)).
 :- use_module(library(iso_ext)).
 :- use_module(library(lists)).
@@ -41,7 +42,8 @@
     by_key/3,
     keys/3,
     pairs_to_assoc/2,
-    to_json_chars/2
+    to_json_chars/2,
+    wrapped_pairs_to_assoc/2
 ]).
 :- use_module('../../../stream', [
     read_stream/2,
@@ -50,6 +52,10 @@
 ]).
 :- use_module('../../../string', [concat_as_string/3]).
 :- use_module('../../../api', [endpoint_spec_pairs/2]).
+:- use_module('../../../temporal', [
+    date_iso8601_days_ago/2,
+    date_iso8601_days_before/3
+]).
 
 %% app__bsky__feed__getAuthorFeed_endpoint(+OperationId, +ParamName, +Param, -Endpoint).
 app__bsky__feed__getAuthorFeed_endpoint(OperationId, ParamName, Param, Endpoint) :-
@@ -112,6 +118,7 @@ send_request(Params, ResponsePairs, StatusCode) :-
     pairs_to_assoc(ResponsePairs, FeedAssoc),
     get_assoc(feed, FeedAssoc, Feed),
 
+    once(set_anchor_if_unset(ParamValue, Feed)),
     once(resolve_next_cursor(FeedAssoc, NextCursor)),
     writeln([next_cursor|[NextCursor]], true),
 
@@ -166,11 +173,62 @@ iterate_or_report_failure(NextCursor, HowManyPostsInFeed, Feed, Indices, ParamVa
 iterate_or_report_failure(_NextCursor, HowManyPostsInFeed, _Feed, _Indices, _ParamValue) :-
     writeln([onGetAuthorFeed_failed_with_posts_count|HowManyPostsInFeed], true).
 
-follow_or_finalize('none', _ParamValue) :- writeln('fetched all available feed posts', true).
+% Cutoff anchor for getAuthorFeed pagination. Keyed by ParamValue
+% (the actor handle/DID) and lives for the lifetime of the Prolog
+% process; set once from the most recent post's indexedAt on the
+% first non-empty page seen for that actor.
+:- dynamic(getAuthorFeed_anchor/2).
+
+% set_anchor_if_unset(+ParamValue, +Feed).
+set_anchor_if_unset(ParamValue, _Feed) :-
+    getAuthorFeed_anchor(ParamValue, _).
+set_anchor_if_unset(ParamValue, [FirstWrapped|_]) :-
+    \+ getAuthorFeed_anchor(ParamValue, _),
+    wrapped_pairs_to_assoc(FirstWrapped, FirstAssoc),
+    get_assoc(post, FirstAssoc, FirstPost),
+    get_assoc(indexedAt, FirstPost, FirstIndexedAt),
+    assertz(getAuthorFeed_anchor(ParamValue, FirstIndexedAt)),
+    writeln([cutoff_anchor_set|[FirstIndexedAt]], true).
+set_anchor_if_unset(_ParamValue, []) :-
+    writeln([cutoff_anchor_skipped_empty_feed], true).
+
+follow_or_finalize('none', _ParamValue) :-
+    writeln('fetched all available feed posts', true).
 follow_or_finalize(NextCursor, ParamValue) :-
     dif(NextCursor, 'none'),
-    NextParams = actor(ParamValue)-cursor(NextCursor),
-    app__bsky__feed__getAuthorFeed(NextParams, _Props).
+    once(resolve_cutoff_date(ParamValue, CutoffDate)),
+    cursor_date_prefix(NextCursor, CursorDate),
+    once(continue_or_stop_at_cutoff(CursorDate, CutoffDate, NextCursor, ParamValue)).
+
+    % resolve_cutoff_date(+ParamValue, -CutoffDate).
+    %
+    % Cutoff = (anchor - 2 days) when an anchor is recorded for this
+    % actor (anchor = first page's most-recent indexedAt). Falls back
+    % to (now - 2 days) when no anchor is available (empty first page).
+    resolve_cutoff_date(ParamValue, CutoffDate) :-
+        getAuthorFeed_anchor(ParamValue, AnchorIso),
+        date_iso8601_days_before(2, AnchorIso, CutoffDate).
+    resolve_cutoff_date(ParamValue, CutoffDate) :-
+        \+ getAuthorFeed_anchor(ParamValue, _),
+        date_iso8601_days_ago(2, CutoffIso),
+        cursor_date_prefix(CutoffIso, CutoffDate).
+
+    % cursor_date_prefix(+IsoChars, -DatePrefix).
+    %
+    % Takes the leading "YYYY-MM-DD" of an ISO-8601 timestamp.
+    % Day precision is enough for the 2-day cutoff and sidesteps the
+    % fractional-seconds lex-compare hazard ("...:00.5Z" vs "...:00Z").
+    cursor_date_prefix(IsoChars, DatePrefix) :-
+        length(DatePrefix, 10),
+        append(DatePrefix, _, IsoChars).
+
+    continue_or_stop_at_cutoff(CursorDate, CutoffDate, NextCursor, _ParamValue) :-
+        CursorDate @< CutoffDate,
+        writeln([stopped_cursor_more_than_two_days_before_anchor|[NextCursor, cutoff(CutoffDate)]], true).
+    continue_or_stop_at_cutoff(CursorDate, CutoffDate, NextCursor, ParamValue) :-
+        \+ (CursorDate @< CutoffDate),
+        NextParams = actor(ParamValue)-cursor(NextCursor),
+        app__bsky__feed__getAuthorFeed(NextParams, _Props).
 
 %% app__bsky__feed__getAuthorFeed(+Params, -Props).
 %
