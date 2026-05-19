@@ -14,6 +14,7 @@ https://play.google.com/store/apps/details?id=org.revue_2_presse 🦉
  - [jq](https://jqlang.org/)
  - [psql](https://www.postgresql.org/docs/current/app-psql.html)
  - [scryer-prolog](https://scryer.pl)
+ - [postgresql-prolog](https://github.com/thierrymarianne/postgresql-prolog) (vendored as a git submodule under `deps/postgresql-prolog`, `scram-sha-256-auth` branch)
 
 ## Documentation
 
@@ -50,5 +51,6 @@ communities, organizations and projects (in lexicographic order):
   - [Debian](https://www.debian.org/)
   - [Docker](docker.com)
   - [GitHub](https://github.com/)
+  - [postgresql-prolog](https://github.com/thierrymarianne/postgresql-prolog)
   - [Scryer Prolog](https://www.scryer.pl/)
   - [Ubuntu](https://ubuntu.com/)
