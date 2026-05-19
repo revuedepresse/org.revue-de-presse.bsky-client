@@ -13,6 +13,7 @@
 :- use_module(library(files)).
 :- use_module(library(lists)).
 :- use_module(library(pio)).
+:- use_module(library(dif)).
 :- use_module(library(reif)).
 :- use_module(library(serialization/json)).
 :- use_module(library(si)).
@@ -25,10 +26,10 @@
 :- use_module('../pg/client', [
     encode_field_value/2,
     hash/2,
-    matching_criteria/2,
-    query_result/2,
-    query_result_from_file/3,
-    read_rows/2
+    matching_criteria/4,
+    query_result_from_file/4,
+    read_rows/2,
+    value/3
 ]).
 :- use_module('../pg/connection', [pg_query/3]).
 :- use_module('../../logger', [
@@ -46,140 +47,124 @@
     writeln/2
 ]).
 
+%% table(-Table)
+table("publication").
+
 %% count(-Count).
 count(Count) :-
+    count_sql(SQL),
+    value(SQL, [], Count).
+
+count_sql(SQL) :-
     table(Table),
-    append(
-       ["SELECT count(*) AS matching_records_count FROM public.", Table],
-       Query
-    ),
-    query_result(
-        Query,
-        Count
-    ).
+    append(["SELECT count(*) AS matching_records_count FROM public.", Table], SQL).
 
 %% query(-HeadersAndRows).
 query(HeadersAndRows) :-
-    % Executed to fetch column names
-    query(EmptyResults, false, 0),
-    nth0(0, EmptyResults, Headers),
-    query(Rows, true, 2),
+    listing_headers(Headers),
+    query(Rows, [], 2),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
-%% all_clauses(-Query, +Limit).
-all_clauses(Query, Limit) :-
-    select_clause(SelectClause),
-    from_clause(FromClause),
+listing_headers([
+    "number__id",
+    "string__full_name",
+    "string__avatar",
+    "string__status_id"
+]).
 
-    % Accepting "ALL" as limit
-    % and sufficiently instantiated integers
-    ( ( integer_si(Limit),
-        number_chars(Limit, LimitClause) )
-    ->  true
-    ;   Limit = "ALL",
-        LimitClause = Limit ),
+%% all_clauses(-SQL, -Params, +Limit).
+all_clauses(SQL, [], "ALL") :-
+    all_clauses_template("ALL", SQL).
+all_clauses(SQL, [LimitChars], Limit) :-
+    integer_si(Limit),
+    number_chars(Limit, LimitChars),
+    all_clauses_template("$1", SQL).
 
-
-    append(
-        SelectClause,
-        FromClause,
-        SelectFromClauses
-    ),
-
+all_clauses_template(LimitClause, SQL) :-
+    table(Table),
     append(
         [
-            SelectFromClauses,
-            "ORDER BY ",
-            "legacy_id DESC ",
+            "SELECT ",
+            "r.legacy_id AS number__id, ",
+            "r.screen_name AS string__full_name, ",
+            "r.avatar_url AS string__avatar, ",
+            "r.document_id AS string__status_id ",
+            "FROM public.", Table, " r ",
+            "ORDER BY legacy_id DESC ",
             "OFFSET 0 ",
             "LIMIT ", LimitClause, ";"
         ],
-        Query
+        SQL
     ).
 
-%% query(-Rows, +TuplesOnly, +Limit).
-query(Rows, TuplesOnly, Limit) :-
-    all_clauses(Query, Limit),
-    writeln(query:Query, true),
-    once(query_result_from_file(
-        Query,
-        TuplesOnly,
-        TmpFile
-    )),
+%% query(-Rows, +Headers, +Limit).
+query(Rows, Headers, Limit) :-
+    once(all_clauses(SQL, Params, Limit)),
+    writeln(query:SQL, true),
+    once(query_result_from_file(SQL, Params, Headers, TmpFile)),
     read_rows(TmpFile, Rows).
 
-%% Query max id, then increment it by 1 to declare what next max id will be.
-%
 %% next_id(-NextId).
 next_id(NextId) :-
-    query_max_id(Rows),
-    nth0(0, Rows, Headers),
-    nth0(0, Headers, SingleField),
-    number_chars(MaxId, SingleField),
+    query_max_id_sql(SQL),
+    value(SQL, [], MaxIdValue),
+    coerce_no_records(MaxIdValue, MaxId),
     NextId #= MaxId + 1,
-    (   integer_si(NextId)
-    ->  true
-    ;   throw(invalid_list_id(NextId)) ).
+    validate_id(NextId).
 
-    %% query_max_id(-MaxId).
-    query_max_id(MaxId) :-
-        table(Table),
-        append(
-            [
-                "SELECT COALESCE(r.legacy_id::bigint, 0) pk ",
-                "FROM ", Table, " r ",
-                "ORDER BY r.legacy_id DESC ",
-                "LIMIT 1;"
-            ],
-            Query
-        ),
-        once(query_result_from_file(
-            Query,
-            true,
-            TmpFile
-        )),
-        read_rows(TmpFile, MaxId).
+coerce_no_records(no_records_found, 0).
+coerce_no_records(V, V) :- dif(V, no_records_found).
+
+validate_id(N) :- integer_si(N).
+validate_id(N) :- \+ integer_si(N), throw(invalid_list_id(N)).
+
+query_max_id_sql(SQL) :-
+    table(Table),
+    append(
+        [
+            "SELECT COALESCE(r.legacy_id::bigint, 0) pk ",
+            "FROM ", Table, " r ",
+            "ORDER BY r.legacy_id DESC ",
+            "LIMIT 1;"
+        ],
+        SQL
+    ).
 
 %% by_criteria(+Criteria, -HeadersAndRows).
 by_criteria(handle(Handle)-uri(URI), HeadersAndRows) :-
     hash(handle(Handle)-uri(URI), Hash),
+    validate_unique_identifier_chars(Handle, URI),
+    by_criteria_headers(Headers),
+    by_criteria_sql(SQL),
+    matching_criteria(SQL, [Hash], Headers, HeadersAndRows).
+
+validate_unique_identifier_chars(Handle, URI) :-
     catch(
-        once((
-            chars_si(Handle),
-            chars_si(URI)
-        )),
-        CannotSelectByCriteria,
-        throw(invalid_unique_identifier(CannotSelectByCriteria))
-    ),
-    select_clause(SelectClause),
-    from_clause(FromClause),
+        once(( chars_si(Handle), chars_si(URI) )),
+        Cause,
+        throw(invalid_unique_identifier(Cause))
+    ).
+
+by_criteria_headers([
+    "number__id",
+    "string__full_name",
+    "string__avatar",
+    "string__status_id"
+]).
+
+by_criteria_sql(SQL) :-
+    table(Table),
     append([
-        SelectClause,
-        FromClause, " ",
-        "WHERE ",
-        "r.hash = '", Hash, "' ",
-        "OFFSET 0 "
-    ], SelectByCriteria),
-    matching_criteria(SelectByCriteria, HeadersAndRows).
-
-    %% from_clause(-FromClause).
-    from_clause(FromClause) :-
-        table(Table),
-        append(["FROM public.", Table, " r "], FromClause).
-
-    %% select_clause(-SelectClause).
-    select_clause(SelectClause) :-
-        append(
-            [
-                "SELECT ",
-                "r.legacy_id    AS number__id,          ",
-                "r.screen_name  AS string__full_name,   ",
-                "r.avatar_url   AS string__avatar,      ",
-                "r.document_id  AS string__status_id    "
-            ],
-            SelectClause
-        ).
+        "SELECT ",
+        "r.legacy_id AS number__id, ",
+        "r.screen_name AS string__full_name, ",
+        "r.avatar_url AS string__avatar, ",
+        "r.document_id AS string__status_id ",
+        "FROM public.", Table, " r ",
+        "WHERE r.hash = $1 ",
+        "OFFSET 0;"
+    ], SQL).
 
 %% insert(+Row, -InsertionResult).
 %
@@ -226,24 +211,21 @@ publication_insert_sql(SQL) :-
     ).
 
 interpret_publication_insert(data([[LegacyIdChars|_]|_]), _Hash, new(LegacyIdChars)) :-
-    !, writeln([publication_inserted|[LegacyIdChars]], true).
+    writeln([publication_inserted|[LegacyIdChars]], true).
 interpret_publication_insert(data([]), Hash, duplicate(Hash)) :-
-    !, writeln([publication_duplicate_skipped|[Hash]], true).
+    writeln([publication_duplicate_skipped|[Hash]], true).
 interpret_publication_insert(error(Err), _, _) :-
     throw(pg_error(Err)).
 
-    %%% count_matching_records(+Row, -Result).
-    count_matching_records(row(Hash), Result) :-
-        table(Table),
-        append([
-            "SELECT COUNT(*) how_many_records   ",
-            "FROM public.", Table, " r          ",
-            "WHERE r.hash = '", Hash, "'       ;"
-        ], SelectQuery),
-        once(query_result(
-            SelectQuery,
-            Result
-        )).
+%% count_matching_records(+Row, -Result).
+count_matching_records(row(Hash), Result) :-
+    count_matching_records_sql(SQL),
+    value(SQL, [Hash], Result).
 
-    %% table(-Table)
-    table("publication").
+count_matching_records_sql(SQL) :-
+    table(Table),
+    append([
+        "SELECT COUNT(*) how_many_records ",
+        "FROM public.", Table, " r ",
+        "WHERE r.hash = $1;"
+    ], SQL).
