@@ -7,6 +7,7 @@
 :- use_module(library(between)).
 :- use_module(library(charsio)).
 :- use_module(library(dcgs)).
+:- use_module(library(dif)).
 :- use_module(library(http/http_open)).
 :- use_module(library(iso_ext)).
 :- use_module(library(lists)).
@@ -41,7 +42,8 @@
     by_key/3,
     keys/3,
     pairs_to_assoc/2,
-    to_json_chars/2
+    to_json_chars/2,
+    wrapped_pairs_to_assoc/2
 ]).
 :- use_module('../../../stream', [
     read_stream/2,
@@ -50,6 +52,10 @@
 ]).
 :- use_module('../../../string', [concat_as_string/3]).
 :- use_module('../../../api', [endpoint_spec_pairs/2]).
+:- use_module('../../../temporal', [
+    date_iso8601_days_ago/2,
+    date_iso8601_days_before/3
+]).
 
 %% app__bsky__feed__getAuthorFeed_endpoint(+OperationId, +ParamName, +Param, -Endpoint).
 app__bsky__feed__getAuthorFeed_endpoint(OperationId, ParamName, Param, Endpoint) :-
@@ -96,11 +102,7 @@ send_request(Params, ResponsePairs, StatusCode) :-
         headers(ResponseHeaders)
     ],
 
-    (   Params = (actor(ParamValue)-cursor(Cursor))
-    ->  app__bsky__feed__getAuthorFeed_endpoint(OperationId, ParamName, ParamValue, EndpointWithoutCursor),
-        append([EndpointWithoutCursor, "&cursor=", Cursor], Endpoint)
-    ;   ParamValue = Params,
-        app__bsky__feed__getAuthorFeed_endpoint(OperationId, ParamName, ParamValue, Endpoint) ),
+    once(resolve_endpoint(Params, OperationId, ParamName, ParamValue, Endpoint)),
 
     submit_request_once(
         request(Endpoint, Options),
@@ -116,30 +118,14 @@ send_request(Params, ResponsePairs, StatusCode) :-
     pairs_to_assoc(ResponsePairs, FeedAssoc),
     get_assoc(feed, FeedAssoc, Feed),
 
-    (   get_assoc(cursor, FeedAssoc, NextCursor)
-    ->  true
-    ;   NextCursor = 'none' ),
+    once(set_anchor_if_unset(ParamValue, Feed)),
+    once(resolve_next_cursor(FeedAssoc, NextCursor)),
     writeln([next_cursor|[NextCursor]], true),
 
     length(Feed, HowManyPostsInFeed),
     numlist(HowManyPostsInFeed, IndicesStartingAt1),
 
-    (   catch(
-            maplist(onGetAuthorFeed(NextCursor, HowManyPostsInFeed), Feed, IndicesStartingAt1),
-            E,
-            if_(
-                E = already_indexed_post(URI),
-                writeln([post_indexed_before|[URI]], true),
-                throw(could_not_iterate_over_all_author_feed_post(E))
-            )
-        )
-    ->  if_(
-            NextCursor = 'none',
-            writeln('fetched all available feed posts', true),
-           (NextParams = actor(ParamValue)-cursor(NextCursor),
-            app__bsky__feed__getAuthorFeed(NextParams, _Props))
-        )
-    ;   writeln([onGetAuthorFeed_failed_with_posts_count|HowManyPostsInFeed], true) ),
+    once(iterate_or_report_failure(NextCursor, HowManyPostsInFeed, Feed, IndicesStartingAt1, ParamValue)),
 
     append([OperationId, " call failed"], FailedHttpRequestErrorMessage),
     chars_si(FailedHttpRequestErrorMessage),
@@ -153,20 +139,108 @@ send_request(Params, ResponsePairs, StatusCode) :-
 
     %% submit_request_once(+request, -Response).
     submit_request_once(request(Endpoint, Options), response(ResponseHeaders, Stream)) :-
-        once((
-            writeln([endpoint|[Endpoint]], true),
-            (   once(http_open(Endpoint, Stream, Options))
-            ->  writeln(response_headers: ResponseHeaders)
-            ;   throw(failed_http_request(Endpoint, Options)) )
-        )).
+        writeln([endpoint|[Endpoint]], true),
+        once(submit_open_or_throw(Endpoint, Stream, Options, ResponseHeaders)).
+
+    submit_open_or_throw(Endpoint, Stream, Options, ResponseHeaders) :-
+        http_open(Endpoint, Stream, Options),
+        writeln(response_headers: ResponseHeaders).
+    submit_open_or_throw(Endpoint, _Stream, Options, _ResponseHeaders) :-
+        \+ http_open(Endpoint, _, Options),
+        throw(failed_http_request(Endpoint, Options)).
+
+resolve_endpoint(actor(ParamValue)-cursor(Cursor), OperationId, ParamName, ParamValue, Endpoint) :-
+    app__bsky__feed__getAuthorFeed_endpoint(OperationId, ParamName, ParamValue, EndpointWithoutCursor),
+    append([EndpointWithoutCursor, "&cursor=", Cursor], Endpoint).
+resolve_endpoint(Params, OperationId, ParamName, Params, Endpoint) :-
+    \+ ( Params = actor(_)-cursor(_) ),
+    app__bsky__feed__getAuthorFeed_endpoint(OperationId, ParamName, Params, Endpoint).
+
+resolve_next_cursor(FeedAssoc, NextCursor) :- get_assoc(cursor, FeedAssoc, NextCursor).
+resolve_next_cursor(FeedAssoc, 'none') :- \+ get_assoc(cursor, FeedAssoc, _).
+
+iterate_or_report_failure(NextCursor, HowManyPostsInFeed, Feed, Indices, ParamValue) :-
+    catch(
+        maplist(onGetAuthorFeed(NextCursor, HowManyPostsInFeed), Feed, Indices),
+        E,
+        if_(
+            E = already_indexed_post(URI),
+            writeln([post_indexed_before|[URI]], true),
+            throw(could_not_iterate_over_all_author_feed_post(E))
+        )
+    ),
+    follow_or_finalize(NextCursor, ParamValue).
+iterate_or_report_failure(_NextCursor, HowManyPostsInFeed, _Feed, _Indices, _ParamValue) :-
+    writeln([onGetAuthorFeed_failed_with_posts_count|HowManyPostsInFeed], true).
+
+% Cutoff anchor for getAuthorFeed pagination. Keyed by ParamValue
+% (the actor handle/DID) and lives for the lifetime of the Prolog
+% process; set once from the most recent post's indexedAt on the
+% first non-empty page seen for that actor.
+:- dynamic(getAuthorFeed_anchor/2).
+
+% set_anchor_if_unset(+ParamValue, +Feed).
+set_anchor_if_unset(ParamValue, _Feed) :-
+    getAuthorFeed_anchor(ParamValue, _).
+set_anchor_if_unset(ParamValue, [FirstWrapped|_]) :-
+    \+ getAuthorFeed_anchor(ParamValue, _),
+    wrapped_pairs_to_assoc(FirstWrapped, FirstAssoc),
+    get_assoc(post, FirstAssoc, FirstPost),
+    get_assoc(indexedAt, FirstPost, FirstIndexedAt),
+    assertz(getAuthorFeed_anchor(ParamValue, FirstIndexedAt)),
+    writeln([cutoff_anchor_set|[FirstIndexedAt]], true).
+set_anchor_if_unset(_ParamValue, []) :-
+    writeln([cutoff_anchor_skipped_empty_feed], true).
+
+follow_or_finalize('none', _ParamValue) :-
+    writeln('fetched all available feed posts', true).
+follow_or_finalize(NextCursor, ParamValue) :-
+    dif(NextCursor, 'none'),
+    once(resolve_cutoff_date(ParamValue, CutoffDate)),
+    cursor_date_prefix(NextCursor, CursorDate),
+    once(continue_or_stop_at_cutoff(CursorDate, CutoffDate, NextCursor, ParamValue)).
+
+    % resolve_cutoff_date(+ParamValue, -CutoffDate).
+    %
+    % Cutoff = (anchor - 2 days) when an anchor is recorded for this
+    % actor (anchor = first page's most-recent indexedAt). Falls back
+    % to (now - 2 days) when no anchor is available (empty first page).
+    resolve_cutoff_date(ParamValue, CutoffDate) :-
+        getAuthorFeed_anchor(ParamValue, AnchorIso),
+        date_iso8601_days_before(2, AnchorIso, CutoffDate).
+    resolve_cutoff_date(ParamValue, CutoffDate) :-
+        \+ getAuthorFeed_anchor(ParamValue, _),
+        date_iso8601_days_ago(2, CutoffIso),
+        cursor_date_prefix(CutoffIso, CutoffDate).
+
+    % cursor_date_prefix(+IsoChars, -DatePrefix).
+    %
+    % Takes the leading "YYYY-MM-DD" of an ISO-8601 timestamp.
+    % Day precision is enough for the 2-day cutoff and sidesteps the
+    % fractional-seconds lex-compare hazard ("...:00.5Z" vs "...:00Z").
+    cursor_date_prefix(IsoChars, DatePrefix) :-
+        length(DatePrefix, 10),
+        append(DatePrefix, _, IsoChars).
+
+    continue_or_stop_at_cutoff(CursorDate, CutoffDate, NextCursor, _ParamValue) :-
+        CursorDate @< CutoffDate,
+        writeln([stopped_cursor_more_than_two_days_before_anchor|[NextCursor, cutoff(CutoffDate)]], true).
+    continue_or_stop_at_cutoff(CursorDate, CutoffDate, NextCursor, ParamValue) :-
+        \+ (CursorDate @< CutoffDate),
+        NextParams = actor(ParamValue)-cursor(NextCursor),
+        app__bsky__feed__getAuthorFeed(NextParams, _Props).
 
 %% app__bsky__feed__getAuthorFeed(+Params, -Props).
 %
 % [app.bsky.feed.getAuthorFeed](https://docs.bsky.app/docs/api/app-bsky-feed-get-author-feed)
 app__bsky__feed__getAuthorFeed(Params, Props) :-
-    app__bsky__feed__getAuthorFeed_memoized(Params, Props)
-    ->  true
-    ;   memoize_app__bsky__feed__getAuthorFeed(Params, Props).
+    once(getAuthorFeed_memoized_or_compute(Params, Props)).
+
+getAuthorFeed_memoized_or_compute(Params, Props) :-
+    app__bsky__feed__getAuthorFeed_memoized(Params, Props).
+getAuthorFeed_memoized_or_compute(Params, Props) :-
+    \+ app__bsky__feed__getAuthorFeed_memoized(Params, Props),
+    memoize_app__bsky__feed__getAuthorFeed(Params, Props).
 
 :- dynamic(app__bsky__feed__getAuthorFeed_memoized/2).
 

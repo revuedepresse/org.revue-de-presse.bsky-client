@@ -208,6 +208,10 @@ memoize_app__bsky__graph__getList_memoized(MainListAtUri, Props) :-
 %
 %% app__bsky__graph__getList(+MainListAtUri, -Props).
 app__bsky__graph__getList(MainListAtUri, Props) :-
-    app__bsky__graph__getList_memoized(MainListAtUri, Props)
-    ->  true
-    ;   memoize_app__bsky__graph__getList_memoized(MainListAtUri, Props).
+    once(getList_memoized_or_compute(MainListAtUri, Props)).
+
+getList_memoized_or_compute(MainListAtUri, Props) :-
+    app__bsky__graph__getList_memoized(MainListAtUri, Props).
+getList_memoized_or_compute(MainListAtUri, Props) :-
+    \+ app__bsky__graph__getList_memoized(MainListAtUri, Props),
+    memoize_app__bsky__graph__getList_memoized(MainListAtUri, Props).

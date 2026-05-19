@@ -2,6 +2,16 @@
     onGetList/2
 ]).
 
+/**
+Domain event handler for `app.bsky.graph.getList`.
+
+Decodes the most recent persisted payload for the list AT-URI
+if one exists; on a miss writes a new
+`publishers_list_collected_event`. Used at the start of every
+worker run to capture the latest list-level metadata before
+fanning out to individual list items.
+*/
+
 :- use_module(library(assoc)).
 :- use_module(library(charsio)).
 :- use_module(library(lists)).
@@ -33,45 +43,49 @@
     writeln/2
 ]).
 
-%% Handling onGetList Event
+%% onGetList(+ListUri, +Payload)
 %
-%% onGetList(+ListUri, -Payload)
+% Handle a list snapshot for `ListUri` carrying `Payload`. On
+% an existing event row, decode and log its payload; on a
+% miss (`cannot_read_rows_selected_by/1`), insert a fresh row
+% and log the outcome.
 onGetList(ListUri, Payload) :-
     catch(
-        (once(repository_list:by_list_uri(ListUri, Rows)),
-        ( ( nth0(0, Rows, FirstRow),
-            get_assoc(payload, FirstRow, FirstRowPayload) )
-        ->  chars_base64(Utf8BytesPayload, FirstRowPayload, []),
-            maplist(char_code, Utf8BytesPayload, Utf8Bytes),
-            chars_utf8bytes(PayloadChars, Utf8Bytes),
-
-            % Removing surrounding double quotes
-            % before converting in-between string to JSON Chars
-            % so that it could be parsed with phrase/3
-            append([Prefix, ['"']], PayloadChars),
-            append([['"'], Suffix], Prefix),
-            to_json_chars(Suffix, JSONChars),
-
-            phrase(json_chars(pairs(Pairs)), JSONChars, []),
-            maplist(get_key, Pairs, Keys),
-            pairs_to_assoc(Pairs, _Assoc),
-            writeln('list keys':Keys)
-        ;   true )),
+        on_get_list_decode_existing(ListUri),
         cannot_read_rows_selected_by(_Selector),
-        catch(
-            once((
-                repository_list:insert(
-                    row(
-                        ListUri,
-                        Payload
-                    ),
-                    InsertionResult
-                ),
-                log_info([list_insertion_result(InsertionResult)])
-            )),
-            E,
-            log_error([list_insertion_result(E)])
-        )
+        on_get_list_insert(ListUri, Payload)
+    ).
+
+on_get_list_decode_existing(ListUri) :-
+    once(repository_list:by_list_uri(ListUri, Rows)),
+    once(decode_first_row_payload(Rows)).
+
+decode_first_row_payload(Rows) :-
+    nth0(0, Rows, FirstRow),
+    get_assoc(payload, FirstRow, FirstRowPayload),
+    chars_base64(Utf8BytesPayload, FirstRowPayload, []),
+    maplist(char_code, Utf8BytesPayload, Utf8Bytes),
+    chars_utf8bytes(PayloadChars, Utf8Bytes),
+    append([Prefix, ['"']], PayloadChars),
+    append([['"'], Suffix], Prefix),
+    to_json_chars(Suffix, JSONChars),
+    phrase(json_chars(pairs(Pairs)), JSONChars, []),
+    maplist(get_key, Pairs, Keys),
+    pairs_to_assoc(Pairs, _Assoc),
+    writeln('list keys':Keys).
+decode_first_row_payload(_).
+
+on_get_list_insert(ListUri, Payload) :-
+    catch(
+        once((
+            repository_list:insert(
+                row(ListUri, Payload),
+                InsertionResult
+            ),
+            log_info([list_insertion_result(InsertionResult)])
+        )),
+        E,
+        log_error([list_insertion_result(E)])
     ).
 
 get_key(string(Key)-_Value, Key).

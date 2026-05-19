@@ -1,31 +1,40 @@
 :- module(client, [
     encode_field_value/2,
+    execute/2,
     hash/2,
-    matching_criteria/2,
+    matching_criteria/4,
     read_rows/2,
-    query_result_from_file/3,
-    query_result/2
+    query_result_from_file/4,
+    value/3
 ]).
+
+/**
+Bind-parameter Postgres client over the wire-protocol connection.
+
+Every repository module talks to Postgres through the four
+public verbs here: `execute/2` for INSERT/UPDATE/DELETE
+without RETURNING, `value/3` for single-cell SELECTs and
+`RETURNING` clauses, `query_result_from_file/4` for multi-row
+SELECTs streamed through a pipe-delimited tempfile, and
+`matching_criteria/4` for multi-row SELECTs that fold each
+row into a typed assoc. SQL placeholders use the extended
+protocol's `$1`, `$2`, … form; no caller-controlled value is
+ever concatenated into the SQL text.
+*/
 
 :- use_module(library(charsio)).
 :- use_module(library(crypto)).
+:- use_module(library(format)).
 :- use_module(library(lists)).
 :- use_module(library(files)).
 :- use_module(library(pio)).
-:- use_module(library(os)).
-:- use_module(library(si)).
+:- use_module(library(dif)).
 :- use_module(library(reif)).
+:- use_module(library(si)).
 
 :- use_module('../repository/repository_dcgs', [
     rows//1,
     to_json/3
-]).
-:- use_module('../../configuration', [
-    database_db_name/1,
-    database_username/1,
-    database_port/1,
-    database_password/1,
-    database_host/1
 ]).
 :- use_module('../../logger', [
     log_debug/1,
@@ -45,7 +54,12 @@
     writeln/2
 ]).
 
+:- use_module('connection', [pg_query/3]).
+
 %% encode_field_value(+FieldValue, -EncodedFieldValue)
+%
+% Base64-encodes a Prolog term's textual representation so it can be
+% carried as an opaque text payload through a bind parameter.
 encode_field_value(FieldValue, EncodedFieldValue) :-
     write_term_to_chars(FieldValue, [quoted(true), double_quotes(true)], QuotedFieldValue),
     chars_utf8bytes(QuotedFieldValue, Utf8Bytes),
@@ -57,159 +71,120 @@ hash(handle(Handle)-uri(URI), Hash) :-
     append([Handle, "|", URI], UniqueIdentifier),
     crypto_data_hash(UniqueIdentifier, Hash, [algorithm(sha256)]).
 
-%% is_digit(+Char).
-is_digit(Char) :-
-    char_type(Char, numeric).
+%% digit_t(+Char, ?T).
+%
+% Reified digit test: T = true if Char is a numeric char, false otherwise.
+digit_t(Char, true)  :- char_type(Char, numeric).
+digit_t(Char, false) :- \+ char_type(Char, numeric).
 
-%% query_result(+Query, -Result).
-query_result(Query, Result) :-
-    RemoveResultFile = true,
-    query(Query, RemoveResultFile, true, _TempFile, Result).
+%% all_digits_t(+Chars, ?T).
+%
+% Reified "every char in the list is numeric".
+all_digits_t([], true).
+all_digits_t([C|Cs], T) :- if_(digit_t(C), all_digits_t(Cs, T), T = false).
 
-%% query_result_from_file(+Query, +TuplesOnly, -TempFile).
-query_result_from_file(Query, TuplesOnly, TempFile) :-
-    RemoveResultFile = false,
-    query(Query, RemoveResultFile, TuplesOnly, TempFile, _Result).
+%% execute(+SQL, +Params).
+%
+% Non-row-producing statement (INSERT/UPDATE/DELETE without RETURNING).
+% Uses extended protocol with bind params. Throws on server error.
+% Throws unexpected_rows_returned(_) if the server returns rows; use
+% value/3 or matching_criteria/4 for that.
+execute(SQL, Params) :-
+    pg_query(SQL, Params, Reply),
+    handle_execute_reply(Reply).
 
-%% query(+Query, +RemoveResultFile, +TuplesOnly, -TempFile, -Result).
-query(Query, RemoveResultFile, TuplesOnly, TempFile, Result) :-
-    database_db_name(DbName),
-    database_username(Username),
-    database_port(Port),
-    database_password(Password),
-    database_host(Host),
+handle_execute_reply(data([])).
+handle_execute_reply(data([R|Rs])) :- throw(unexpected_rows_returned(data([R|Rs]))).
+handle_execute_reply(error(Err)) :- throw(pg_error(Err)).
 
-    temporary_file("query_before_execution", QueryFile),
-    once(open(QueryFile, write, QueryFileStream, [type(text)])),
-    write_term(QueryFileStream, Query, [double_quotes(true)]),
-    close(QueryFileStream),
+%% value(+SQL, +Params, -Value).
+%
+% Single-cell SELECT (or INSERT ... RETURNING one column). Adapts the
+% first cell of the first row:
+%   - no_records_found  if zero rows or the cell is null.
+%   - integer           if the cell is all digits.
+%   - chars             otherwise.
+%
+% Throws pg_error(_) on a server error.
+value(SQL, Params, Value) :-
+    pg_query(SQL, Params, Reply),
+    adapt_single_value(Reply, Value).
 
-    char_code(AntiSlash, 92),
-    char_code(DoubleQuote, 34),
+adapt_single_value(data([]), no_records_found).
+adapt_single_value(data([[null|_]|_]), no_records_found).
+adapt_single_value(data([[Cs|_]|_]), Value) :-
+    \+ Cs == null,
+    if_(all_digits_t(Cs), number_chars(Value, Cs), Value = Cs).
+adapt_single_value(error(Err), _) :- throw(pg_error(Err)).
+
+%% query_result_from_file(+SQL, +Params, +Headers, -TempFile).
+%
+% Extended-protocol multi-row SELECT. Writes rows to a tempfile in the
+% pipe-delimited format read_rows/2 consumes. If Headers is a non-empty
+% list of header chars, it is written as the first line; pass [] for
+% tuples-only output.
+query_result_from_file(SQL, Params, Headers, TempFile) :-
+    pg_query(SQL, Params, Reply),
+    extract_rows(Reply, Rows),
     temporary_file("query", TempFile),
+    once(open(TempFile, write, OutStream, [type(text)])),
+    write_optional_header(OutStream, Headers),
+    maplist(write_piped_row(OutStream), Rows),
+    close(OutStream).
 
-    writeln(creating_temporary_file(TempFile)-for_query(Query)-tuples_only(TuplesOnly)),
+write_optional_header(_, []).
+write_optional_header(Stream, [H|Hs]) :- write_piped_row(Stream, [H|Hs]).
 
-    if_(
-        TuplesOnly = true,
-        TuplesOnlyOption = "--tuples-only ",
-        TuplesOnlyOption = ""
-    ),
+extract_rows(data(Rows), Rows).
+extract_rows([], []).
+extract_rows(error(Err), _) :- throw(pg_error(Err)).
 
-    append(
-        [
-            "psql ",
-            TuplesOnlyOption,
-            "--csv ",
-            "--dbname='", DbName, "' ",
-            "--host='", Host, "' ",
-            "--no-align ",
-            "--no-readline ",
-            "--output='", TempFile, "' ",
-            "--port='", Port, "' ",
-            "--quiet ",
-            "--set ON_ERROR_STOP=1 ",
-            "--username='", Username, "' "
-        ],
-        CommandSuffix
-    ),
+write_piped_row(Stream, Fields) :-
+    write_fields_piped(Stream, Fields),
+    format(Stream, "~n", []).
 
-    (   append([
-            [AntiSlash], "cat ", QueryFile, " | ",
-            % Removing leading double quotes
-            "sed -E 's#^", [DoubleQuote], "##g' | ",
-            % Removing antislashes
-            "sed -E 's#", [AntiSlash], [AntiSlash], "##g' | ",
-            % Removing trailing double quotes
-            "sed -E 's#", [DoubleQuote], "$##g' | ",
-            "PGPASSWORD='", Password, "' ",
-            CommandSuffix
-        ], QueryCommand)
-    ->  true
-    ;   throw(cannot_execute_sql_query) ),
+write_fields_piped(_, []).
+write_fields_piped(Stream, [F]) :- write_field(Stream, F).
+write_fields_piped(Stream, [F, F2 | Fs]) :-
+    write_field(Stream, F),
+    format(Stream, "|", []),
+    write_fields_piped(Stream, [F2 | Fs]).
 
-    shell(QueryCommand, QueryExecutionStatus),
+write_field(Stream, null) :- format(Stream, "", []).
+write_field(Stream, [C|Cs]) :- format(Stream, "~s", [[C|Cs]]).
+write_field(Stream, []) :- format(Stream, "~s", [[]]).
 
-    (   QueryExecutionStatus \= 0
-    ->  write_term(cmd:CommandSuffix, [quoted(false),double_quotes(true)]),
-        throw(unexpected_command_exit_code('Failed to execute query'))
-    ;   remove_temporary_file(QueryFile) ),
-
-    open(TempFile, read, Stream, [type(text)]),
-    read_stream(Stream, ReadResult),
-
-    char_code(Eol, 10),
-    (   append([IntermediateResult, [Eol]], ReadResult)
-    ->  true % results list end with EOL
-    ;   IntermediateResult = ReadResult ),
-
-    if_(
-        dif(IntermediateResult, []),
-        (   maplist(is_digit, IntermediateResult)
-        ->  number_chars(Result, IntermediateResult)
-        ;   Result = IntermediateResult ),
-        Result = no_records_found
-    ),
-
-    if_(
-        RemoveResultFile = true,
-        remove_temporary_file(TempFile),
-        true
-    ).
-
-matching_criteria(Criteria, HeadersAndRows) :-
-    append(
-        [
-            Criteria,
-            "LIMIT 0;"
-        ],
-        QueryHeaders
-    ),
-
-    once(query_result_from_file(
-        QueryHeaders,
-        false,
-        HeadersOnlyTempFile
-    )),
-    read_rows(HeadersOnlyTempFile, HeadersRows),
-
-    nth0(0, HeadersRows, Headers),
-    append(
-        [
-            Criteria,
-            "LIMIT ALL;"
-        ],
-        CriteriaWithoutLimit
-    ),
-    writeln(selection_query(CriteriaWithoutLimit)),
-
-    once(query_result_from_file(
-        CriteriaWithoutLimit,
-        true,
-        ByCriteriaTemporaryFile
-    )),
-    (   read_rows(ByCriteriaTemporaryFile, Rows)
-    ->  true
-    ;   throw(cannot_read_rows_selection) ),
-
+%% matching_criteria(+SQL, +Params, +Headers, -HeadersAndRows).
+%
+% Extended-protocol multi-row SELECT returning each row as an assoc
+% keyed by the typed-column names in Headers. Headers must match the
+% SELECT projection (e.g. ["string__name", "number__list_id", ...]).
+matching_criteria(SQL, Params, Headers, HeadersAndRows) :-
+    pg_query(SQL, Params, Reply),
+    extract_rows(Reply, Rows),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
 %% read_rows(+TmpFile, -Rows).
+%
+% Reads the tempfile produced by query_result_from_file/4 and parses
+% it via the repository_dcgs:rows//1 DCG. Two cases drive the clausal
+% split: an empty file (no rows written) returns Rows = []; a non-empty
+% file is fed through the DCG. The tempfile is removed either way.
 read_rows(TmpFile, Rows) :-
+    ensure_file_exists(TmpFile),
     once(open(TmpFile, read, Stream, [type(text)])),
-    once((
-        file_exists(TmpFile)
-        ;   throw(file_does_not_exist)
-    )),
-    (   once(phrase_from_stream(rows(Rows), Stream))
-    ->  remove_temporary_file(TmpFile)
-    ;
-        once(open(TmpFile, read, StreamBis, [type(text)])),
-        read_stream(StreamBis, Chars),
-        if_(
-            Chars = [],
-            remove_temporary_file(TmpFile),
-            throw(cannot_phrase_stream_from(TmpFile))
-        )
-    ).
+    read_stream(Stream, Chars),
+    parse_chars(TmpFile, Chars, Rows),
+    remove_temporary_file(TmpFile).
+
+ensure_file_exists(TmpFile) :- file_exists(TmpFile).
+ensure_file_exists(TmpFile) :- \+ file_exists(TmpFile), throw(file_does_not_exist(TmpFile)).
+
+parse_chars(_, [], []).
+parse_chars(TmpFile, [C|Cs], Rows) :- parse_dcg_or_throw(TmpFile, [C|Cs], Rows).
+
+parse_dcg_or_throw(_, Chars, Rows) :- phrase(rows(Rows), Chars).
+parse_dcg_or_throw(TmpFile, Chars, _) :-
+    \+ phrase(rows(_), Chars),
+    throw(cannot_phrase_stream_from(TmpFile)).

@@ -1,10 +1,10 @@
 :- module(split_subject_test, [main/0]).
 
-:- use_module('../../../assert', [
+:- use_module('../../../../src/assert', [
     assert/4,
     run_test_suite/2
 ]).
-:- use_module(split_subject).
+:- use_module('../../../../src/types/string/formats/split_subject').
 
 test(Spec) :-
     Spec = 'split_subject:requires_ground_subject',

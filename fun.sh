@@ -355,11 +355,16 @@ function list_api_spec_values() {
 }
 
 function test() {
-    scryer-prolog ./src/types/string/formats/*_test.pl -g halt |
+    if ! ls ./tests/types/string/formats/*_test.pl >/dev/null 2>&1; then
+        printf '%s.%s' 'No string-format tests found at ./tests/types/string/formats/' $'\n'
+        exit 1
+    fi
+    scryer-prolog ./tests/types/string/formats/*_test.pl -g halt |
         tee ./test.log
     # shellcheck disable=SC2046
     if [ $(grep -c '\[KO\]' ./test.log) -gt 0 ]; then
         printf '%s.%s' 'Some tests failed' $'\n'
+        rm ./test.log
         exit 1
     else
         printf '%s.%s' 'All tests passed successfully' $'\n'

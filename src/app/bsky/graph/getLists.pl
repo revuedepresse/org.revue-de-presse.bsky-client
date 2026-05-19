@@ -114,6 +114,10 @@ memoize_app__bsky__graph__getLists_memoized(Actor, Props) :-
 %%
 %% app__bsky__graph__getLists(+Actor, -Props).
 app__bsky__graph__getLists(Actor, Props) :-
-    app__bsky__graph__getLists_memoized(Actor, Props)
-    ->  true
-    ;   memoize_app__bsky__graph__getLists_memoized(Actor, Props).
+    once(getLists_memoized_or_compute(Actor, Props)).
+
+getLists_memoized_or_compute(Actor, Props) :-
+    app__bsky__graph__getLists_memoized(Actor, Props).
+getLists_memoized_or_compute(Actor, Props) :-
+    \+ app__bsky__graph__getLists_memoized(Actor, Props),
+    memoize_app__bsky__graph__getLists_memoized(Actor, Props).
