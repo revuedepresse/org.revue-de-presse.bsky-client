@@ -49,6 +49,12 @@ jobs:
 
       - if: ${{ steps.restore-dependencies.outputs.cache-hit != 'true' }}
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          # The action defaults to RUSTFLAGS=-D warnings, which would
+          # promote scryer's own pre-existing dead-code warnings into
+          # hard errors and break the submodule build (upstream's CI
+          # does not set this). Clear it for this job.
+          rustflags: ""
 
       - if: ${{ steps.restore-dependencies.outputs.cache-hit != 'true' }}
         name: Build scryer-prolog

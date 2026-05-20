@@ -1,3 +1,6 @@
 [toolchain]
-channel = "stable"
+# scryer-prolog advertises rust-version = "1.85" in deps/scryer-prolog/Cargo.toml.
+# Tracking its MSRV keeps the submodule build deterministic and avoids
+# tying ourselves to whatever stable happens to ship on the day.
+channel = "1.85"
 profile = "minimal"
