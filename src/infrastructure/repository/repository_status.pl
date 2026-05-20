@@ -355,8 +355,30 @@ by_indexed_at(indexed_at(IndexedAt)-handle(Handle), HeadersAndRows) :-
     by_indexed_at_headers(Headers),
     by_indexed_at_sql(SQL),
     writeln([step|'by_indexed_at:matching_criteria'], true),
+    catch(
+        capture_pre_wire_call(Handle, IndexedAt, IndexedAtDate, SQL),
+        _,
+        true
+    ),
     matching_criteria(SQL, [Handle, IndexedAtDate], Headers, HeadersAndRows),
     writeln([step|'by_indexed_at:done'], true).
+
+% One-shot pre-wire-call capture used to assemble a self-contained
+% reproducer for the scryer unify_constant SIGSEGV. Overwrites the
+% same file every call so on a crash mid-call the file holds the
+% exact bind params that were in flight.
+capture_pre_wire_call(Handle, IndexedAt, IndexedAtDate, SQL) :-
+    Path = "/tmp/segv-investigation/last-by-indexed-at.pl",
+    open(Path, write, Stream, [type(text)]),
+    write_canonical(Stream, last_by_indexed_at(
+        handle(Handle),
+        indexed_at(IndexedAt),
+        indexed_at_date(IndexedAtDate),
+        sql(SQL)
+    )),
+    write(Stream, '.'),
+    nl(Stream),
+    close(Stream).
 
 by_indexed_at_headers([
     "number__id",
