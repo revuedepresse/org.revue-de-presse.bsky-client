@@ -143,6 +143,11 @@ test-by-indexed-at: compose-up ### Reproducer for the by_indexed_at/2 SIGSEGV un
 	RUST_BACKTRACE=full RUST_LIB_BACKTRACE=full \
 	scryer-prolog ./tests/pg/by_indexed_at_test.pl -g 'run_test'
 
+test-by-indexed-at-integration: ### Integration reproducer: drives by_indexed_at/2 against production rows via .env.local (read-only). Requires the patched scryer-prolog binary to survive.
+	@set -a; . ./.env.local; set +a; \
+	RUST_BACKTRACE=full RUST_LIB_BACKTRACE=full \
+	scryer-prolog ./tests/pg/by_indexed_at_integration_test.pl -g 'run_test'
+
 test-extract-lookup-ust-id: ### Regression: repository_status:extract_lookup_ust_id/2 rejects malformed lookup replies
 	@scryer-prolog ./tests/pg/extract_lookup_ust_id_test.pl -g 'run_test'
 
