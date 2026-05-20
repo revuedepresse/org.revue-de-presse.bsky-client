@@ -5,7 +5,7 @@ function configure() {
     local name
     local value
 
-    for envar in $(env | grep -vE '^(SHELL|HOME|USER|PATH|ACTOR|AUTHOR|TEXT)' | cut -f 1 -d '='); do
+    for envar in $(env | grep -vE '^(SHELL|HOME|USER|PATH|ACTOR|AUTHOR|TEXT|RUST_BACKTRACE|RUST_LIB_BACKTRACE)' | cut -f 1 -d '='); do
         unset "${envar}"
     done
 
@@ -14,6 +14,14 @@ function configure() {
         value="$(echo ${env_var} | cut -d '=' -f 2)"
         export "${name}"="${value}"
     done
+
+    # Surface any Rust-side panic backtrace so a SIGSEGV or panic in
+    # scryer-prolog (or its FFI deps like postgresql-prolog) can be
+    # captured in worker logs and pasted into upstream issues / PRs.
+    # SIGSEGV itself bypasses the panic handler; the env var still
+    # helps when the crash is reachable via panic_unwind first.
+    export RUST_BACKTRACE="${RUST_BACKTRACE:-full}"
+    export RUST_LIB_BACKTRACE="${RUST_LIB_BACKTRACE:-full}"
 }
 
 function com__atproto__server__createSession() {
