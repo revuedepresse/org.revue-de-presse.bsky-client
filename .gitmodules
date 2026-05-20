@@ -1,6 +1,7 @@
 [submodule "scryer-prolog"]
 	path = deps/scryer-prolog
-	url = https://github.com/mthom/scryer-prolog
+	url = https://github.com/thierrymarianne/contrib-scryer-prolog.git
+	branch = main
 [submodule "deps/postgresql-prolog"]
 	path = deps/postgresql-prolog
 	url = https://github.com/thierrymarianne/postgresql-prolog.git
