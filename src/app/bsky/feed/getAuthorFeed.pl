@@ -115,6 +115,7 @@ send_request(Params, ResponsePairs, StatusCode) :-
     writeln([current_time|[Time]], true),
 
     phrase(json_chars(pairs(ResponsePairs)), BodyChars),
+    catch(capture_feed_response(BodyChars, ResponsePairs), _, true),
     pairs_to_assoc(ResponsePairs, FeedAssoc),
     get_assoc(feed, FeedAssoc, Feed),
 
@@ -158,6 +159,21 @@ resolve_endpoint(Params, OperationId, ParamName, Params, Endpoint) :-
 
 resolve_next_cursor(FeedAssoc, NextCursor) :- get_assoc(cursor, FeedAssoc, NextCursor).
 resolve_next_cursor(FeedAssoc, 'none') :- \+ get_assoc(cursor, FeedAssoc, _).
+
+% One-shot dump of the latest HTTP body and the parsed pair list
+% to disk, used to assemble a reproducer for the scryer
+% unify_constant SIGSEGV. Overwrites the same files every call.
+capture_feed_response(BodyChars, ResponsePairs) :-
+    BodyPath  = "/tmp/segv-investigation/last-feed-body.txt",
+    PairsPath = "/tmp/segv-investigation/last-feed-pairs.pl",
+    open(BodyPath, write, BodyStream, [type(text)]),
+    write(BodyStream, BodyChars),
+    close(BodyStream),
+    open(PairsPath, write, PairsStream, [type(text)]),
+    write_canonical(PairsStream, last_feed_pairs(ResponsePairs)),
+    write(PairsStream, '.'),
+    nl(PairsStream),
+    close(PairsStream).
 
 iterate_or_report_failure(NextCursor, HowManyPostsInFeed, Feed, Indices, ParamValue) :-
     catch(
