@@ -138,6 +138,11 @@ test-repository-list: compose-up ### Exercise repository_list:insert/2 (new path
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test'
 
+test-by-indexed-at: compose-up ### Reproducer for the by_indexed_at/2 SIGSEGV under the SELECT/INSERT/SELECT cycle
+	@set -a; . ./.env.test; set +a; \
+	RUST_BACKTRACE=full RUST_LIB_BACKTRACE=full \
+	scryer-prolog ./tests/pg/by_indexed_at_test.pl -g 'run_test'
+
 test-extract-lookup-ust-id: ### Regression: repository_status:extract_lookup_ust_id/2 rejects malformed lookup replies
 	@scryer-prolog ./tests/pg/extract_lookup_ust_id_test.pl -g 'run_test'
 
