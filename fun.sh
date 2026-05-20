@@ -5,7 +5,7 @@ function configure() {
     local name
     local value
 
-    for envar in $(env | grep -vE '^(SHELL|HOME|USER|PATH|ACTOR|AUTHOR|TEXT)' | cut -f 1 -d '='); do
+    for envar in $(env | grep -vE '^(SHELL|HOME|USER|PATH|ACTOR|AUTHOR|TEXT|RUST_BACKTRACE|RUST_LIB_BACKTRACE)' | cut -f 1 -d '='); do
         unset "${envar}"
     done
 
@@ -14,6 +14,14 @@ function configure() {
         value="$(echo ${env_var} | cut -d '=' -f 2)"
         export "${name}"="${value}"
     done
+
+    # Surface any Rust-side panic backtrace so a SIGSEGV or panic in
+    # scryer-prolog (or its FFI deps like postgresql-prolog) can be
+    # captured in worker logs and pasted into upstream issues / PRs.
+    # SIGSEGV itself bypasses the panic handler; the env var still
+    # helps when the crash is reachable via panic_unwind first.
+    export RUST_BACKTRACE="${RUST_BACKTRACE:-full}"
+    export RUST_LIB_BACKTRACE="${RUST_LIB_BACKTRACE:-full}"
 }
 
 function com__atproto__server__createSession() {
@@ -85,10 +93,51 @@ function app__bsky__feed__getAuthorFeed() {
         return 1
     fi
 
+    mkdir -p /tmp/segv-investigation var/tmp/segv-investigation
+
+    set +e
     scryer-prolog \
         -g 'app__bsky__feed__getAuthorFeed_without_memoization("'"${author}"'", Prop).' \
         -g halt \
         ./src/app/bsky/feed/getAuthorFeed.pl
+    local rc=$?
+    set -e
+
+    if [ "${rc}" -ne 0 ]; then
+        preserve_segv_captures "${author}" "${rc}"
+    fi
+
+    return "${rc}"
+}
+
+# Snapshot whatever the Prolog-side capture writers left under
+# /tmp/segv-investigation into var/tmp/segv-investigation/crash-<ts>-pid<n>/
+# the moment the worker exits non-zero. Production cron / supervisor
+# restarts the worker and the next call would otherwise overwrite the
+# captured terms, so we copy them out into a project-local, persistent
+# location with a manifest. var/tmp/* is gitignored.
+function preserve_segv_captures() {
+    local author=$1
+    local rc=$2
+    local ts
+    ts=$(date -u +%Y%m%dT%H%M%SZ)
+    local dest="var/tmp/segv-investigation/crash-${ts}-pid$$"
+    mkdir -p "${dest}"
+    {
+        printf 'timestamp_utc=%s\n' "${ts}"
+        printf 'exit_code=%d\n' "${rc}"
+        printf 'author=%s\n' "${author}"
+        printf 'host=%s\n' "$(hostname)"
+        printf 'scryer_version=%s\n' "$(scryer-prolog --version 2>/dev/null || echo unknown)"
+        printf 'git_head=%s\n' "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    } > "${dest}/manifest.txt"
+    local f
+    for f in last-by-indexed-at.pl last-feed-body.txt last-feed-pairs.pl; do
+        if [ -f "/tmp/segv-investigation/${f}" ]; then
+            cp "/tmp/segv-investigation/${f}" "${dest}/"
+        fi
+    done
+    echo "[crash-capture] preserved captures in ${dest} (exit=${rc})" >&2
 }
 
 # https://docs.bsky.app/docs/api/app-bsky-graph-get-list

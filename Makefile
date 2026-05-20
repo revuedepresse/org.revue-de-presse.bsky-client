@@ -138,6 +138,21 @@ test-repository-list: compose-up ### Exercise repository_list:insert/2 (new path
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test'
 
+test-by-indexed-at: compose-up ### Reproducer for the by_indexed_at/2 SIGSEGV under the SELECT/INSERT/SELECT cycle
+	@set -a; . ./.env.test; set +a; \
+	RUST_BACKTRACE=full RUST_LIB_BACKTRACE=full \
+	scryer-prolog ./tests/pg/by_indexed_at_test.pl -g 'run_test'
+
+test-by-indexed-at-integration: ### Integration reproducer: drives by_indexed_at/2 against production rows via .env.local (read-only). Requires the patched scryer-prolog binary to survive.
+	@set -a; . ./.env.local; set +a; \
+	RUST_BACKTRACE=full RUST_LIB_BACKTRACE=full \
+	scryer-prolog ./tests/pg/by_indexed_at_integration_test.pl -g 'run_test'
+
+test-segv-replay: ### Replays /tmp/segv-investigation/last-by-indexed-at.pl against the live wire client. SIGSEGV here means the wire path alone is enough to reproduce.
+	@set -a; . ./.env.local; set +a; \
+	RUST_BACKTRACE=full RUST_LIB_BACKTRACE=full \
+	scryer-prolog ./tests/pg/segv_replay_test.pl -g 'run_test'
+
 test-extract-lookup-ust-id: ### Regression: repository_status:extract_lookup_ust_id/2 rejects malformed lookup replies
 	@scryer-prolog ./tests/pg/extract_lookup_ust_id_test.pl -g 'run_test'
 
