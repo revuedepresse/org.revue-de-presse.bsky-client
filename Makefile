@@ -159,6 +159,12 @@ test-extract-lookup-ust-id: ### Regression: repository_status:extract_lookup_ust
 test-memoize-arity: ### Regression: getAuthorFeed no longer assertz's wide responses (scryer max_arity = 255)
 	@scryer-prolog ./tests/memoize_arity_test.pl -g halt
 
+test-iterate-or-report-failure: ### Regression: silent maplist failure on the feed surfaces as a labelled throw, not a quiet success
+	@scryer-prolog ./tests/iterate_or_report_failure_test.pl -g halt
+
+test-feed-capture-replay: ### Hermetic replay of /tmp/segv-investigation/last-feed-pairs.pl through insert_record_args/9
+	@scryer-prolog ./tests/feed_capture_replay_test.pl -g halt
+
 probe-prod-auth: ### Read-only auth probe against the DB defined in .env.local
 	@set -a; . ./.env.local; set +a; \
 	scryer-prolog ./src/infrastructure/pg/probe.pl -g 'run'

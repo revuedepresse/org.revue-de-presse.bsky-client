@@ -408,7 +408,12 @@ function test() {
         printf '%s.%s' 'No string-format tests found at ./tests/types/string/formats/' $'\n'
         exit 1
     fi
-    scryer-prolog ./tests/types/string/formats/*_test.pl ./tests/memoize_arity_test.pl -g halt |
+    scryer-prolog \
+        ./tests/types/string/formats/*_test.pl \
+        ./tests/memoize_arity_test.pl \
+        ./tests/iterate_or_report_failure_test.pl \
+        ./tests/feed_capture_replay_test.pl \
+        -g halt |
         tee ./test.log
     # shellcheck disable=SC2046
     if [ $(grep -c '\[KO\]' ./test.log) -gt 0 ]; then
