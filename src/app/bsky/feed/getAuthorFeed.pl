@@ -1,6 +1,7 @@
 :- module('getAuthorFeed', [
     app__bsky__feed__getAuthorFeed/2,
-    app__bsky__feed__getAuthorFeed_without_memoization/2
+    app__bsky__feed__getAuthorFeed_without_memoization/2,
+    report_iteration_failure/1
 ]).
 
 :- use_module(library(assoc)).
@@ -187,7 +188,16 @@ iterate_or_report_failure(NextCursor, HowManyPostsInFeed, Feed, Indices, ParamVa
     ),
     follow_or_finalize(NextCursor, ParamValue).
 iterate_or_report_failure(_NextCursor, HowManyPostsInFeed, _Feed, _Indices, _ParamValue) :-
-    writeln([onGetAuthorFeed_failed_with_posts_count|HowManyPostsInFeed], true).
+    report_iteration_failure(HowManyPostsInFeed).
+
+% Fallback for the maplist-over-feed path: log the count then
+% propagate a labelled exception so the caller's catch in
+% app__bsky__feed__getAuthorFeed_without_memoization/2 surfaces
+% the silent maplist failure as a real error instead of letting
+% the worker move on as if the page processed cleanly.
+report_iteration_failure(HowManyPostsInFeed) :-
+    writeln([onGetAuthorFeed_failed_with_posts_count|HowManyPostsInFeed], true),
+    throw(maplist_silently_failed_over_feed(HowManyPostsInFeed)).
 
 % Cutoff anchor for getAuthorFeed pagination. Keyed by ParamValue
 % (the actor handle/DID) and lives for the lifetime of the Prolog
