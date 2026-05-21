@@ -346,22 +346,18 @@ count_matching_records_sql(SQL) :-
 % `indexed_at` timestamp. The timestamp is rewritten to
 % Postgres' `YYYY-MM-DD HH:MM:SS` form before binding.
 by_indexed_at(indexed_at(IndexedAt)-handle(Handle), HeadersAndRows) :-
-    writeln([step|'by_indexed_at:parse_date'], true),
     length(Prefix, 10),
     length(Suffix, 8),
     append([Prefix, [_], Suffix, _Rest], IndexedAt),
     append([Prefix, " ", Suffix], IndexedAtDate),
-    writeln([step|'by_indexed_at:build_sql'], true),
     by_indexed_at_headers(Headers),
     by_indexed_at_sql(SQL),
-    writeln([step|'by_indexed_at:matching_criteria'], true),
     catch(
         capture_pre_wire_call(Handle, IndexedAt, IndexedAtDate, SQL),
         _,
         true
     ),
-    matching_criteria(SQL, [Handle, IndexedAtDate], Headers, HeadersAndRows),
-    writeln([step|'by_indexed_at:done'], true).
+    matching_criteria(SQL, [Handle, IndexedAtDate], Headers, HeadersAndRows).
 
 % One-shot pre-wire-call capture used to assemble a self-contained
 % reproducer for the scryer unify_constant SIGSEGV. Overwrites the
