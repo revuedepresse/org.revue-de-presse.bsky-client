@@ -39,6 +39,7 @@
     log_info/1
 ]).
 :- use_module('../../os_ext', [remove_temporary_file/1]).
+:- use_module('../../clean_text', [clean_text/2]).
 :- use_module('../../serialization', [
     char_code_at/2,
     pairs_to_assoc/2,
@@ -374,8 +375,10 @@ insert_new_record(Avatar, Description, Did, Handle, DisplayName, ok) :-
     next_id(NextId),
     write_term(next_id: NextId, [double_quotes(true)]), nl,
     number_chars(NextId, NextIdChars),
-    encode_field_value(DisplayName, EncodedDisplayName),
-    encode_field_value(Description, EncodedDescription),
+    clean_text(DisplayName, CleanedDisplayName),
+    clean_text(Description, CleanedDescription),
+    encode_field_value(CleanedDisplayName, EncodedDisplayName),
+    encode_field_value(CleanedDescription, EncodedDescription),
     insert_record_sql(SQL),
     Params = [
         NextIdChars,

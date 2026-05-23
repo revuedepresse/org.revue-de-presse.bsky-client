@@ -36,6 +36,7 @@
     log_debug/1,
     log_info/1
 ]).
+:- use_module('../../clean_text', [clean_text/2]).
 :- use_module('../../os_ext', [remove_temporary_file/1]).
 :- use_module('../../serialization', [
     pairs_to_assoc/2,
@@ -212,7 +213,8 @@ insert(
     hash(handle(Handle)-uri(URI), Hash),
     uuidv4_string(PublicId),
     encode_field_value(PreEncodingPayload, Payload),
-    encode_field_value(PreQuotingText, Text),
+    clean_text(PreQuotingText, CleanedText),
+    encode_field_value(CleanedText, Text),
     publication_insert_sql(SQL),
     Params = [PublicId, RecordId, Hash, Handle, Text, Avatar, URI, Payload, CreatedAt],
     pg_query(SQL, Params, Reply),

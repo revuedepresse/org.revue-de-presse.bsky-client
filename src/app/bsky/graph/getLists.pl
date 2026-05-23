@@ -91,10 +91,10 @@ send_request(Actor, ResponsePairs, StatusCode) :-
         throw(failed_http_request(FailedHttpRequestErrorMessageAtom, ResponsePairs, StatusCode))
     ).
 
-:- dynamic(app__bsky__graph__getLists_memoized/2).
-
-%% memoize_app__bsky__graph__getLists_memoized(+Actor, -Props).
-memoize_app__bsky__graph__getLists_memoized(Actor, Props) :-
+%% [app.bsky.graph.getLists](https://docs.bsky.app/docs/api/app-bsky-graph-get-lists)
+%%
+%% app__bsky__graph__getLists(+Actor, -Props).
+app__bsky__graph__getLists(Actor, Props) :-
     catch(
         send_request(Actor, Pairs, StatusCode),
         failed_http_request(Message, Pairs, StatusCode),
@@ -107,17 +107,4 @@ memoize_app__bsky__graph__getLists_memoized(Actor, Props) :-
         atom_chars(ErrorMessage, ErrorMessageChars),
         log_error([ErrorMessage]), fail),
         Props = Pairs
-    ),
-    assertz(app__bsky__graph__getLists_memoized(Actor, Props)).
-
-%% [app.bsky.graph.getLists](https://docs.bsky.app/docs/api/app-bsky-graph-get-lists)
-%%
-%% app__bsky__graph__getLists(+Actor, -Props).
-app__bsky__graph__getLists(Actor, Props) :-
-    once(getLists_memoized_or_compute(Actor, Props)).
-
-getLists_memoized_or_compute(Actor, Props) :-
-    app__bsky__graph__getLists_memoized(Actor, Props).
-getLists_memoized_or_compute(Actor, Props) :-
-    \+ app__bsky__graph__getLists_memoized(Actor, Props),
-    memoize_app__bsky__graph__getLists_memoized(Actor, Props).
+    ).
