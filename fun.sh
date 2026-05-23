@@ -413,6 +413,7 @@ function test() {
         ./tests/memoize_arity_test.pl \
         ./tests/iterate_or_report_failure_test.pl \
         ./tests/feed_capture_replay_test.pl \
+        ./tests/clean_text_test.pl \
         -g halt |
         tee ./test.log
     # shellcheck disable=SC2046
