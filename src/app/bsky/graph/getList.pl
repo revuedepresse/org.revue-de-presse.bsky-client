@@ -180,10 +180,10 @@ list_uri(MainListAtUri, JSONAssoc, Uri) :-
 
         onGetProfile(props(MainListAtUri, FollowersCount, FollowsCount, ActorParam, Payload)).
 
-:- dynamic(app__bsky__graph__getList_memoized/2).
-
-%% memoize_app__bsky__graph__getList_memoized(+MainListAtUri, -Props).
-memoize_app__bsky__graph__getList_memoized(MainListAtUri, Props) :-
+%% [app.bsky.graph.getList](https://docs.bsky.app/docs/api/app-bsky-graph-get-list)
+%
+%% app__bsky__graph__getList(+MainListAtUri, -Props).
+app__bsky__graph__getList(MainListAtUri, Props) :-
     catch(
         (send_request(MainListAtUri, Pairs, StatusCode)),
         E,
@@ -201,17 +201,4 @@ memoize_app__bsky__graph__getList_memoized(MainListAtUri, Props) :-
         atom_chars(ErrorMessage, ErrorMessageChars),
         log_error([ErrorMessage]), fail),
         Props = Pairs
-    ),
-    assertz(app__bsky__graph__getList_memoized(MainListAtUri, Props)).
-
-%% [app.bsky.graph.getList](https://docs.bsky.app/docs/api/app-bsky-graph-get-list)
-%
-%% app__bsky__graph__getList(+MainListAtUri, -Props).
-app__bsky__graph__getList(MainListAtUri, Props) :-
-    once(getList_memoized_or_compute(MainListAtUri, Props)).
-
-getList_memoized_or_compute(MainListAtUri, Props) :-
-    app__bsky__graph__getList_memoized(MainListAtUri, Props).
-getList_memoized_or_compute(MainListAtUri, Props) :-
-    \+ app__bsky__graph__getList_memoized(MainListAtUri, Props),
-    memoize_app__bsky__graph__getList_memoized(MainListAtUri, Props).
+    ).

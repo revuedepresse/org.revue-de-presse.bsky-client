@@ -77,8 +77,8 @@ app__bsky__feed__getAuthorFeed_headers(ListHeaders) :-
         'User-Agent'('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36')
     ].
 
-%% send_request(+Params, -ResponsePairs, -StatusCode).
-send_request(Params, ResponsePairs, StatusCode) :-
+%% send_request(+Params, +AnchorIn, -AnchorOut, -ResponsePairs, -StatusCode).
+send_request(Params, AnchorIn, AnchorOut, ResponsePairs, StatusCode) :-
     endpoint_spec_pairs(SpecPairs, false),
 
     pairs_keys(SpecPairs, [string(Verb)]),
@@ -120,14 +120,14 @@ send_request(Params, ResponsePairs, StatusCode) :-
     pairs_to_assoc(ResponsePairs, FeedAssoc),
     get_assoc(feed, FeedAssoc, Feed),
 
-    once(set_anchor_if_unset(ParamValue, Feed)),
+    once(set_anchor_if_unset(AnchorIn, Feed, AnchorOut)),
     once(resolve_next_cursor(FeedAssoc, NextCursor)),
     writeln([next_cursor|[NextCursor]], true),
 
     length(Feed, HowManyPostsInFeed),
     numlist(HowManyPostsInFeed, IndicesStartingAt1),
 
-    once(iterate_or_report_failure(NextCursor, HowManyPostsInFeed, Feed, IndicesStartingAt1, ParamValue)),
+    once(iterate_or_report_failure(NextCursor, HowManyPostsInFeed, Feed, IndicesStartingAt1, ParamValue, AnchorOut)),
 
     append([OperationId, " call failed"], FailedHttpRequestErrorMessage),
     chars_si(FailedHttpRequestErrorMessage),
@@ -176,7 +176,7 @@ capture_feed_response(BodyChars, ResponsePairs) :-
     nl(PairsStream),
     close(PairsStream).
 
-iterate_or_report_failure(NextCursor, HowManyPostsInFeed, Feed, Indices, ParamValue) :-
+iterate_or_report_failure(NextCursor, HowManyPostsInFeed, Feed, Indices, ParamValue, Anchor) :-
     catch(
         maplist(onGetAuthorFeed(NextCursor, HowManyPostsInFeed), Feed, Indices),
         E,
@@ -186,8 +186,8 @@ iterate_or_report_failure(NextCursor, HowManyPostsInFeed, Feed, Indices, ParamVa
             throw(could_not_iterate_over_all_author_feed_post(E))
         )
     ),
-    follow_or_finalize(NextCursor, ParamValue).
-iterate_or_report_failure(_NextCursor, HowManyPostsInFeed, _Feed, _Indices, _ParamValue) :-
+    follow_or_finalize(NextCursor, ParamValue, Anchor).
+iterate_or_report_failure(_NextCursor, HowManyPostsInFeed, _Feed, _Indices, _ParamValue, _Anchor) :-
     report_iteration_failure(HowManyPostsInFeed).
 
 % Fallback for the maplist-over-feed path: log the count then
@@ -199,45 +199,41 @@ report_iteration_failure(HowManyPostsInFeed) :-
     writeln([onGetAuthorFeed_failed_with_posts_count|HowManyPostsInFeed], true),
     throw(maplist_silently_failed_over_feed(HowManyPostsInFeed)).
 
-% Cutoff anchor for getAuthorFeed pagination. Keyed by ParamValue
-% (the actor handle/DID) and lives for the lifetime of the Prolog
-% process; set once from the most recent post's indexedAt on the
-% first non-empty page seen for that actor.
-:- dynamic(getAuthorFeed_anchor/2).
+% Cutoff anchor for getAuthorFeed pagination. Threaded through the
+% recursion as a value (the ISO-8601 most-recent indexedAt on the
+% first non-empty page) or `none` until one is seen. No process
+% global state.
 
-% set_anchor_if_unset(+ParamValue, +Feed).
-set_anchor_if_unset(ParamValue, _Feed) :-
-    getAuthorFeed_anchor(ParamValue, _).
-set_anchor_if_unset(ParamValue, [FirstWrapped|_]) :-
-    \+ getAuthorFeed_anchor(ParamValue, _),
+% set_anchor_if_unset(+AnchorIn, +Feed, -AnchorOut).
+set_anchor_if_unset(AnchorIso, _Feed, AnchorIso) :-
+    dif(AnchorIso, none).
+set_anchor_if_unset(none, [FirstWrapped|_], FirstIndexedAt) :-
     wrapped_pairs_to_assoc(FirstWrapped, FirstAssoc),
     get_assoc(post, FirstAssoc, FirstPost),
     get_assoc(indexedAt, FirstPost, FirstIndexedAt),
-    assertz(getAuthorFeed_anchor(ParamValue, FirstIndexedAt)),
     writeln([cutoff_anchor_set|[FirstIndexedAt]], true).
-set_anchor_if_unset(_ParamValue, []) :-
+set_anchor_if_unset(none, [], none) :-
     writeln([cutoff_anchor_skipped_empty_feed], true).
 
-follow_or_finalize('none', _ParamValue) :-
+follow_or_finalize('none', _ParamValue, _Anchor) :-
     writeln('fetched all available feed posts', true).
-follow_or_finalize(NextCursor, ParamValue) :-
+follow_or_finalize(NextCursor, ParamValue, Anchor) :-
     dif(NextCursor, 'none'),
-    once(resolve_cutoff_date(ParamValue, CutoffDate)),
+    once(resolve_cutoff_date(Anchor, CutoffDate)),
     cursor_date_prefix(NextCursor, CursorDate),
-    once(continue_or_stop_at_cutoff(CursorDate, CutoffDate, NextCursor, ParamValue)).
+    once(continue_or_stop_at_cutoff(CursorDate, CutoffDate, NextCursor, ParamValue, Anchor)).
 
-    % resolve_cutoff_date(+ParamValue, -CutoffDate).
+    % resolve_cutoff_date(+Anchor, -CutoffDate).
     %
-    % Cutoff = (anchor - 2 days) when an anchor is recorded for this
-    % actor (anchor = first page's most-recent indexedAt). Falls back
-    % to (now - 2 days) when no anchor is available (empty first page).
-    resolve_cutoff_date(ParamValue, CutoffDate) :-
-        getAuthorFeed_anchor(ParamValue, AnchorIso),
-        date_iso8601_days_before(2, AnchorIso, CutoffDate).
-    resolve_cutoff_date(ParamValue, CutoffDate) :-
-        \+ getAuthorFeed_anchor(ParamValue, _),
+    % Cutoff = (anchor - 2 days) when an anchor was captured on a
+    % prior page (anchor = first page's most-recent indexedAt).
+    % Falls back to (now - 2 days) when no anchor is available.
+    resolve_cutoff_date(none, CutoffDate) :-
         date_iso8601_days_ago(2, CutoffIso),
         cursor_date_prefix(CutoffIso, CutoffDate).
+    resolve_cutoff_date(AnchorIso, CutoffDate) :-
+        dif(AnchorIso, none),
+        date_iso8601_days_before(2, AnchorIso, CutoffDate).
 
     % cursor_date_prefix(+IsoChars, -DatePrefix).
     %
@@ -248,13 +244,13 @@ follow_or_finalize(NextCursor, ParamValue) :-
         length(DatePrefix, 10),
         append(DatePrefix, _, IsoChars).
 
-    continue_or_stop_at_cutoff(CursorDate, CutoffDate, NextCursor, _ParamValue) :-
+    continue_or_stop_at_cutoff(CursorDate, CutoffDate, NextCursor, _ParamValue, _Anchor) :-
         CursorDate @< CutoffDate,
         writeln([stopped_cursor_more_than_two_days_before_anchor|[NextCursor, cutoff(CutoffDate)]], true).
-    continue_or_stop_at_cutoff(CursorDate, CutoffDate, NextCursor, ParamValue) :-
+    continue_or_stop_at_cutoff(CursorDate, CutoffDate, NextCursor, ParamValue, Anchor) :-
         \+ (CursorDate @< CutoffDate),
         NextParams = actor(ParamValue)-cursor(NextCursor),
-        app__bsky__feed__getAuthorFeed(NextParams, _Props).
+        app__bsky__feed__getAuthorFeed_paginate(NextParams, Anchor, _AnchorOut, _Props).
 
 %% app__bsky__feed__getAuthorFeed(+Params, -Props).
 %
@@ -266,12 +262,16 @@ follow_or_finalize(NextCursor, ParamValue) :-
 % response and crashed the worker. The predicate now delegates
 % straight to the network call.
 app__bsky__feed__getAuthorFeed(Params, Props) :-
-    app__bsky__feed__getAuthorFeed_without_memoization(Params, Props).
+    app__bsky__feed__getAuthorFeed_paginate(Params, none, _AnchorOut, Props).
 
-        %% app__bsky__feed__getAuthorFeed_without_memoization(+Params, -Props).
-        app__bsky__feed__getAuthorFeed_without_memoization(Params, Props) :-
+%% app__bsky__feed__getAuthorFeed_without_memoization(+Params, -Props).
+app__bsky__feed__getAuthorFeed_without_memoization(Params, Props) :-
+    app__bsky__feed__getAuthorFeed_paginate(Params, none, _AnchorOut, Props).
+
+        %% app__bsky__feed__getAuthorFeed_paginate(+Params, +AnchorIn, -AnchorOut, -Props).
+        app__bsky__feed__getAuthorFeed_paginate(Params, AnchorIn, AnchorOut, Props) :-
             catch(
-                send_request(Params, Pairs, StatusCode),
+                send_request(Params, AnchorIn, AnchorOut, Pairs, StatusCode),
                 E,
                 if_(
                     E = failed_http_request(Message, Pairs, StatusCode),
