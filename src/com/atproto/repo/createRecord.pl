@@ -55,8 +55,6 @@ com__atproto__repo__createRecord_headers(ListHeaders) :-
         'Authorization'(BearerToken)
     ].
 
-:- dynamic(com__atproto__repo__createRecord_memoized/2).
-
 % send_request(+Text, -Pairs, -StatusCode).
 send_request(Text, Pairs, StatusCode) :-
     catch(
@@ -102,17 +100,6 @@ handle_create_record_send_status(StatusCode, Pairs) :-
     StatusCode \= 200,
     throw(failed_http_request('com.atproto.repo.createRecord call failed', Pairs, StatusCode)).
 
-% memoize_com__atproto__repo__createRecord_response(+Text, -Props).
-memoize_com__atproto__repo__createRecord_response(Text, Props) :-
-    catch(
-        send_request(Text, Pairs, StatusCode),
-        failed_http_request(Message, Pairs, StatusCode),
-        log_info([Message])
-    ),
-
-    handle_create_record_response_status(StatusCode, Pairs, Props),
-    assertz(com__atproto__repo__createRecord_memoized(Text, Props)).
-
 handle_create_record_response_status(StatusCode, Pairs, _) :-
     StatusCode \= 200,
     by_key("message", Pairs, ErrorMessageChars),
@@ -133,10 +120,9 @@ handle_create_record_response_status(200, Pairs, Props) :-
 
 % com__atproto__repo__createRecord(+Text, -Props).
 com__atproto__repo__createRecord(Text, Props) :-
-    once(create_record_memoized_or_compute(Text, Props)).
-
-create_record_memoized_or_compute(Text, Props) :-
-    com__atproto__repo__createRecord_memoized(Text, Props).
-create_record_memoized_or_compute(Text, Props) :-
-    \+ com__atproto__repo__createRecord_memoized(Text, Props),
-    memoize_com__atproto__repo__createRecord_response(Text, Props).
+    catch(
+        send_request(Text, Pairs, StatusCode),
+        failed_http_request(Message, Pairs, StatusCode),
+        log_info([Message])
+    ),
+    handle_create_record_response_status(StatusCode, Pairs, Props).

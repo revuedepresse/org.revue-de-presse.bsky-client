@@ -122,10 +122,10 @@ send_request(ParamValue, ResponsePairs, StatusCode) :-
         \+ http_open(Endpoint, _, Options),
         throw(failed_http_request(Endpoint, Options)).
 
-:- dynamic(app__bsky__actor__getProfile_memoized/2).
-
-%% memoize_app__bsky__actor__getProfile_memoized(+ParamValue, -Props).
-memoize_app__bsky__actor__getProfile_memoized(ParamValue, Props) :-
+%% app__bsky__actor__getProfile(+ParamValue, -Props).
+%
+% [app.bsky.actor.getProfile](https://docs.bsky.app/docs/api/app-bsky-actor-get-profile)
+app__bsky__actor__getProfile(ParamValue, Props) :-
     catch(
         send_request(ParamValue, Pairs, StatusCode),
         E,
@@ -143,17 +143,4 @@ memoize_app__bsky__actor__getProfile_memoized(ParamValue, Props) :-
         atom_chars(ErrorMessage, ErrorMessageChars),
         log_error([ErrorMessage]), fail),
         Props = Pairs
-    ),
-    assertz(app__bsky__actor__getProfile_memoized(ParamValue, Props)).
-
-%% app__bsky__actor__getProfile(+ParamValue, -Props).
-%
-% [app.bsky.actor.getProfile](https://docs.bsky.app/docs/api/app-bsky-actor-get-profile)
-app__bsky__actor__getProfile(ParamValue, Props) :-
-    once(app__bsky__actor__getProfile_memoized_or_compute(ParamValue, Props)).
-
-app__bsky__actor__getProfile_memoized_or_compute(ParamValue, Props) :-
-    app__bsky__actor__getProfile_memoized(ParamValue, Props).
-app__bsky__actor__getProfile_memoized_or_compute(ParamValue, Props) :-
-    \+ app__bsky__actor__getProfile_memoized(ParamValue, Props),
-    memoize_app__bsky__actor__getProfile_memoized(ParamValue, Props).
+    ).

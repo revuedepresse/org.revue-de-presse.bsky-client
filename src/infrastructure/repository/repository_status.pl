@@ -40,6 +40,7 @@
     log_error/1,
     log_info/1
 ]).
+:- use_module('../../clean_text', [clean_text/2]).
 :- use_module('../../os_ext', [remove_temporary_file/1]).
 :- use_module('../../serialization', [
     pairs_to_assoc/2,
@@ -220,7 +221,8 @@ insert(
     InsertedRecordId
 ) :-
     hash(handle(Handle)-uri(URI), Hash),
-    encode_field_value(PreQuotingText, Text),
+    clean_text(PreQuotingText, CleanedText),
+    encode_field_value(CleanedText, Text),
     encode_field_value(PreEncodingPayload, Payload),
     status_insert_sql(SQL),
     Params = [Hash, Handle, Handle, Text, Avatar, Payload, URI, "dummy_access_token", "true", CreatedAt],

@@ -21,7 +21,6 @@ list of supported methods (`web`, `plc`).
 :- use_module(library(dif)).
 :- use_module(library(lists)).
 :- use_module(library(si)).
-:- use_module('../../../memoize', [memoize_goal/2, memoized_goal/2]).
 :- use_module('../../../logger', [log_info/1]).
 :- use_module(has_only_ascii_chars, [has_only_ascii_chars/1]).
 :- use_module(must_be_chars, [must_be_chars/1]).

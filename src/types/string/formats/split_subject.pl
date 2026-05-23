@@ -5,10 +5,7 @@ Split a char list into labels around a separator character.
 
 Walks the input one character at a time, accumulating each
 label as a char list and emitting a labels list whenever the
-separator is hit. The arity-3 public predicate is memoized in
-`[[memoize]]`, because handle and DID validation each call
-into split for the same subject many times during a single
-request.
+separator is hit.
 */
 
 :- use_module(library(clpz)).
@@ -19,10 +16,6 @@ request.
     must_be_ascii_char/1
 ]).
 
-:- use_module('../../../memoize', [
-    memoize_goal/2,
-    memoized_goal/2
-]).
 :- use_module(must_be_ground, [must_be_ground/1]).
 :- use_module(must_be_chars, [must_be_chars/1]).
 
@@ -73,17 +66,6 @@ split_subject(Subject, Separator, LabelAcc, AccIn, AccOut) :-
 %% split_subject(+Subject, +Separator, -Labels)
 %
 % Unify `Labels` with the list of char lists obtained by
-% splitting `Subject` on `Separator`. The result is memoized
-% by `(Subject, Separator)` so repeated calls during a single
-% validation pass are O(1).
+% splitting `Subject` on `Separator`.
 split_subject(Subject, Separator, Labels) :-
-    once(split_subject_memoized_or_compute(Subject, Separator, Labels)).
-
-split_subject_memoized_or_compute(Subject, Separator, Labels) :-
-    memoized_goal(split_subject:split_subject(Subject, Separator, "", [], Labels),
-                  [Subject, Separator, "", [], Labels]).
-split_subject_memoized_or_compute(Subject, Separator, Labels) :-
-    \+ memoized_goal(split_subject:split_subject(Subject, Separator, "", [], Labels),
-                     [Subject, Separator, "", [], Labels]),
-    memoize_goal(split_subject:split_subject(Subject, Separator, "", [], Labels),
-                 [Subject, Separator, "", [], Labels]).
+    once(split_subject(Subject, Separator, "", [], Labels)).
