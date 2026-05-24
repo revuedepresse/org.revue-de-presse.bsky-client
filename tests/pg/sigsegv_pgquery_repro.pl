@@ -1,5 +1,6 @@
 :- module(sigsegv_pgquery_repro, [run/0]).
 
+:- use_module(library(crypto)).
 :- use_module(library(format)).
 :- use_module(library(lists)).
 :- use_module(library(os)).
@@ -72,7 +73,17 @@ run :-
     connect(User, Pass, Host, Port, DB, Conn),
     format("[..] connected~n", []),
 
-    Hash = "deadbeef00000000000000000000000000000000000000000000000000000000",
+    % Use crypto_data_hash like the production path does
+    % (repository_status -> client.pl:hash/2). If a hardcoded hex
+    % chars list survives but a crypto-computed hash crashes, the
+    % bug correlates with library(crypto)'s arena allocations.
+    (   getenv("USE_CRYPTO", "1")
+    ->  format("[..] computing Hash via crypto_data_hash~n", []),
+        append(["h", "|", "u"], UniqueIdentifier),
+        crypto_data_hash(UniqueIdentifier, Hash, [algorithm(sha256)])
+    ;   format("[..] using hardcoded Hash (no crypto)~n", []),
+        Hash = "deadbeef00000000000000000000000000000000000000000000000000000000"
+    ),
 
     count_sql(SelectSQL),
     format("[..] Q0: SELECT count(*) WHERE ust_hash = $1~n", []),
