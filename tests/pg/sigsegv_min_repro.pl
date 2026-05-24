@@ -1,5 +1,6 @@
 :- module(sigsegv_min_repro, [run/0]).
 
+:- use_module(library(assoc)).
 :- use_module(library(format)).
 :- use_module(library(http/http_open)).
 :- use_module(library(lists)).
@@ -45,9 +46,9 @@ env_chars_default(Name, Default, Value) :-
     (   getenv(Name, V) -> Value = V ; Value = Default ).
 
 env_bool(Name) :-
-    (   getenv(Name, "1") -> true
-    ;   getenv(Name, "true") -> true
-    ;   false ).
+    getenv(Name, Value),
+    ( Value = "1" ; Value = "true" ),
+    !.
 
 default_url("http://127.0.0.1:8080/feed.json").
 
@@ -84,7 +85,7 @@ run :-
     DisplayName = "M",
     AuthorAvatar = "https://x/a",
     CreatedAt = "2024-01-01T00:00:00.000Z",
-    list_to_assoc([], Payload),
+    empty_assoc(Payload),
 
     format("[..] Q0: exists_by_uri_t(~s, ~s, T)~n", [Handle, URI]),
     exists_by_uri_t(Handle, URI, T0),
