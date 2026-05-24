@@ -103,6 +103,11 @@ run :-
     ->  format("[..] (using repository_status:exists_by_uri_t/3 directly)~n", []),
         exists_by_uri_t("h", "u", _T0),
         R0 = '<via exists_by_uri_t>'
+    ;   getenv("USE_EXISTS_INLINE", "1")
+    ->  format("[..] (inlined exists_by_uri_t WITHOUT if_/3)~n", []),
+        append(["h", "|", "u"], InlineUID),
+        crypto_data_hash(InlineUID, InlineHash, [algorithm(sha256)]),
+        pg_query(SelectSQL, [InlineHash], R0)
     ;   getenv("USE_PROJECT_PG", "1")
     ->  format("[..] (using project pg_query/3 with bb_put cache)~n", []),
         pg_query(SelectSQL, [Hash], R0)
