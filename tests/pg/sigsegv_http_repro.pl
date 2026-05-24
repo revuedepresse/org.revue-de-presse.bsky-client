@@ -48,22 +48,27 @@ default_url("http://127.0.0.1:8080/feed.json").
 load_feed_posts_via_http(Posts) :-
     default_url(DefaultUrl),
     env_chars_default("FEED_URL", DefaultUrl, URL),
-    % Match the production option set exactly: request_headers
-    % with a User-Agent (Authorization is omitted -- localhost
-    % server doesn't check, but the option-shape is what we are
-    % testing), status_code, headers(ResponseHeaders).
-    RequestHeaders = [
-        'User-Agent'('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36')
-    ],
-    Options = [
-        method(get),
-        status_code(StatusCode),
-        request_headers(RequestHeaders),
-        headers(ResponseHeaders)
-    ],
-    format("[..] http_open ~s (with prod options)~n", [URL]),
+    % HTTP_OPTS env knob: 'prod' = match production option set
+    % (request_headers + status_code + headers); 'minimal' = empty
+    % options list. Bisect dimension to determine whether the bug
+    % needs the option allocations or just the http_open call itself.
+    env_chars_default("HTTP_OPTS", "prod", OptsMode),
+    (   OptsMode == "prod"
+    ->  RequestHeaders = [
+            'User-Agent'('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36')
+        ],
+        Options = [
+            method(get),
+            status_code(StatusCode),
+            request_headers(RequestHeaders),
+            headers(ResponseHeaders)
+        ],
+        format("[..] http_open ~s (HTTP_OPTS=prod)~n", [URL])
+    ;   Options = [],
+        format("[..] http_open ~s (HTTP_OPTS=minimal, empty options)~n", [URL])
+    ),
     http_open(URL, Stream, Options),
-    format("[..] stream opened status_code=~w headers=~q~n", [StatusCode, ResponseHeaders]),
+    format("[..] stream opened~n", []),
     read_stream(Stream, BodyChars),
     length(BodyChars, BodyLen),
     format("[..] body chars=~w~n", [BodyLen]),
