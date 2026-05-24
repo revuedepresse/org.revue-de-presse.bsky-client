@@ -136,7 +136,12 @@ run :-
     format("[..] Q1: INSERT ... ON CONFLICT DO NOTHING RETURNING~n", []),
     InsertParams = [Hash, "h", "h", "t", "https://x/a", "{}", "at://x/y",
                     "tok", "true", "2024-01-01T00:00:00Z"],
-    (   getenv("USE_PROJECT_PG", "1")
+    (   getenv("USE_REPO_INSERT", "1")
+    ->  format("[..] (using repository_status:insert/3)~n", []),
+        empty_assoc(EmptyPayload),
+        insert(row("X", "h", "t", "https://x/a", EmptyPayload, "at://x/y", "2024-01-01T00:00:00.000Z"),
+               R1, _RecordId)
+    ;   getenv("USE_PROJECT_PG", "1")
     ->  pg_query(InsertSQL, InsertParams, R1)
     ;   query(Conn, InsertSQL, InsertParams, R1)
     ),
