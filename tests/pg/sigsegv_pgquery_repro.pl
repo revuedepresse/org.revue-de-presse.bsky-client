@@ -108,6 +108,12 @@ run :-
         append(["h", "|", "u"], InlineUID),
         crypto_data_hash(InlineUID, InlineHash, [algorithm(sha256)]),
         pg_query(SelectSQL, [InlineHash], R0)
+    ;   getenv("USE_EXISTS_INLINE_IF", "1")
+    ->  format("[..] (inlined exists_by_uri_t + trailing if_/3)~n", []),
+        append(["h", "|", "u"], InlineUID2),
+        crypto_data_hash(InlineUID2, InlineHash2, [algorithm(sha256)]),
+        pg_query(SelectSQL, [InlineHash2], R0),
+        if_(0 = 0, true, true)
     ;   getenv("USE_PROJECT_PG", "1")
     ->  format("[..] (using project pg_query/3 with bb_put cache)~n", []),
         pg_query(SelectSQL, [Hash], R0)
