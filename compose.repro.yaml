@@ -1,0 +1,83 @@
+# compose.repro.yaml -- SIGSEGV reproducer environment.
+#
+# This file is kept separate from compose.yaml (the postgres-for-tests
+# stack) because the reproducer targets a real (production-similar)
+# Postgres reachable as ${DATABASE_HOST}:${DATABASE_PORT}, not the
+# test container.
+#
+# Two services:
+#
+#   segv-reproducer
+#       Runs tests/pg/run_concurrent_segv_reproducer.sh inside the
+#       debug-symbol scryer image. Coredumps are enabled via the
+#       container ulimit; the kernel's core_pattern on the host
+#       controls where they actually land (configure once with:
+#       sudo sysctl -w kernel.core_pattern='/var/dumps/core.%e.%p.%t'
+#       and bind-mount /var/dumps into the container at the same path).
+#
+#   segv-gdb
+#       Interactive shell for post-mortem analysis with gdb. Mounts
+#       the captures + the dump dir read/write. Use:
+#         docker compose -f compose.repro.yaml run --rm segv-gdb
+#         (inside) gdb /usr/local/bin/scryer-prolog /coredumps/core.<pid>
+
+x-scryer-image: &scryer-image
+  image: org.revue-de-presse.bsky.segv-reproducer:debug
+  build:
+    context: .
+    dockerfile: docker/scryer-prolog/Dockerfile.debug
+
+services:
+  segv-reproducer:
+    <<: *scryer-image
+    # network_mode: host lets the container reach database.local
+    # (typically 127.0.0.1 in /etc/hosts or an SSH tunnel) at the
+    # same address the worker uses on the host.
+    network_mode: host
+    # core=-1 ~ ulimit -c unlimited inside the container so SIGSEGV
+    # actually produces a coredump (the default is 0).
+    ulimits:
+      core: -1
+    environment:
+      DATABASE_HOST: ${DATABASE_HOST}
+      DATABASE_PORT: ${DATABASE_PORT}
+      DATABASE_USERNAME: ${DATABASE_USERNAME}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_DB_NAME: ${DATABASE_DB_NAME}
+      PARALLEL: ${PARALLEL:-3}
+      REPRODUCER_ROUNDS: ${REPRODUCER_ROUNDS:-50}
+      SCRYER_BIN: /usr/local/bin/scryer-prolog
+      RUST_BACKTRACE: full
+      # Tells the reproducer to look for cores in the host-mounted dir.
+      COREDUMP_DIR: /coredumps
+    volumes:
+      # Mount the repo so reproducer .pl files, deps/, .env.local,
+      # var/tmp/segv-investigation-pull/ are all visible.
+      - .:/workspace
+      # Bind-mount a host directory for coredumps. The path on the
+      # host must match the host's kernel.core_pattern so the kernel
+      # writes the dump to a location that's visible to the container.
+      - ${HOST_DUMP_DIR:-./var/tmp/coredumps}:/coredumps
+    working_dir: /workspace
+    command:
+      - -c
+      - |
+        set -eu
+        echo "[..] container ulimit -c = $$(ulimit -c)"
+        echo "[..] host core_pattern  = $$(cat /proc/sys/kernel/core_pattern)"
+        echo "[..] starting reproducer"
+        bash tests/pg/run_concurrent_segv_reproducer.sh
+
+  segv-gdb:
+    <<: *scryer-image
+    network_mode: none
+    ulimits:
+      core: -1
+    volumes:
+      - .:/workspace:ro
+      - ${HOST_DUMP_DIR:-./var/tmp/coredumps}:/coredumps:ro
+    working_dir: /workspace
+    # Interactive entrypoint: drops into bash with gdb available.
+    stdin_open: true
+    tty: true
+    command: ["-l"]
