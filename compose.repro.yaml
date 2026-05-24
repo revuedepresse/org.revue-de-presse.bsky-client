@@ -39,11 +39,11 @@ services:
     ulimits:
       core: -1
     environment:
-      DATABASE_HOST: ${DATABASE_HOST}
-      DATABASE_PORT: ${DATABASE_PORT}
-      DATABASE_USERNAME: ${DATABASE_USERNAME}
-      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
-      DATABASE_DB_NAME: ${DATABASE_DB_NAME}
+      DATABASE_HOST: ${DATABASE_HOST:-localhost}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-unused}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-unused}
+      DATABASE_DB_NAME: ${DATABASE_DB_NAME:-unused}
       PARALLEL: ${PARALLEL:-3}
       REPRODUCER_ROUNDS: ${REPRODUCER_ROUNDS:-50}
       SCRYER_BIN: /usr/local/bin/scryer-prolog
@@ -73,6 +73,16 @@ services:
     network_mode: none
     ulimits:
       core: -1
+    # Defaults silence compose's interpolation warnings when the
+    # service is launched without .env.local in scope (the gdb
+    # session itself does not connect to PG, but the same compose
+    # file declares the reproducer's env block).
+    environment:
+      DATABASE_HOST: ${DATABASE_HOST:-localhost}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-unused}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-unused}
+      DATABASE_DB_NAME: ${DATABASE_DB_NAME:-unused}
     volumes:
       - .:/workspace:ro
       - ${HOST_DUMP_DIR:-./var/tmp/coredumps}:/coredumps:ro
