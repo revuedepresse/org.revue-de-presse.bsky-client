@@ -2,6 +2,7 @@
 !.env.local.dist
 .env.test
 !.env.test.dist
+var/log/
 var/tmp/*
 tmp/
 doc/html/
