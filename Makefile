@@ -177,6 +177,22 @@ scryer-prolog-build: ### Sync deps/scryer-prolog to the recorded SHA and rebuild
 	@git submodule update --init --recursive deps/scryer-prolog
 	@cd deps/scryer-prolog && cargo build --release
 
+scryer-prolog-build-with-debug-symbols: ### Build scryer-prolog at the recorded SHA WITH full DWARF debug symbols (debuginfo=2). Same release optimizations + same code path as scryer-prolog-build, but the resulting binary is unstripped, so a coredump from a SIGSEGV can be analysed with gdb to resolve function names, file/line numbers, and inlined frames. Use when investigating a fresh crash captured under var/tmp/segv-investigation*/.
+	@git submodule update --init --recursive deps/scryer-prolog
+	@cd deps/scryer-prolog && RUSTFLAGS="-C debuginfo=2" cargo build --release
+
+docker-segv-reproducer-build: ### Build the Docker image (org.revue-de-presse.bsky.segv-reproducer:debug) containing scryer-prolog compiled with full DWARF debug symbols + gdb + psql client. Uses the official rust:1.85-slim-bullseye toolchain image, so no local cargo install is required -- works anywhere Docker runs, including the production host.
+	@git submodule update --init --recursive deps/scryer-prolog
+	@docker compose -f compose.repro.yaml build segv-reproducer
+
+docker-segv-reproducer-run: ### Run the concurrent SIGSEGV reproducer inside the debug-symbol container against the DB defined in .env.local. Env knobs: PARALLEL (default 3), REPRODUCER_ROUNDS (default 50), HOST_DUMP_DIR (default ./var/tmp/coredumps). Requires patched-VM captures under var/tmp/segv-investigation-pull/ or var/tmp/segv-investigation/. On a SIGSEGV the kernel writes a coredump per the host's kernel.core_pattern -- if that path is bind-mounted into the container at /coredumps the reproducer's tail summary lists it.
+	@mkdir -p "$${HOST_DUMP_DIR:-./var/tmp/coredumps}"
+	@set -a; . ./.env.local; set +a; \
+		docker compose -f compose.repro.yaml run --rm segv-reproducer
+
+docker-segv-gdb: ### Drop into an interactive gdb-equipped container for post-mortem analysis of a coredump produced by docker-segv-reproducer-run. Mounts the repo read-only and ./var/tmp/coredumps (or $$HOST_DUMP_DIR) read-only at /coredumps. Then inside: gdb /usr/local/bin/scryer-prolog /coredumps/<dump>
+	@docker compose -f compose.repro.yaml run --rm segv-gdb
+
 doc-setup: ### Clone doclog's own dependencies (teruel, djota) into deps/doclog
 	@if [ ! -f deps/doclog/Makefile ]; then \
 		echo "Initializing deps/doclog submodule"; \
