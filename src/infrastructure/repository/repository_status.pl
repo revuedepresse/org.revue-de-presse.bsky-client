@@ -378,10 +378,26 @@ psql_status_insert_sql(Hash, Handle, EncodedText, Avatar, EncodedPayload, URI, C
 interpret_psql_status_insert(no_records_found, Hash, duplicate(Hash), UstIdChars) :-
     writeln([status_duplicate_skipped|[Hash]], true),
     psql_status_lookup_by_hash_sql(Hash, LookupSQL),
-    query_result(LookupSQL, UstIdChars).
-interpret_psql_status_insert(UstIdChars, _Hash, new(UstIdChars), UstIdChars) :-
-    dif(UstIdChars, no_records_found),
+    query_result(LookupSQL, LookupResult),
+    coerce_ust_id_to_chars(LookupResult, UstIdChars).
+interpret_psql_status_insert(Result, _Hash, new(UstIdChars), UstIdChars) :-
+    dif(Result, no_records_found),
+    coerce_ust_id_to_chars(Result, UstIdChars),
     writeln([status_inserted|[UstIdChars]], true).
+
+%% coerce_ust_id_to_chars(+Result, -UstIdChars).
+%
+% `query_psql/5` auto-coerces all-digit psql output to an integer (the
+% historical pre-69f3f97 contract: number_chars/2 happens inside the
+% adapter). Wire callers, however, get `ust_id::text` as a chars list
+% from postgresql-prolog. Downstream code (popularity insert, log
+% lines, append/2-style SQL builders) treats the value as chars and
+% silently fails on an integer, which surfaces as
+% maplist_silently_failed_over_feed/1 at the worker boundary. This
+% predicate normalises both shapes back to chars so the psql path
+% matches the wire path's contract.
+coerce_ust_id_to_chars(N, Chars) :- integer(N), number_chars(N, Chars).
+coerce_ust_id_to_chars(Cs, Cs) :- \+ integer(Cs), Cs \= no_records_found.
 
 %% psql_status_lookup_by_hash_sql(+Hash, -SQL).
 psql_status_lookup_by_hash_sql(Hash, SQL) :-
