@@ -169,6 +169,29 @@ test-already-indexed-by-uri: compose-up ### Regression: onGetAuthorFeed dedup ke
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./tests/pg/already_indexed_by_uri_test.pl -g 'run_test'
 
+test-repository-inserts-psql: compose-up ### repository_inserts test under PG_BACKEND=psql (shell-out fall-back transport)
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_inserts_test.pl -g 'run_test'
+
+test-repository-publisher-psql: compose-up ### repository_publisher test under PG_BACKEND=psql
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_publisher_test.pl -g 'run_test'
+
+test-repository-list-psql: compose-up ### repository_list test under PG_BACKEND=psql
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test'
+
+test-already-indexed-by-uri-psql: compose-up ### Dedup-by-URI regression under PG_BACKEND=psql (verifies count_matching_records/2 seam)
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql scryer-prolog ./tests/pg/already_indexed_by_uri_test.pl -g 'run_test'
+
+test-clean-text-psql: compose-up ### End-to-end: clean_text/2 is applied on the psql ingest path (repository_status:insert/3)
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql scryer-prolog ./tests/pg/clean_text_psql_test.pl -g 'run_test'
+
+test-backend-default: ### pg_backend/1 falls back to "wire" when PG_BACKEND is unset
+	@unset PG_BACKEND; scryer-prolog ./tests/pg/backend_default_test.pl -g 'run_test'
+
 probe-prod-auth: ### Read-only auth probe against the DB defined in .env.local
 	@set -a; . ./.env.local; set +a; \
 	scryer-prolog ./src/infrastructure/pg/probe.pl -g 'run'

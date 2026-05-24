@@ -110,3 +110,31 @@ jobs:
 
       - name: Run repository list test
         run: scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test'
+
+      - name: Assert PG_BACKEND default (unset) is wire
+        run: scryer-prolog ./tests/pg/backend_default_test.pl -g 'run_test'
+
+      - name: Run repository inserts test (psql backend)
+        env:
+          PG_BACKEND: psql
+        run: scryer-prolog ./tests/pg/repository_inserts_test.pl -g 'run_test'
+
+      - name: Run repository publisher test (psql backend)
+        env:
+          PG_BACKEND: psql
+        run: scryer-prolog ./tests/pg/repository_publisher_test.pl -g 'run_test'
+
+      - name: Run repository list test (psql backend)
+        env:
+          PG_BACKEND: psql
+        run: scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test'
+
+      - name: Run dedup-by-URI test (psql backend)
+        env:
+          PG_BACKEND: psql
+        run: scryer-prolog ./tests/pg/already_indexed_by_uri_test.pl -g 'run_test'
+
+      - name: Run clean_text-on-psql-ingest end-to-end test
+        env:
+          PG_BACKEND: psql
+        run: scryer-prolog ./tests/pg/clean_text_psql_test.pl -g 'run_test'
