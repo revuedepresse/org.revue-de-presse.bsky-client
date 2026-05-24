@@ -11,6 +11,9 @@
     connect/6,
     query/4
 ]).
+:- use_module('../../src/infrastructure/pg/connection', [
+    pg_query/3
+]).
 
 /*
 The absolute minimum reproducer.
@@ -89,7 +92,11 @@ run :-
 
     count_sql(SelectSQL),
     format("[..] Q0: SELECT count(*) WHERE ust_hash = $1~n", []),
-    query(Conn, SelectSQL, [Hash], R0),
+    (   getenv("USE_PROJECT_PG", "1")
+    ->  format("[..] (using project pg_query/3 with bb_put cache)~n", []),
+        pg_query(SelectSQL, [Hash], R0)
+    ;   query(Conn, SelectSQL, [Hash], R0)
+    ),
     format("[..] Q0 returned ~q~n", [R0]),
 
     % Mimic encode_field_value from client.pl:83-87 between Q0 and Q1.
@@ -105,10 +112,12 @@ run :-
 
     insert_sql(InsertSQL),
     format("[..] Q1: INSERT ... ON CONFLICT DO NOTHING RETURNING~n", []),
-    query(Conn, InsertSQL,
-          [Hash, "h", "h", "t", "https://x/a", "{}", "at://x/y",
-           "tok", "true", "2024-01-01T00:00:00Z"],
-          R1),
+    InsertParams = [Hash, "h", "h", "t", "https://x/a", "{}", "at://x/y",
+                    "tok", "true", "2024-01-01T00:00:00Z"],
+    (   getenv("USE_PROJECT_PG", "1")
+    ->  pg_query(InsertSQL, InsertParams, R1)
+    ;   query(Conn, InsertSQL, InsertParams, R1)
+    ),
     format("[OK] Q1 returned ~q -- survived~n", [R1]),
     halt(0).
 
