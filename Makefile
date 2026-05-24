@@ -190,8 +190,9 @@ docker-segv-reproducer-run: ### Run the concurrent SIGSEGV reproducer inside the
 	@set -a; . ./.env.local; set +a; \
 		docker compose -f compose.repro.yaml run --rm segv-reproducer
 
-docker-segv-gdb: ### Drop into an interactive gdb-equipped container for post-mortem analysis of a coredump produced by docker-segv-reproducer-run. Mounts the repo read-only and ./var/tmp/coredumps (or $$HOST_DUMP_DIR) read-only at /coredumps. Then inside: gdb /usr/local/bin/scryer-prolog /coredumps/<dump>
-	@docker compose -f compose.repro.yaml run --rm segv-gdb
+docker-segv-gdb: ### Drop into an interactive gdb-equipped container for post-mortem analysis of a coredump produced by docker-segv-reproducer-run. Sources .env.local so DATABASE_* env vars are injected (silences compose interpolation warnings; gdb itself does not connect to PG). Mounts the repo read-only and ./var/tmp/coredumps (or $$HOST_DUMP_DIR) read-only at /coredumps. Then inside: gdb /usr/local/bin/scryer-prolog /coredumps/<dump>
+	@set -a; . ./.env.local; set +a; \
+		docker compose -f compose.repro.yaml run --rm segv-gdb
 
 doc-setup: ### Clone doclog's own dependencies (teruel, djota) into deps/doclog
 	@if [ ! -f deps/doclog/Makefile ]; then \
