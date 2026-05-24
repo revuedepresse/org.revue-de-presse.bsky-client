@@ -57,11 +57,16 @@ run :-
             ["DATABASE_HOST","DATABASE_PORT","DATABASE_USERNAME",
              "DATABASE_PASSWORD","DATABASE_DB_NAME"]),
 
-    default_url(DefaultUrl),
-    env_chars_default("FEED_URL", DefaultUrl, URL),
-
-    format("[..] http_open ~s~n", [URL]),
-    http_open(URL, Stream, []),
+    env_chars_default("SOURCE", "http", Source),
+    (   Source == "file"
+    ->  env_chars_default("FEED_FILE", "/tmp/minimal-feed.json", Path),
+        format("[..] SOURCE=file open(~s)~n", [Path]),
+        open(Path, read, Stream)
+    ;   default_url(DefaultUrl),
+        env_chars_default("FEED_URL", DefaultUrl, URL),
+        format("[..] SOURCE=http http_open(~s)~n", [URL]),
+        http_open(URL, Stream, [])
+    ),
     read_stream(Stream, BodyChars),
     length(BodyChars, BodyLen),
     format("[..] body chars=~w~n", [BodyLen]),
