@@ -2,7 +2,6 @@
 
 :- use_module(library(assoc)).
 :- use_module(library(format)).
-:- use_module(library(http/http_open)).
 :- use_module(library(lists)).
 :- use_module(library(os)).
 :- use_module(library(serialization/json)).
@@ -14,29 +13,74 @@
 ]).
 
 /*
-Absolute-minimum reproducer for the patched-VM SIGSEGV.
+The minimal reproducer for the patched-VM SIGSEGV in
+unify_constant. See doc/SIGSEGV-REPRODUCER.md for the full
+investigation report.
 
-Strips every contributing step we have not yet ruled out:
+Crash signature on stock scryer-prolog v0.10.0-186-g29839848:
 
-  PARSE=1  call phrase(json_chars(pairs(_)), Chars)  (default)
-  PARSE=0  skip parsing -- just read_stream then drop the body
-  WALK=1   pairs_to_assoc + get_assoc(feed, ...)     (default)
-  WALK=0   skip the walk
-  EXTRACT=1 insert_record_args on post 0             (default)
-  EXTRACT=0 hardcode all fields, never touch the JSON
+    #0  scryer_prolog::types::UntypedArenaPtr::get_tag
+    #1  scryer_prolog::machine::unify::Unifier::unify_constant
+    #2  scryer_prolog::machine::unify::Unifier::unify_internal
+    #3  scryer_prolog::machine::Machine::dispatch_loop
 
-Then calls Q0 (exists_by_uri_t SELECT) + Q1 (repository_status
-INSERT) with the captured-or-synthetic handle/URI. The bug
-established so far:
-  http_open + read_stream + json_chars + Q0 + Q1 + minimal JSON
-  + synthetic fields = SIGSEGV.
+Setup
+-----
+    git fetch origin && git checkout reproduce-sigsegv-issue
+    make scryer-prolog-build      (or docker-segv-reproducer-build)
+    make compose-up               (brings up the test PG)
+    PGPASSWORD=test psql -h 127.0.0.1 -p 55432 -U test \
+        -d revue_de_presse_test \
+        -c "TRUNCATE TABLE public.weaving_status RESTART IDENTITY CASCADE;"
 
-This file lets us see whether json_chars, the walk, and the
-extract are each load-bearing in the trigger, or whether only
-http_open's stream lifecycle and the Q0/Q1 pair matter.
+Run
+---
+    SOURCE=none \
+    DATABASE_HOST=127.0.0.1 DATABASE_PORT=55432 \
+    DATABASE_USERNAME=test DATABASE_PASSWORD=test \
+    DATABASE_DB_NAME=revue_de_presse_test \
+    PATH=./deps/scryer-prolog/target/release:$PATH \
+        scryer-prolog ./tests/pg/sigsegv_min_repro.pl -g run
 
-URL / DB env mirror the chain bisector.
+Expected on stock scryer
+------------------------
+    [..] SOURCE=none (no read_stream at all)
+    [..] Q0: exists_by_uri_t(min.example, at://min/post/0, T)
+    [..] Q0 returned T=false
+    [..] Q1: repository_status:insert/3
+    Segmentation fault (core dumped)
+
+Expected with the recovery patch in this branch
+-----------------------------------------------
+    [..] Q1: repository_status:insert/3
+    [KO] repository_status:insert threw: pg_query_silently_failed(...)
+    (no SIGSEGV, no coredump; exit 1)
+
+What this proves
+----------------
+The two `repository_status` predicates -- exists_by_uri_t/3 and
+insert/3 -- in sequence on the same Postgres connection deterministically
+trigger the bug. No HTTP, no JSON, no captured production data,
+no specific post content. The same two predicates replaced with
+hand-written equivalents that exercise the same primitives
+(`crypto_data_hash`, `write_term_to_chars`, `chars_utf8bytes`,
+`chars_base64`, `if_/3`, project's `pg_query/3` with cached
+connection) -- all of those combinations SURVIVE. See
+sigsegv_pgquery_repro.pl for the full bisect harness.
+
+Inputs (env)
+------------
+    SOURCE        "none" (default in this minimal form) -- skip
+                  any read_stream entirely. "http" or "file"
+                  variants are kept as counter-example knobs
+                  showing the bug doesn't need them.
+    POST_INDEX    unused in SOURCE=none mode (kept for the
+                  http/file modes' compatibility with the wider
+                  reproducer suite)
+    DATABASE_*    same set as fun.sh's configure
 */
+
+:- use_module(library(http/http_open)).
 
 env_or_die(Name) :-
     (   getenv(Name, _) -> true
@@ -76,19 +120,9 @@ run :-
         format("[..] body chars=~w~n", [BodyLen])
     ),
 
-    (   env_bool("PARSE")
-    ->  format("[..] PARSE=1, running phrase(json_chars(pairs(_)), Chars)~n", []),
-        phrase(json_chars(pairs(Pairs)), BodyChars),
-        (   env_bool("WALK")
-        ->  format("[..] WALK=1, pairs_to_assoc + get_assoc(feed)~n", []),
-            pairs_to_assoc(Pairs, Assoc),
-            get_assoc(feed, Assoc, _Posts)
-        ;   format("[..] WALK=0~n", [])
-        )
-    ;   format("[..] PARSE=0 (json_chars skipped)~n", [])
-    ),
-
-    % Hardcoded fields -- no dependency on Bluesky data.
+    % Hardcoded synthetic field values. The bug doesn't need
+    % captured production data -- proven by the data-bisect (see
+    % sigsegv_databisect_repro.pl + the SYNTH_* knobs).
     Handle = "min.example",
     URI = "at://min/post/0",
     Text = "hello",
@@ -102,11 +136,17 @@ run :-
     format("[..] Q0 returned T=~q~n", [T0]),
 
     format("[..] Q1: repository_status:insert/3~n", []),
-    repository_status:insert(
-        row(DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt),
-        StatusResult, RecordId
-    ),
-    format("[OK] survived: Q1 returned ~q record_id=~q~n", [StatusResult, RecordId]),
-    halt(0).
+    catch(
+        ( repository_status:insert(
+              row(DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt),
+              StatusResult, RecordId
+          ),
+          format("[OK] survived: Q1 returned ~q record_id=~q~n", [StatusResult, RecordId]),
+          halt(0)
+        ),
+        Err,
+        ( format("[KO] repository_status:insert threw: ~q~n", [Err]),
+          halt(1) )
+    ).
 
 :- initialization(run).
