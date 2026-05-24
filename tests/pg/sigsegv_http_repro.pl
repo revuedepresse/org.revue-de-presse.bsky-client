@@ -50,9 +50,22 @@ default_url("http://127.0.0.1:8080/feed.json").
 load_feed_posts_via_http(Posts) :-
     default_url(DefaultUrl),
     env_chars_default("FEED_URL", DefaultUrl, URL),
-    format("[..] http_open ~s~n", [URL]),
-    http_open(URL, Stream, []),
-    format("[..] stream opened, reading body~n", []),
+    % Match the production option set exactly: request_headers
+    % with a User-Agent (Authorization is omitted -- localhost
+    % server doesn't check, but the option-shape is what we are
+    % testing), status_code, headers(ResponseHeaders).
+    RequestHeaders = [
+        'User-Agent'('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36')
+    ],
+    Options = [
+        method('GET'),
+        status_code(StatusCode),
+        request_headers(RequestHeaders),
+        headers(ResponseHeaders)
+    ],
+    format("[..] http_open ~s (with prod options)~n", [URL]),
+    http_open(URL, Stream, Options),
+    format("[..] stream opened status_code=~w headers=~q~n", [StatusCode, ResponseHeaders]),
     read_stream(Stream, BodyChars),
     length(BodyChars, BodyLen),
     format("[..] body chars=~w~n", [BodyLen]),
