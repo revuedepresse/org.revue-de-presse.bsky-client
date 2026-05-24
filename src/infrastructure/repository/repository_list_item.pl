@@ -29,10 +29,14 @@
 ]).
 :- use_module('../pg/client', [
     execute/2,
+    matching_criteria/2,
+    query_result/2,
+    query_result_from_file/3,
     query_result_from_file/4,
     read_rows/2,
     value/3
 ]).
+:- use_module('../../configuration', [pg_backend/1]).
 :- use_module('../../logger', [
     log_error/1,
     log_debug/1,
@@ -71,10 +75,15 @@ event_table("member_profile_collected_event").
 
 %% count(-Count)
 %
-% Total number of rows in `weaving_user`.
+% Total number of rows in `weaving_user`. Dispatches on PG_BACKEND.
 count(Count) :-
+    pg_backend("wire"),
     count_sql(SQL),
     value(SQL, [], Count).
+count(Count) :-
+    pg_backend("psql"),
+    count_sql(SQL),
+    query_result(SQL, Count).
 
 count_sql(SQL) :-
     table(Table),
@@ -131,16 +140,63 @@ all_clauses_template(LimitClause, SQL) :-
 
 %% query(-Rows, +Headers, +Limit).
 query(Rows, Headers, Limit) :-
+    pg_backend("wire"),
     once(all_clauses(SQL, Params, Limit)),
     once(query_result_from_file(SQL, Params, Headers, TmpFile)),
     read_rows(TmpFile, Rows).
+query(Rows, _Headers, Limit) :-
+    pg_backend("psql"),
+    psql_all_clauses_sql(SQL, Limit),
+    once(query_result_from_file(SQL, true, TmpFile)),
+    read_rows(TmpFile, Rows).
+
+%% psql_all_clauses_sql(-SQL, +Limit).
+%
+% Concat form of the listing SELECT for the psql backend. Limit is
+% either the chars "ALL" or an integer that gets number_chars/2 into
+% the SQL text.
+psql_all_clauses_sql(SQL, "ALL") :-
+    psql_all_clauses_template("ALL", SQL).
+psql_all_clauses_sql(SQL, Limit) :-
+    integer_si(Limit),
+    number_chars(Limit, LimitChars),
+    psql_all_clauses_template(LimitChars, SQL).
+
+psql_all_clauses_template(LimitClause, SQL) :-
+    table(Table),
+    append(
+        [
+            "SELECT ",
+            "r.usr_id::bigint AS number__id, ",
+            "r.usr_twitter_username::text AS string__handle, ",
+            "r.usr_twitter_id::text AS string__did, ",
+            "COALESCE(r.usr_user_name::text, r.usr_twitter_username::text, ' ') AS string__username, ",
+            "COALESCE(r.usr_avatar::text, ' ') AS string__avatar, ",
+            "r.description::bytea AS string__description, ",
+            "COALESCE(r.url::text, ' ') AS string__uri, ",
+            "COALESCE(r.last_status_publication_date::text, ' ') AS string__indexed_at ",
+            "FROM public.", Table, " r ",
+            "ORDER BY r.usr_id DESC ",
+            "OFFSET 0 ",
+            "LIMIT ", LimitClause, ";"
+        ],
+        SQL
+    ).
 
 %% next_id(-NextId)
 %
-% Next available `usr_id` for `weaving_user`.
+% Next available `usr_id` for `weaving_user`. Dispatches on PG_BACKEND.
 next_id(NextId) :-
+    pg_backend("wire"),
     query_max_id_sql(SQL),
     value(SQL, [], MaxIdValue),
+    coerce_no_records(MaxIdValue, MaxId),
+    NextId #= MaxId + 1,
+    validate_id(NextId).
+next_id(NextId) :-
+    pg_backend("psql"),
+    query_max_id_sql(SQL),
+    query_result(SQL, MaxIdValue),
     coerce_no_records(MaxIdValue, MaxId),
     NextId #= MaxId + 1,
     validate_id(NextId).
@@ -168,6 +224,7 @@ query_max_id_sql(SQL) :-
 % Multi-row read of `member_profile_collected_event` for the
 % given handle, restricted to events from 2025 onward.
 event_by_screen_name(ScreenName, HeadersAndRows) :-
+    pg_backend("wire"),
     chars_si(ScreenName),
     event_by_screen_name_headers(Headers),
     event_by_screen_name_sql(SQL),
@@ -176,6 +233,31 @@ event_by_screen_name(ScreenName, HeadersAndRows) :-
     once(read_rows_or_throw_screen_name(TmpFile, Rows)),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
+event_by_screen_name(ScreenName, HeadersAndRows) :-
+    pg_backend("psql"),
+    chars_si(ScreenName),
+    event_by_screen_name_headers(Headers),
+    psql_event_by_screen_name_sql(ScreenName, SQL),
+    log_debug([SQL]),
+    once(query_result_from_file(SQL, true, TmpFile)),
+    once(read_rows_or_throw_screen_name(TmpFile, Rows)),
+    maplist(to_json(Headers), Rows, Pairs),
+    maplist(pairs_to_assoc, Pairs, HeadersAndRows).
+
+%% psql_event_by_screen_name_sql(+ScreenName, -SQL).
+%
+% Concat form of the event_by_screen_name SELECT for the psql
+% backend. ScreenName is inlined as a single-quoted SQL literal
+% (controlled identifier, same convention as the pre-69f3f97 client).
+psql_event_by_screen_name_sql(ScreenName, SQL) :-
+    event_table(EventTable),
+    append([
+        "SELECT payload AS string__payload, screen_name AS string__screen_name ",
+        "FROM public.", EventTable, " e ",
+        "WHERE e.occurred_at::date > '2024-12-31'::date ",
+        "AND e.screen_name = '", ScreenName, "' ",
+        "OFFSET 0 LIMIT ALL;"
+    ], SQL).
 
 read_rows_or_throw_screen_name(TmpFile, Rows) :- read_rows(TmpFile, Rows).
 read_rows_or_throw_screen_name(_, _) :- throw(cannot_read_rows_selected_by(screen_name)).
@@ -200,6 +282,7 @@ event_by_screen_name_sql(SQL) :-
 % Full denormalised `weaving_user` row for the given handle,
 % returned as a single-row list of header-keyed assocs.
 record_by_screen_name(ScreenName, HeadersAndRows) :-
+    pg_backend("wire"),
     chars_si(ScreenName),
     record_by_screen_name_headers(Headers),
     record_by_screen_name_sql(SQL),
@@ -208,6 +291,56 @@ record_by_screen_name(ScreenName, HeadersAndRows) :-
     once(read_rows_or_throw_screen_name(TmpFile, Rows)),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
+record_by_screen_name(ScreenName, HeadersAndRows) :-
+    pg_backend("psql"),
+    chars_si(ScreenName),
+    record_by_screen_name_headers(Headers),
+    psql_record_by_screen_name_sql(ScreenName, SQL),
+    log_debug([SQL]),
+    once(query_result_from_file(SQL, true, TmpFile)),
+    once(read_rows_or_throw_screen_name(TmpFile, Rows)),
+    maplist(to_json(Headers), Rows, Pairs),
+    maplist(pairs_to_assoc, Pairs, HeadersAndRows).
+
+%% psql_record_by_screen_name_sql(+ScreenName, -SQL).
+%
+% Concat form of the record_by_screen_name SELECT for the psql
+% backend. ScreenName is inlined as a single-quoted SQL literal
+% (controlled identifier, same convention as the pre-69f3f97 client).
+psql_record_by_screen_name_sql(ScreenName, SQL) :-
+    table(Table),
+    append([
+        "SELECT ",
+        "r.usr_id AS number__id, ",
+        "r.usr_api_key AS string__api_key, ",
+        "r.max_status_id AS number__max_status_id, ",
+        "r.min_status_id AS number__min_status_id, ",
+        "r.max_like_id AS number__max_status_id, ",
+        "r.min_like_id AS number__min_status_id, ",
+        "r.total_statuses AS number__total_statuses, ",
+        "r.total_likes AS number__total_likes, ",
+        "r.description AS string__id, ",
+        "r.url AS string__url, ",
+        "r.last_status_publication_date AS string__last_status_publication_date, ",
+        "r.total_subscribees AS number__total_subscribees, ",
+        "r.total_subscriptions AS number__total_subscriptions, ",
+        "r.usr_twitter_id AS string__twitter_id, ",
+        "r.usr_twitter_username AS string__twitter_username, ",
+        "r.usr_avatar AS string__avatar, ",
+        "r.usr_full_name AS string__full_name, ",
+        "r.usr_status AS boolean__status, ",
+        "r.usr_user_name AS string__user_name, ",
+        "r.usr_username_canonical AS string__user_name_canonical, ",
+        "r.usr_email AS string__email, ",
+        "r.usr_email_canonical AS string__email_canonical, ",
+        "r.protected AS boolean__protected, ",
+        "r.suspended AS boolean__suspended, ",
+        "r.not_found AS boolean__not_found, ",
+        "r.usr_position_in_hierarchy AS number__position_in_hierarchy ",
+        "FROM public.", Table, " r ",
+        "WHERE r.usr_twitter_username = '", ScreenName, "' ",
+        "OFFSET 0 LIMIT ALL;"
+    ], SQL).
 
 record_by_screen_name_headers([
     "number__id",
@@ -287,14 +420,58 @@ insert(row(ScreenName, Payload), InsertionResult) :-
     ).
 
 insert_new_event(ScreenName, Payload, ok) :-
+    pg_backend("wire"),
     uuidv4_string(NextId),
     insert_event_sql(SQL),
     execute(SQL, [NextId, ScreenName, Payload]).
+insert_new_event(ScreenName, Payload, ok) :-
+    pg_backend("psql"),
+    uuidv4_string(NextId),
+    psql_insert_event_sql(NextId, ScreenName, Payload, SQL),
+    query_result(SQL, _Result).
+
+%% psql_insert_event_sql(+NextId, +ScreenName, +Payload, -SQL).
+%
+% Concat form of the event INSERT for the psql backend. Identifiers
+% (NextId, ScreenName, Payload) are inlined as single-quoted SQL
+% literals - same convention as the pre-69f3f97 client.
+psql_insert_event_sql(NextId, ScreenName, Payload, SQL) :-
+    event_table(EventTable),
+    append(
+        [
+            "INSERT INTO public.", EventTable, " (",
+            "id, screen_name, payload, occurred_at, started_at, ended_at",
+            ") VALUES (",
+            "'", NextId, "', ",
+            "'", ScreenName, "', ",
+            "'", Payload, "', ",
+            "NOW(), NOW(), NOW()",
+            ");"
+        ],
+        SQL
+    ).
 
 report_existing_event(ScreenName, ok) :-
+    pg_backend("wire"),
     select_event_payload_sql(SelectSQL),
     value(SelectSQL, [ScreenName], SelectionResult),
     log_existing_event_payload(SelectionResult).
+report_existing_event(ScreenName, ok) :-
+    pg_backend("psql"),
+    psql_select_event_payload_sql(ScreenName, SelectSQL),
+    query_result(SelectSQL, SelectionResult),
+    log_existing_event_payload(SelectionResult).
+
+psql_select_event_payload_sql(ScreenName, SQL) :-
+    event_table(EventTable),
+    append(
+        [
+            "SELECT e.payload AS payload ",
+            "FROM public.", EventTable, " e ",
+            "WHERE e.screen_name::text = '", ScreenName, "';"
+        ],
+        SQL
+    ).
 
 log_existing_event_payload(no_records_found) :-
     log_debug([no_existing_event_payload]).
@@ -330,10 +507,23 @@ select_event_payload_sql(SQL) :-
         SQL
     ).
 
-%% count_matching_events(+ScreenName, -Result).
+%% count_matching_events(+ScreenName, -Result). Dispatches on PG_BACKEND.
 count_matching_events(ScreenName, Result) :-
+    pg_backend("wire"),
     count_matching_events_sql(SQL),
     value(SQL, [ScreenName], Result).
+count_matching_events(ScreenName, Result) :-
+    pg_backend("psql"),
+    psql_count_matching_events_sql(ScreenName, SQL),
+    query_result(SQL, Result).
+
+psql_count_matching_events_sql(ScreenName, SQL) :-
+    event_table(EventTable),
+    append([
+        "SELECT count(*) how_many_records ",
+        "FROM public.", EventTable, " t ",
+        "WHERE t.screen_name::text = '", ScreenName, "';"
+    ], SQL).
 
 count_matching_events_sql(SQL) :-
     event_table(EventTable),
@@ -372,6 +562,7 @@ insert_record(
     ).
 
 insert_new_record(Avatar, Description, Did, Handle, DisplayName, ok) :-
+    pg_backend("wire"),
     next_id(NextId),
     write_term(next_id: NextId, [double_quotes(true)]), nl,
     number_chars(NextId, NextIdChars),
@@ -397,11 +588,99 @@ insert_new_record(Avatar, Description, Did, Handle, DisplayName, ok) :-
         throw(cannot_insert_record_into_database(E))
     ),
     write_term(record_insertion_result(ok), [double_quotes(true)]), nl.
+insert_new_record(Avatar, Description, Did, Handle, DisplayName, ok) :-
+    pg_backend("psql"),
+    next_id(NextId),
+    write_term(next_id: NextId, [double_quotes(true)]), nl,
+    number_chars(NextId, NextIdChars),
+    clean_text(DisplayName, CleanedDisplayName),
+    clean_text(Description, CleanedDescription),
+    encode_field_value(CleanedDisplayName, EncodedDisplayName),
+    encode_field_value(CleanedDescription, EncodedDescription),
+    psql_insert_record_sql(
+        NextIdChars,
+        EncodedDescription,
+        Handle,
+        Did,
+        Avatar,
+        EncodedDisplayName,
+        SQL
+    ),
+    catch(
+        query_result(SQL, _Result),
+        E,
+        throw(cannot_insert_record_into_database(E))
+    ),
+    write_term(record_insertion_result(ok), [double_quotes(true)]), nl.
+
+%% psql_insert_record_sql(+NextIdChars, +EncodedDescription, +Handle,
+%%                        +Did, +Avatar, +EncodedDisplayName, -SQL).
+%
+% Concat form of the weaving_user INSERT for the psql backend.
+% EncodedDescription and EncodedDisplayName arrive base64-encoded
+% from encode_field_value/2; the other identifiers (Handle, Did,
+% Avatar, NextIdChars) are inlined as single-quoted SQL literals,
+% same convention as the pre-69f3f97 client.
+psql_insert_record_sql(
+    NextIdChars,
+    EncodedDescription,
+    Handle,
+    Did,
+    Avatar,
+    EncodedDisplayName,
+    SQL
+) :-
+    table(Table),
+    append(
+        [
+            "INSERT INTO public.", Table, " (",
+            "usr_id, usr_api_key, max_status_id, min_status_id, ",
+            "max_like_id, min_like_id, total_statuses, total_likes, ",
+            "description, url, last_status_publication_date, ",
+            "total_subscribees, total_subscriptions, ",
+            "usr_twitter_id, usr_twitter_username, usr_avatar, ",
+            "usr_full_name, usr_status, usr_user_name, ",
+            "usr_username_canonical, usr_email, usr_email_canonical, ",
+            "protected, suspended, not_found, usr_position_in_hierarchy",
+            ") VALUES (",
+            NextIdChars, ", NULL, NULL, NULL, ",
+            "NULL, NULL, 0, 0, ",
+            "'", EncodedDescription, "', ",
+            "'", Handle, "', NULL, ",
+            "0, 0, ",
+            "'", Did, "', ",
+            "'", Handle, "', ",
+            "'", Avatar, "', ",
+            "'", EncodedDisplayName, "', false, ",
+            "'", Handle, "', ",
+            "'", Handle, "', '', '', ",
+            "false, false, false, 1",
+            ");"
+        ],
+        SQL
+    ).
 
 report_existing_record(Handle, ok) :-
+    pg_backend("wire"),
     select_record_id_sql(SelectSQL),
     value(SelectSQL, [Handle], SelectionResult),
     write_term(selection:SelectionResult, [double_quotes(true)]).
+report_existing_record(Handle, ok) :-
+    pg_backend("psql"),
+    psql_select_record_id_sql(Handle, SelectSQL),
+    query_result(SelectSQL, SelectionResult),
+    write_term(selection:SelectionResult, [double_quotes(true)]).
+
+psql_select_record_id_sql(Handle, SQL) :-
+    table(Table),
+    append(
+        [
+            "SELECT r.usr_id AS identifier ",
+            "FROM public.", Table, " r ",
+            "WHERE r.usr_twitter_username::text = '", Handle, "';"
+        ],
+        SQL
+    ).
 
 insert_record_sql(SQL) :-
     table(Table),
@@ -441,10 +720,23 @@ select_record_id_sql(SQL) :-
         SQL
     ).
 
-%% count_matching_records(+Handle, -Result).
+%% count_matching_records(+Handle, -Result). Dispatches on PG_BACKEND.
 count_matching_records(Handle, Result) :-
+    pg_backend("wire"),
     count_matching_records_sql(SQL),
     value(SQL, [Handle], Result).
+count_matching_records(Handle, Result) :-
+    pg_backend("psql"),
+    psql_count_matching_records_sql(Handle, SQL),
+    query_result(SQL, Result).
+
+psql_count_matching_records_sql(Handle, SQL) :-
+    table(Table),
+    append([
+        "SELECT count(*) how_many_records ",
+        "FROM public.", Table, " r ",
+        "WHERE r.usr_user_name::text = '", Handle, "';"
+    ], SQL).
 
 count_matching_records_sql(SQL) :-
     table(Table),
