@@ -1,7 +1,6 @@
 :- module(sigsegv_pgquery_repro, [run/0]).
 
 :- use_module(library(assoc)).
-:- use_module(library(base64)).
 :- use_module(library(charsio)).
 :- use_module(library(crypto)).
 :- use_module(library(format)).
