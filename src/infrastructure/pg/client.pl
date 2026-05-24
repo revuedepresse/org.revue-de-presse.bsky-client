@@ -1,4 +1,5 @@
 :- module(client, [
+    %% wire-era (current)
     encode_field_value/2,
     execute/2,
     hash/2,
@@ -7,21 +8,29 @@
     read_rows/2,
     query_result_from_file/4,
     record_pg_query_failure/3,
-    value/3
+    value/3,
+
+    %% psql-era (resurrected for PG_BACKEND=psql fall-back)
+    matching_criteria/2,
+    query_result/2,
+    query_result_from_file/3
 ]).
 
 /**
-Bind-parameter Postgres client over the wire-protocol connection.
+Postgres client carrying both API surfaces.
 
-Every repository module talks to Postgres through the four
-public verbs here: `execute/2` for INSERT/UPDATE/DELETE
-without RETURNING, `value/3` for single-cell SELECTs and
-`RETURNING` clauses, `query_result_from_file/4` for multi-row
-SELECTs streamed through a pipe-delimited tempfile, and
-`matching_criteria/4` for multi-row SELECTs that fold each
-row into a typed assoc. SQL placeholders use the extended
-protocol's `$1`, `$2`, … form; no caller-controlled value is
-ever concatenated into the SQL text.
+Wire-era (current, default): `execute/2`, `value/3`,
+`query_result_from_file/4`, `matching_criteria/4`. Bind
+parameters via `$1, $2, …` over `connection.pl`.
+
+Psql-era (resurrected, fall-back): `query_result/2`,
+`query_result_from_file/3`, `matching_criteria/2`. SQL is
+built by concatenation using `encode_field_value/2`; the
+shell-out runs `psql(1)` with `PGPASSWORD` set in-line.
+
+Repository predicates select between the two API surfaces by
+gating their clauses with `configuration:pg_backend/1`. See
+`doc/specs/2026-05-24-pg-backend-switch-design.md`.
 */
 
 :- use_module(library(charsio)).
@@ -31,6 +40,7 @@ ever concatenated into the SQL text.
 :- use_module(library(files)).
 :- use_module(library(pio)).
 :- use_module(library(dif)).
+:- use_module(library(os)).
 :- use_module(library(reif)).
 :- use_module(library(si)).
 :- use_module(library(time)).
@@ -38,6 +48,13 @@ ever concatenated into the SQL text.
 :- use_module('../repository/repository_dcgs', [
     rows//1,
     to_json/3
+]).
+:- use_module('../../configuration', [
+    database_db_name/1,
+    database_host/1,
+    database_password/1,
+    database_port/1,
+    database_username/1
 ]).
 :- use_module('../../logger', [
     log_debug/1,
@@ -259,3 +276,152 @@ parse_dcg_or_throw(_, Chars, Rows) :- phrase(rows(Rows), Chars).
 parse_dcg_or_throw(TmpFile, Chars, _) :-
     \+ phrase(rows(_), Chars),
     throw(cannot_phrase_stream_from(TmpFile)).
+
+
+%% ----------------------------------------------------------------------
+%% PSQL-ERA API
+%%
+%% Resurrected from the pre-69f3f97 client.pl (last seen at 77bcc36).
+%% Reached only when PG_BACKEND=psql is set; otherwise the wire-era
+%% API above is used. Output format upgraded from `--csv` (comma) to
+%% `-A --field-separator='|'` (pipe) to match the existing
+%% repository_dcgs:rows//1 DCG.
+
+%% is_digit_psql(+Char).
+%
+% Local digit test for the psql query/5 result-adapter; named to
+% avoid clashing with anything in the wire path.
+is_digit_psql(Char) :-
+    char_type(Char, numeric).
+
+%% query_result(+Query, -Result).
+%
+% Psql-era single-statement runner. Adapts the file contents to the
+% legacy contract: integer | chars | no_records_found | ok.
+query_result(Query, Result) :-
+    RemoveResultFile = true,
+    query_psql(Query, RemoveResultFile, true, _TempFile, Result).
+
+%% query_result_from_file(+Query, +TuplesOnly, -TempFile).
+%
+% Psql-era multi-row reader. Writes the rows to TempFile and leaves
+% the file behind for the caller to feed into read_rows/2.
+query_result_from_file(Query, TuplesOnly, TempFile) :-
+    RemoveResultFile = false,
+    query_psql(Query, RemoveResultFile, TuplesOnly, TempFile, _Result).
+
+%% query_psql(+Query, +RemoveResultFile, +TuplesOnly, -TempFile, -Result).
+%
+% The shell pipeline lifted from the pre-69f3f97 client. Two
+% deliberate changes from the historical version:
+%   - `--csv` replaced by `-A --field-separator='|' --pset 'null='
+%     --pset 'footer=off'` so output matches the pipe-delimited
+%     format the current repository_dcgs:rows//1 DCG parses.
+%   - sed pipeline is kept verbatim; it removes the leading/trailing
+%     quotes and embedded backslashes that `write_term` adds when
+%     materialising the query to a file.
+query_psql(Query, RemoveResultFile, TuplesOnly, TempFile, Result) :-
+    database_db_name(DbName),
+    database_username(Username),
+    database_port(Port),
+    database_password(Password),
+    database_host(Host),
+
+    temporary_file("query_before_execution", QueryFile),
+    once(open(QueryFile, write, QueryFileStream, [type(text)])),
+    write_term(QueryFileStream, Query, [double_quotes(true)]),
+    close(QueryFileStream),
+
+    char_code(AntiSlash, 92),
+    char_code(DoubleQuote, 34),
+    temporary_file("query", TempFile),
+
+    writeln(creating_temporary_file(TempFile)-for_query(Query)-tuples_only(TuplesOnly)),
+
+    if_(
+        TuplesOnly = true,
+        TuplesOnlyOption = "--tuples-only ",
+        TuplesOnlyOption = ""
+    ),
+
+    append(
+        [
+            "psql ",
+            TuplesOnlyOption,
+            "--dbname='", DbName, "' ",
+            "--host='", Host, "' ",
+            "--no-align ",
+            "--field-separator='|' ",
+            "--pset 'null=' ",
+            "--pset 'footer=off' ",
+            "--no-readline ",
+            "--output='", TempFile, "' ",
+            "--port='", Port, "' ",
+            "--quiet ",
+            "--set ON_ERROR_STOP=1 ",
+            "--username='", Username, "' "
+        ],
+        CommandSuffix
+    ),
+
+    (   append([
+            [AntiSlash], "cat ", QueryFile, " | ",
+            "sed -E 's#^", [DoubleQuote], "##g' | ",
+            "sed -E 's#", [AntiSlash], [AntiSlash], "##g' | ",
+            "sed -E 's#", [DoubleQuote], "$##g' | ",
+            "PGPASSWORD='", Password, "' ",
+            CommandSuffix
+        ], QueryCommand)
+    ->  true
+    ;   throw(cannot_execute_sql_query) ),
+
+    shell(QueryCommand, QueryExecutionStatus),
+
+    (   QueryExecutionStatus \= 0
+    ->  write_term(cmd:CommandSuffix, [quoted(false),double_quotes(true)]),
+        throw(unexpected_command_exit_code('Failed to execute query'))
+    ;   remove_temporary_file(QueryFile) ),
+
+    open(TempFile, read, ReadStream, [type(text)]),
+    read_stream(ReadStream, ReadResult),
+
+    char_code(Eol, 10),
+    (   append([IntermediateResult, [Eol]], ReadResult)
+    ->  true
+    ;   IntermediateResult = ReadResult ),
+
+    if_(
+        dif(IntermediateResult, []),
+        (   maplist(is_digit_psql, IntermediateResult)
+        ->  number_chars(Result, IntermediateResult)
+        ;   Result = IntermediateResult ),
+        Result = no_records_found
+    ),
+
+    if_(
+        RemoveResultFile = true,
+        remove_temporary_file(TempFile),
+        true
+    ).
+
+%% matching_criteria(+Criteria, -HeadersAndRows).
+%
+% Psql-era two-pass selector. First reads the column headers via
+% `LIMIT 0`, then re-runs the same criteria with `LIMIT ALL` in
+% tuples-only mode. Rows are folded into typed-key assocs using the
+% `repository_dcgs:to_json/3` schema.
+matching_criteria(Criteria, HeadersAndRows) :-
+    append([Criteria, "LIMIT 0;"], QueryHeaders),
+    once(query_result_from_file(QueryHeaders, false, HeadersOnlyTempFile)),
+    read_rows(HeadersOnlyTempFile, HeadersRows),
+    nth0(0, HeadersRows, Headers),
+
+    append([Criteria, "LIMIT ALL;"], CriteriaWithoutLimit),
+    writeln(selection_query(CriteriaWithoutLimit)),
+    once(query_result_from_file(CriteriaWithoutLimit, true, ByCriteriaTemporaryFile)),
+    (   read_rows(ByCriteriaTemporaryFile, Rows)
+    ->  true
+    ;   throw(cannot_read_rows_selection) ),
+
+    maplist(to_json(Headers), Rows, Pairs),
+    maplist(pairs_to_assoc, Pairs, HeadersAndRows).
