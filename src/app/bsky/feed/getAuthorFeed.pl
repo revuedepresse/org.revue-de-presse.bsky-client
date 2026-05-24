@@ -1,6 +1,5 @@
 :- module('getAuthorFeed', [
     app__bsky__feed__getAuthorFeed/2,
-    app__bsky__feed__getAuthorFeed_without_memoization/2,
     report_iteration_failure/1
 ]).
 
@@ -192,9 +191,9 @@ iterate_or_report_failure(_NextCursor, HowManyPostsInFeed, _Feed, _Indices, _Par
 
 % Fallback for the maplist-over-feed path: log the count then
 % propagate a labelled exception so the caller's catch in
-% app__bsky__feed__getAuthorFeed_without_memoization/2 surfaces
-% the silent maplist failure as a real error instead of letting
-% the worker move on as if the page processed cleanly.
+% app__bsky__feed__getAuthorFeed/2 surfaces the silent maplist
+% failure as a real error instead of letting the worker move on
+% as if the page processed cleanly.
 report_iteration_failure(HowManyPostsInFeed) :-
     writeln([onGetAuthorFeed_failed_with_posts_count|HowManyPostsInFeed], true),
     throw(maplist_silently_failed_over_feed(HowManyPostsInFeed)).
@@ -262,10 +261,6 @@ follow_or_finalize(NextCursor, ParamValue, Anchor) :-
 % response and crashed the worker. The predicate now delegates
 % straight to the network call.
 app__bsky__feed__getAuthorFeed(Params, Props) :-
-    app__bsky__feed__getAuthorFeed_paginate(Params, none, _AnchorOut, Props).
-
-%% app__bsky__feed__getAuthorFeed_without_memoization(+Params, -Props).
-app__bsky__feed__getAuthorFeed_without_memoization(Params, Props) :-
     app__bsky__feed__getAuthorFeed_paginate(Params, none, _AnchorOut, Props).
 
         %% app__bsky__feed__getAuthorFeed_paginate(+Params, +AnchorIn, -AnchorOut, -Props).
