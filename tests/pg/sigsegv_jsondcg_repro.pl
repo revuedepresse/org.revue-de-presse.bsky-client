@@ -72,11 +72,24 @@ load_feed_posts_via_jsondcg(Posts) :-
     read_stream(Stream, BodyChars),
     length(BodyChars, BodyLen),
     format("[..] body chars=~w~n", [BodyLen]),
+    BodyChars = [A,B,C,D,E|_],
+    format("[..] first 5 chars: ~q ~q ~q ~q ~q~n", [A,B,C,D,E]),
     format("[..] parsing via phrase(json_chars(pairs(_)), Chars) -- the production path~n", []),
-    phrase(json_chars(pairs(ResponsePairs)), BodyChars),
-    format("[..] JSON-DCG parse succeeded~n", []),
-    pairs_to_assoc(ResponsePairs, FeedAssoc),
-    get_assoc(feed, FeedAssoc, Posts).
+    (   phrase(json_chars(pairs(ResponsePairs)), BodyChars)
+    ->  format("[..] JSON-DCG parse succeeded~n", [])
+    ;   format("[KO] phrase(json_chars(pairs(_)), Chars) FAILED on ~w chars~n", [BodyLen]),
+        halt(4)
+    ),
+    (   pairs_to_assoc(ResponsePairs, FeedAssoc)
+    ->  format("[..] pairs_to_assoc succeeded~n", [])
+    ;   format("[KO] pairs_to_assoc FAILED~n", []),
+        halt(5)
+    ),
+    (   get_assoc(feed, FeedAssoc, Posts)
+    ->  format("[..] get_assoc(feed, ...) succeeded~n", [])
+    ;   format("[KO] get_assoc(feed, ...) FAILED~n", []),
+        halt(6)
+    ).
 
 post_at_index(Posts, IndexChars, Index, Post) :-
     number_chars(Index, IndexChars),
