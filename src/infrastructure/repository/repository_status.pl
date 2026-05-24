@@ -339,9 +339,11 @@ insert(
 % Concatenated INSERT for the psql backend. Hash, Handle, Avatar, URI,
 % CreatedAt are inlined as single-quoted SQL literals (controlled
 % identifiers / timestamps). EncodedText and EncodedPayload are
-% base64-encoded by encode_field_value/2 upstream; the SQL wraps each
-% in `decode('<base64>', 'base64')::text` so Postgres restores the
-% original UTF-8 text at insert time without per-quote escaping.
+% base64-encoded by encode_field_value/2 upstream and inlined as
+% plain single-quoted literals; the base64 alphabet (A-Za-z0-9+/=)
+% contains no quote, so it cannot break out of the literal. The
+% wire path stores the same base64 bytes via bind parameters, and
+% downstream consumers decode with `decode(ust_text, 'base64')`.
 % Same ON CONFLICT (ust_hash) DO NOTHING RETURNING ust_id::text shape
 % as the wire path.
 psql_status_insert_sql(Hash, Handle, EncodedText, Avatar, EncodedPayload, URI, CreatedAt, SQL) :-
@@ -355,9 +357,9 @@ psql_status_insert_sql(Hash, Handle, EncodedText, Avatar, EncodedPayload, URI, C
             "'", Hash, "', ",
             "'", Handle, "', ",
             "'", Handle, "', ",
-            "decode('", EncodedText, "', 'base64')::text, ",
+            "'", EncodedText, "', ",
             "'", Avatar, "', ",
-            "decode('", EncodedPayload, "', 'base64')::text, ",
+            "'", EncodedPayload, "', ",
             "'", URI, "', ",
             "'dummy_access_token', ",
             "true, ",
