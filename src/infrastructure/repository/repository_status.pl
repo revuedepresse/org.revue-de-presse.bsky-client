@@ -30,12 +30,16 @@
 :- use_module('../pg/client', [
     encode_field_value/2,
     hash/2,
+    matching_criteria/2,
     matching_criteria/4,
+    query_result/2,
+    query_result_from_file/3,
     query_result_from_file/4,
     read_rows/2,
     value/3
 ]).
 :- use_module('../pg/connection', [pg_query/3]).
+:- use_module('../../configuration', [pg_backend/1]).
 :- use_module('../../logger', [
     log_debug/1,
     log_error/1,
@@ -69,10 +73,15 @@ table("weaving_status").
 
 %% count(-Count)
 %
-% Total number of rows in `weaving_status`.
+% Total number of rows in `weaving_status`. Dispatches on PG_BACKEND.
 count(Count) :-
+    pg_backend("wire"),
     count_sql(SQL),
     value(SQL, [], Count).
+count(Count) :-
+    pg_backend("psql"),
+    count_sql(SQL),
+    query_result(SQL, Count).
 
 count_sql(SQL) :-
     table(Table),
@@ -121,19 +130,64 @@ all_clauses_template(LimitClause, SQL) :-
         SQL
     ).
 
-%% query(-Rows, +Headers, +Limit).
+%% query(-Rows, +Headers, +Limit). Dispatches on PG_BACKEND.
 query(Rows, Headers, Limit) :-
+    pg_backend("wire"),
     once(all_clauses(SQL, Params, Limit)),
     writeln(query:SQL, true),
     once(query_result_from_file(SQL, Params, Headers, TmpFile)),
     read_rows(TmpFile, Rows).
+query(Rows, _Headers, Limit) :-
+    pg_backend("psql"),
+    psql_all_clauses_sql(SQL, Limit),
+    writeln(query:SQL, true),
+    once(query_result_from_file(SQL, true, TmpFile)),
+    read_rows(TmpFile, Rows).
+
+%% psql_all_clauses_sql(-SQL, +Limit).
+%
+% Concat form of the listing SELECT for the psql backend. Limit is
+% either the chars "ALL" or an integer that gets number_chars/2 into
+% the SQL text.
+psql_all_clauses_sql(SQL, "ALL") :-
+    psql_all_clauses_template("ALL", SQL).
+psql_all_clauses_sql(SQL, Limit) :-
+    integer_si(Limit),
+    number_chars(Limit, LimitChars),
+    psql_all_clauses_template(LimitChars, SQL).
+
+psql_all_clauses_template(LimitClause, SQL) :-
+    table(Table),
+    append(
+        [
+            "SELECT ",
+            "r.ust_id::bigint AS number__id, ",
+            "r.ust_full_name AS string__full_name, ",
+            "r.ust_avatar AS string__avatar, ",
+            "r.ust_status_id AS string__status_id, ",
+            "to_json(r.is_published) AS boolean__is_published ",
+            "FROM public.", Table, " r ",
+            "ORDER BY ust_id DESC ",
+            "OFFSET 0 ",
+            "LIMIT ", LimitClause, ";"
+        ],
+        SQL
+    ).
 
 %% next_id(-NextId)
 %
-% Next available `ust_id` for `weaving_status`.
+% Next available `ust_id` for `weaving_status`. Dispatches on PG_BACKEND.
 next_id(NextId) :-
+    pg_backend("wire"),
     query_max_id_sql(SQL),
     value(SQL, [], MaxIdValue),
+    coerce_no_records(MaxIdValue, MaxId),
+    NextId #= MaxId + 1,
+    validate_id(NextId).
+next_id(NextId) :-
+    pg_backend("psql"),
+    query_max_id_sql(SQL),
+    query_result(SQL, MaxIdValue),
     coerce_no_records(MaxIdValue, MaxId),
     NextId #= MaxId + 1,
     validate_id(NextId).
@@ -159,13 +213,40 @@ query_max_id_sql(SQL) :-
 %% by_criteria(+Criteria, -HeadersAndRows)
 %
 % Look up `weaving_status` rows whose `ust_hash` matches the
-% `handle(_)-uri(_)` criterion as header-keyed assocs.
+% `handle(_)-uri(_)` criterion as header-keyed assocs. Dispatches on
+% PG_BACKEND.
 by_criteria(handle(Handle)-uri(URI), HeadersAndRows) :-
+    pg_backend("wire"),
     log_if_invalid_unique_identifier(Handle, URI),
     hash(handle(Handle)-uri(URI), Hash),
     by_criteria_headers(Headers),
     by_criteria_sql(SQL),
     matching_criteria(SQL, [Hash], Headers, HeadersAndRows).
+by_criteria(handle(Handle)-uri(URI), HeadersAndRows) :-
+    pg_backend("psql"),
+    log_if_invalid_unique_identifier(Handle, URI),
+    hash(handle(Handle)-uri(URI), Hash),
+    psql_by_criteria_sql(Hash, SQL),
+    matching_criteria(SQL, HeadersAndRows).
+
+%% psql_by_criteria_sql(+Hash, -SQL).
+%
+% Concat form: Hash is inlined as a single-quoted SQL literal. The
+% trailing semicolon is omitted because matching_criteria/2 appends
+% "LIMIT 0;" then "LIMIT ALL;" in its two-pass header/rows shape.
+psql_by_criteria_sql(Hash, SQL) :-
+    table(Table),
+    append([
+        "SELECT ",
+        "r.ust_id::bigint AS number__id, ",
+        "r.ust_full_name AS string__full_name, ",
+        "r.ust_avatar AS string__avatar, ",
+        "r.ust_status_id AS string__status_id, ",
+        "to_json(r.is_published) AS boolean__is_published ",
+        "FROM public.", Table, " r ",
+        "WHERE r.ust_hash = '", Hash, "' ",
+        "OFFSET 0 "
+    ], SQL).
 
 log_if_invalid_unique_identifier(Handle, URI) :-
     catch(
@@ -221,6 +302,7 @@ insert(
     InsertionResult,
     InsertedRecordId
 ) :-
+    pg_backend("wire"),
     hash(handle(Handle)-uri(URI), Hash),
     clean_text(PreQuotingText, CleanedText),
     encode_field_value(CleanedText, Text),
@@ -229,6 +311,85 @@ insert(
     Params = [Hash, Handle, Handle, Text, Avatar, Payload, URI, "dummy_access_token", "true", CreatedAt],
     pg_query(SQL, Params, Reply),
     interpret_status_insert(Reply, Hash, InsertionResult, InsertedRecordId).
+insert(
+    row(
+        _FullName,
+        Handle,
+        PreQuotingText,
+        Avatar,
+        PreEncodingPayload,
+        URI,
+        CreatedAt
+    ),
+    InsertionResult,
+    InsertedRecordId
+) :-
+    pg_backend("psql"),
+    hash(handle(Handle)-uri(URI), Hash),
+    clean_text(PreQuotingText, CleanedText),
+    encode_field_value(CleanedText, Text),
+    encode_field_value(PreEncodingPayload, Payload),
+    psql_status_insert_sql(Hash, Handle, Text, Avatar, Payload, URI, CreatedAt, SQL),
+    query_result(SQL, Result),
+    interpret_psql_status_insert(Result, Hash, InsertionResult, InsertedRecordId).
+
+%% psql_status_insert_sql(+Hash, +Handle, +EncodedText, +Avatar,
+%%                       +EncodedPayload, +URI, +CreatedAt, -SQL).
+%
+% Concatenated INSERT for the psql backend. Hash, Handle, Avatar, URI,
+% CreatedAt are inlined as single-quoted SQL literals (controlled
+% identifiers / timestamps). EncodedText and EncodedPayload are
+% base64-encoded by encode_field_value/2 upstream; the SQL wraps each
+% in `decode('<base64>', 'base64')::text` so Postgres restores the
+% original UTF-8 text at insert time without per-quote escaping.
+% Same ON CONFLICT (ust_hash) DO NOTHING RETURNING ust_id::text shape
+% as the wire path.
+psql_status_insert_sql(Hash, Handle, EncodedText, Avatar, EncodedPayload, URI, CreatedAt, SQL) :-
+    table(Table),
+    append(
+        [
+            "INSERT INTO public.", Table, " (",
+            "ust_hash, ust_name, ust_full_name, ust_text, ust_avatar, ",
+            "ust_api_document, ust_status_id, ust_access_token, is_published, ust_created_at",
+            ") VALUES (",
+            "'", Hash, "', ",
+            "'", Handle, "', ",
+            "'", Handle, "', ",
+            "decode('", EncodedText, "', 'base64')::text, ",
+            "'", Avatar, "', ",
+            "decode('", EncodedPayload, "', 'base64')::text, ",
+            "'", URI, "', ",
+            "'dummy_access_token', ",
+            "true, ",
+            "'", CreatedAt, "'",
+            ") ",
+            "ON CONFLICT (ust_hash) DO NOTHING ",
+            "RETURNING ust_id::text;"
+        ],
+        SQL
+    ).
+
+%% interpret_psql_status_insert(+Result, +Hash, -InsertionResult, -InsertedRecordId).
+%
+% Adapts the psql query_result/2 contract (chars | no_records_found)
+% to the same new(UstIdChars) | duplicate(Hash) shape the wire path
+% emits via interpret_status_insert/4. On conflict, falls through to
+% a follow-up SELECT to recover the existing ust_id.
+interpret_psql_status_insert(no_records_found, Hash, duplicate(Hash), UstIdChars) :-
+    writeln([status_duplicate_skipped|[Hash]], true),
+    psql_status_lookup_by_hash_sql(Hash, LookupSQL),
+    query_result(LookupSQL, UstIdChars).
+interpret_psql_status_insert(UstIdChars, _Hash, new(UstIdChars), UstIdChars) :-
+    dif(UstIdChars, no_records_found),
+    writeln([status_inserted|[UstIdChars]], true).
+
+%% psql_status_lookup_by_hash_sql(+Hash, -SQL).
+psql_status_lookup_by_hash_sql(Hash, SQL) :-
+    table(Table),
+    append([
+        "SELECT ust_id::text FROM public.", Table,
+        " WHERE ust_hash = '", Hash, "';"
+    ], SQL).
 
 status_insert_sql(SQL) :-
     table(Table),
@@ -286,12 +447,44 @@ rethrow_unless_no_records(Cause) :-
     dif(Cause, no_records_found),
     throw(cannot_select_record_by_hash(Cause)).
 
-%% by_hash(+Hash, -Assoc).
+%% by_hash(+Hash, -Assoc). Dispatches on PG_BACKEND.
 by_hash(Hash, Assoc) :-
+    pg_backend("wire"),
     by_hash_headers(Headers),
     by_hash_sql(SQL),
     matching_criteria(SQL, [Hash], Headers, HeadersAndRows),
     extract_first_or_throw(HeadersAndRows, Assoc).
+by_hash(Hash, Assoc) :-
+    pg_backend("psql"),
+    psql_by_hash_sql(Hash, SQL),
+    matching_criteria(SQL, HeadersAndRows),
+    extract_first_or_throw(HeadersAndRows, Assoc).
+
+%% psql_by_hash_sql(+Hash, -SQL).
+%
+% Concat form of the by-hash SELECT. Hash is inlined as a single-quoted
+% SQL literal. Trailing semicolon omitted to match matching_criteria/2's
+% two-pass LIMIT 0 / LIMIT ALL appending.
+psql_by_hash_sql(Hash, SQL) :-
+    table(Table),
+    append(
+        [
+            "SELECT ",
+            "r.ust_id as number__id, ",
+            "r.ust_name as string__name, ",
+            "r.ust_hash as string__hash, ",
+            "r.ust_full_name as string__full_name, ",
+            "r.ust_text as string__text, ",
+            "r.ust_avatar as string__avatar, ",
+            "r.ust_status_id as string__status_id, ",
+            "r.is_published as boolean__is_published, ",
+            "r.ust_created_at as string__created_at ",
+            "FROM public.", Table, " r ",
+            "WHERE r.ust_hash = '", Hash, "' ",
+            "OFFSET 0 "
+        ],
+        SQL
+    ).
 
 extract_first_or_throw([], _) :- throw(no_records_found).
 extract_first_or_throw([Row|Rest], Row) :-
@@ -330,10 +523,27 @@ by_hash_sql(SQL) :-
         SQL
     ).
 
-%% count_matching_records(+Row, -Result).
+%% count_matching_records(+Row, -Result). Dispatches on PG_BACKEND.
+%
+% Dedup-by-URI seam: exists_by_uri_t/3 composes over this predicate,
+% so switching the backend here automatically switches that caller
+% without itself needing to branch.
 count_matching_records(row(Hash), Result) :-
+    pg_backend("wire"),
     count_matching_records_sql(SQL),
     value(SQL, [Hash], Result).
+count_matching_records(row(Hash), Result) :-
+    pg_backend("psql"),
+    psql_count_matching_records_sql(Hash, SQL),
+    query_result(SQL, Result).
+
+psql_count_matching_records_sql(Hash, SQL) :-
+    table(Table),
+    append([
+        "SELECT count(*) how_many_records ",
+        "FROM public.", Table, " r ",
+        "WHERE ust_hash = '", Hash, "';"
+    ], SQL).
 
 %% exists_by_uri_t(+Handle, +URI, ?T).
 %
@@ -362,8 +572,10 @@ count_matching_records_sql(SQL) :-
 %
 % Look up `weaving_status` rows for a given handle and ISO-8601
 % `indexed_at` timestamp. The timestamp is rewritten to
-% Postgres' `YYYY-MM-DD HH:MM:SS` form before binding.
+% Postgres' `YYYY-MM-DD HH:MM:SS` form before binding. Dispatches
+% on PG_BACKEND.
 by_indexed_at(indexed_at(IndexedAt)-handle(Handle), HeadersAndRows) :-
+    pg_backend("wire"),
     length(Prefix, 10),
     length(Suffix, 8),
     append([Prefix, [_], Suffix, _Rest], IndexedAt),
@@ -376,6 +588,35 @@ by_indexed_at(indexed_at(IndexedAt)-handle(Handle), HeadersAndRows) :-
         true
     ),
     matching_criteria(SQL, [Handle, IndexedAtDate], Headers, HeadersAndRows).
+by_indexed_at(indexed_at(IndexedAt)-handle(Handle), HeadersAndRows) :-
+    pg_backend("psql"),
+    length(Prefix, 10),
+    length(Suffix, 8),
+    append([Prefix, [_], Suffix, _Rest], IndexedAt),
+    append([Prefix, " ", Suffix], IndexedAtDate),
+    psql_by_indexed_at_sql(Handle, IndexedAtDate, SQL),
+    matching_criteria(SQL, HeadersAndRows).
+
+%% psql_by_indexed_at_sql(+Handle, +IndexedAtDate, -SQL).
+%
+% Concat form: Handle and IndexedAtDate are inlined as single-quoted
+% SQL literals (controlled identifier and timestamp text). Trailing
+% semicolon omitted so matching_criteria/2 can append its
+% LIMIT 0 / LIMIT ALL suffixes.
+psql_by_indexed_at_sql(Handle, IndexedAtDate, SQL) :-
+    table(Table),
+    append([
+        "SELECT ",
+        "r.ust_id::bigint AS number__id, ",
+        "r.ust_full_name AS string__full_name, ",
+        "r.ust_avatar AS string__avatar, ",
+        "r.ust_status_id AS string__status_id, ",
+        "to_json(r.is_published) AS boolean__is_published ",
+        "FROM public.", Table, " r ",
+        "WHERE r.ust_name = '", Handle, "' ",
+        "AND r.ust_created_at::timestamp = '", IndexedAtDate, "'::timestamp ",
+        "OFFSET 0 "
+    ], SQL).
 
 % One-shot pre-wire-call capture used to assemble a self-contained
 % reproducer for the scryer unify_constant SIGSEGV. Overwrites the
