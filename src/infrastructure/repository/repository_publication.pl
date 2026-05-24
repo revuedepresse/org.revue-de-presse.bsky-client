@@ -341,14 +341,16 @@ publication_insert_sql(SQL) :-
 %
 % Concat form of the publication INSERT for the psql backend.
 % Text and Payload are base64-encoded chars produced by
-% `encode_field_value/2`; the SQL wraps them in
-% `decode('<base64>', 'base64')::text` so quotes embedded in
-% the original post body cannot break out of the single-quoted
-% literal. Identifier fields (PublicId, RecordId, Hash, Handle,
-% Avatar, URI, CreatedAt) are inlined as single-quoted literals
-% as in the pre-69f3f97 client. ON CONFLICT (hash) DO NOTHING
-% preserves the idempotent insert contract; RETURNING legacy_id
-% drives `interpret_publication_insert_psql/3`.
+% `encode_field_value/2` and inlined as plain single-quoted
+% literals; the base64 alphabet (A-Za-z0-9+/=) contains no
+% quote, so it cannot break out of the literal. Downstream
+% consumers retrieve the original bytes via
+% `decode(text, 'base64')`. Identifier fields (PublicId,
+% RecordId, Hash, Handle, Avatar, URI, CreatedAt) are inlined
+% as single-quoted literals as in the pre-69f3f97 client.
+% ON CONFLICT (hash) DO NOTHING preserves the idempotent
+% insert contract; RETURNING legacy_id drives
+% `interpret_publication_insert_psql/3`.
 psql_publication_insert_sql(PublicId, RecordId, Hash, Handle, Text, Avatar, URI, Payload, CreatedAt, SQL) :-
     table(Table),
     append(
@@ -360,7 +362,7 @@ psql_publication_insert_sql(PublicId, RecordId, Hash, Handle, Text, Avatar, URI,
             "'", RecordId, "', ",
             "'", Hash, "', ",
             "'", Handle, "', ",
-            "decode('", Text, "', 'base64')::text, ",
+            "'", Text, "', ",
             "'", Avatar, "', ",
             "'", URI, "', ",
             "'", Payload, "', ",
