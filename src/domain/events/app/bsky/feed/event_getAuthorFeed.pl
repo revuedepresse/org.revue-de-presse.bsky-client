@@ -62,7 +62,19 @@ re-run of the worker leaves no duplicates.
 % sequence, each idempotent at the DB layer.
 onGetAuthorFeed(Cursor, TotalPosts, Post, Index) :-
     writeln([processing_post_at_index|[(Index/TotalPosts)]], true),
-    onGetAuthorFeed(Cursor, Post).
+    catch(
+        onGetAuthorFeed(Cursor, Post),
+        pg_query_silently_failed(SQL, Params),
+        ( record_skipped_post(Index, Post, pg_query_silently_failed(SQL, Params)),
+          writeln(
+              [skipped_post|[
+                  index(Index/TotalPosts),
+                  reason(pg_query_silently_failed)
+              ]],
+              true
+          )
+        )
+    ).
 
     %% Handling onGetAuthorFeed Event
     %
@@ -187,3 +199,47 @@ onGetAuthorFeed(Cursor, TotalPosts, Post, Index) :-
                 row(RecordId, URI, LikeCount, RepostCount),
                 _PopularityInsertionResult
             ).
+
+%% record_skipped_post(+Index, +Post, +Reason).
+%
+% Append the offending Post term and surrounding context to
+% /tmp/segv-investigation/skipped_posts.pl when onGetAuthorFeed/2
+% surfaces a labelled pg_query_silently_failed/2 throw and the
+% outer maplist routes around it. The file is the same convention
+% used by capture_feed_response/2 in getAuthorFeed.pl and
+% record_pg_query_failure/3 in client.pl, so a single sweep of
+% /tmp/segv-investigation/ recovers every artifact tied to a
+% given run. I/O errors are swallowed: this writer must never
+% mask the underlying pg_query failure it is documenting.
+%
+% Each entry is one self-contained clause:
+%
+%   skipped_post(
+%     at(<ISO-8601 chars>),
+%     index(<integer>),
+%     reason(<Reason>),
+%     post(<full JSON-DCG pair term>)
+%   ).
+%
+% so a downstream reader can `consult/1` the file and replay each
+% skipped post in isolation.
+record_skipped_post(Index, Post, Reason) :-
+    catch(
+        ( current_time(T),
+          phrase(format_time("%Y-%m-%dT%H:%M:%SZ", T), TimeChars),
+          open("/tmp/segv-investigation/skipped_posts.pl",
+               append, Stream, [type(text)]),
+          write_canonical(Stream,
+              skipped_post(
+                  at(TimeChars),
+                  index(Index),
+                  reason(Reason),
+                  post(Post)
+              )),
+          write(Stream, '.'),
+          nl(Stream),
+          close(Stream)
+        ),
+        _,
+        true
+    ).
