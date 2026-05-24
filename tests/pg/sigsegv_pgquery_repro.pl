@@ -1,5 +1,7 @@
 :- module(sigsegv_pgquery_repro, [run/0]).
 
+:- use_module(library(assoc)).
+:- use_module(library(charsio)).
 :- use_module(library(crypto)).
 :- use_module(library(format)).
 :- use_module(library(lists)).
@@ -89,6 +91,17 @@ run :-
     format("[..] Q0: SELECT count(*) WHERE ust_hash = $1~n", []),
     query(Conn, SelectSQL, [Hash], R0),
     format("[..] Q0 returned ~q~n", [R0]),
+
+    % Mimic encode_field_value from client.pl:83-87 between Q0 and Q1.
+    % This is the b02e0c47 commit's candidate for the corruption
+    % writer ("the FFI surface used for chars_utf8bytes/2").
+    (   getenv("USE_ENCODE", "1")
+    ->  format("[..] write_term_to_chars + chars_utf8bytes + chars_base64 (encode_field_value path)~n", []),
+        empty_assoc(EmptyAssoc),
+        write_term_to_chars(EmptyAssoc, [quoted(true), double_quotes(true)], Quoted),
+        chars_utf8bytes(Quoted, _Utf8Bytes)
+    ;   format("[..] skipping encode_field_value path~n", [])
+    ),
 
     insert_sql(InsertSQL),
     format("[..] Q1: INSERT ... ON CONFLICT DO NOTHING RETURNING~n", []),
