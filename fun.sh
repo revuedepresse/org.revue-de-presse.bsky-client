@@ -97,7 +97,7 @@ function app__bsky__feed__getAuthorFeed() {
 
     set +e
     scryer-prolog \
-        -g 'app__bsky__feed__getAuthorFeed_without_memoization("'"${author}"'", Prop).' \
+        -g 'app__bsky__feed__getAuthorFeed("'"${author}"'", Prop).' \
         -g halt \
         ./src/app/bsky/feed/getAuthorFeed.pl
     local rc=$?

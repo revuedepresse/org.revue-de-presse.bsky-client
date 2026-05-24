@@ -24,8 +24,8 @@ predicate (report_iteration_failure/1) so this test can exercise it
 directly without needing to construct a failing maplist over a feed.
 
 The throw is caught by the outer catch/3 in
-app__bsky__feed__getAuthorFeed_without_memoization/2; the worker now
-log_errors the labelled term and fails the request instead of moving on.
+app__bsky__feed__getAuthorFeed/2; the worker now log_errors the
+labelled term and fails the request instead of moving on.
 */
 
 run_test :-

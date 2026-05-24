@@ -15,7 +15,7 @@ Regression test for the production crash:
 
     error(representation_error(max_arity), assertz/1)
     % Warning: initialization failed for:
-    %   app__bsky__feed__getAuthorFeed_without_memoization("...", Prop)
+    %   app__bsky__feed__getAuthorFeed("...", Prop)
     Process 1237358 dead!
 
 Scryer Prolog caps compound arity at 255 when compiling a clause for
