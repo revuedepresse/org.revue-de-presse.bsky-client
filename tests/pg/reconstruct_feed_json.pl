@@ -3,42 +3,38 @@
 :- use_module(library(format)).
 :- use_module(library(lists)).
 :- use_module(library(os)).
-
-:- use_module('../../src/stream', [read_stream/2]).
+:- use_module(library(serialization/json)).
 
 /*
-Reconstruct the raw JSON body from a captured last-feed-body.txt.
+Reconstruct the raw JSON body that the worker had in flight at
+SIGSEGV time, into a file that can be read back and parsed via
+`phrase(json_chars(pairs(_)), Chars)` -- i.e. the production
+code path at getAuthorFeed.pl:117.
 
-The capture writer at getAuthorFeed.pl:170 uses plain `write/1` on
-the BodyChars list (a list of single-character atoms representing
-the HTTP response body). scryer's write/1 emits a list literal like
+Approach
+--------
+Read the captured last-feed-pairs.pl (a canonical Prolog term
+written via write_canonical/1, so read_term/2 reads it back
+losslessly). Then run scryer's bidirectional `json_chars//1`
+DCG (deps/scryer-prolog/src/lib/serialization/json.pl) in
+generator mode against the parsed pairs to emit JSON chars.
+Write the chars to disk as plain text.
 
-    [{,",f,e,e,d,",:,[,{,",p,o,s,t,...]
-
-i.e. for an N-character body the inner string between [ and ] is
-exactly 2N-1 bytes long: every even-indexed byte (0-based) is one
-JSON character and every odd-indexed byte is the list separator
-comma the printer inserted. So the JSON text is the even-indexed
-slice of the inner string. Even commas inside the JSON are
-correctly preserved: each is at an even index, between two odd
-separator commas.
-
-This script reads the input file and emits the reconstructed JSON
-to disk so downstream tests can:
-  - parse it with phrase(json_chars(pairs(R)), BodyChars) -- the
-    same DCG the production worker uses, exercising the same
-    arena allocation path that read_term/2 sidesteps;
-  - serve it from a local HTTP server (e.g. python -m http.server)
-    to drive the full http_open path in a test reproducer.
+Why not decode last-feed-body.txt directly?
+The capture writer (getAuthorFeed.pl:170) emits the body via
+plain `write/1`, which produces `[c0,c1,c2,...]` notation. Naive
+byte-level decoding of that notation gets fragile for any char
+that the printer escapes or for multi-byte UTF-8 -- the JSON
+that comes back parses to "{" then fails. Generating fresh JSON
+from the already-parsed pairs sidesteps the problem entirely
+and produces the exact JSON shape `json_chars//1` accepts on the
+way back in.
 
 Usage
 -----
-    INPUT=path/to/last-feed-body.txt \
+    INPUT=path/to/last-feed-pairs.pl \
     OUTPUT=path/to/feed-body.json \
     scryer-prolog ./tests/pg/reconstruct_feed_json.pl -g run
-
-If OUTPUT is omitted it defaults to <INPUT-without-.txt>.json
-sibling.
 */
 
 env_required(Name, Value) :-
@@ -51,32 +47,22 @@ env_optional(Name, Default, Value) :-
     (   getenv(Name, V) -> Value = V ; Value = Default ).
 
 default_output_path(InputChars, OutputChars) :-
-    (   append(Prefix, ".txt", InputChars)
+    (   append(Prefix, ".pl", InputChars)
     ->  append(Prefix, ".json", OutputChars)
     ;   append(InputChars, ".json", OutputChars)
     ).
 
-% Decode the list-literal Prolog format emitted by write/1 on a
-% chars list into the underlying chars. Strips the bracketing
-% [ and ] then takes every other element (the ones at even
-% 0-based positions in the inner string).
-decode_list_literal([], []).
-decode_list_literal(['['|Rest], Chars) :-
-    drop_last_bracket(Rest, Inner),
-    even_indexed(Inner, Chars).
-
-drop_last_bracket([C], []) :-
-    (   C = ']' -> true
-    ;   format("[KO] last char is ~q, expected ]~n", [C]), halt(3)
-    ).
-drop_last_bracket([C|Rest], [C|Out]) :-
-    Rest = [_|_],
-    drop_last_bracket(Rest, Out).
-
-even_indexed([], []).
-even_indexed([X], [X]).
-even_indexed([X, _Sep | Rest], [X | Out]) :-
-    even_indexed(Rest, Out).
+load_response_pairs(Pairs) :-
+    env_required("INPUT", InputPath),
+    format("[..] input=~s~n", [InputPath]),
+    open(InputPath, read, In),
+    catch(
+        read_term(In, Term, []),
+        E,
+        (close(In), throw(E))
+    ),
+    close(In),
+    Term = last_feed_pairs(Pairs).
 
 write_chars(_, []).
 write_chars(Stream, [C|Cs]) :-
@@ -84,30 +70,22 @@ write_chars(Stream, [C|Cs]) :-
     write_chars(Stream, Cs).
 
 run :-
+    load_response_pairs(Pairs),
     env_required("INPUT", InputPath),
     default_output_path(InputPath, DefaultOutputPath),
     env_optional("OUTPUT", DefaultOutputPath, OutputPath),
-
-    format("[..] input=~s~n",  [InputPath]),
     format("[..] output=~s~n", [OutputPath]),
 
-    open(InputPath, read, In),
-    % read_stream/2 reads to EOF and closes the stream itself
-    % (src/stream.pl:26-28), so no explicit close here.
-    read_stream(In, RawChars),
-
-    length(RawChars, RawLen),
-    format("[..] raw input length=~w~n", [RawLen]),
-
-    decode_list_literal(RawChars, JsonChars),
+    format("[..] generating JSON via phrase(json_chars(pairs(_)), Chars) in generator mode~n", []),
+    phrase(json_chars(pairs(Pairs)), JsonChars),
     length(JsonChars, JsonLen),
-    format("[..] decoded JSON length=~w~n", [JsonLen]),
+    format("[..] generated JSON length=~w chars~n", [JsonLen]),
 
     open(OutputPath, write, Out),
     catch(
         write_chars(Out, JsonChars),
-        E2,
-        (close(Out), throw(E2))
+        E,
+        (close(Out), throw(E))
     ),
     close(Out),
     format("[OK] wrote ~w chars to ~s~n", [JsonLen, OutputPath]).
