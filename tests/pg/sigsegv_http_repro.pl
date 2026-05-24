@@ -10,10 +10,8 @@
 :- use_module('../../src/stream', [read_stream/2]).
 :- use_module('../../src/serialization', [pairs_to_assoc/2]).
 :- use_module('../../src/domain/events/app/bsky/feed/event_getAuthorFeed', [
+    onGetAuthorFeed/4,
     insert_record_args/9
-]).
-:- use_module('../../src/infrastructure/repository/repository_status', [
-    insert/3
 ]).
 
 /*
@@ -93,32 +91,17 @@ run :-
     length(Posts, Total),
     format("[..] posts=~w post_index=~s~n", [Total, IndexChars]),
     post_at_index(Posts, IndexChars, Index, Post),
-
+    OneBased is Index + 1,
+    format("[..] calling onGetAuthorFeed(none, ~w, Post, ~w) -- full production chain~n",
+           [Total, OneBased]),
+    format("[..] this exercises: exists_by_uri_t + likes/reposts fetch + status insert + publication insert~n", []),
     catch(
-        insert_record_args(
-            Post,
-            DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
-            likes(LikeCount)-reposts(RepostCount)
-        ),
-        ExtractErr,
-        ( format("[KO] insert_record_args threw: ~q~n", [ExtractErr]),
-          halt(1) )
-    ),
-
-    format("[..] handle=~s uri=~s~n", [Handle, URI]),
-    format("[..] likes=~w reposts=~w~n", [LikeCount, RepostCount]),
-    format("[..] firing repository_status:insert -- prod crash site~n", []),
-
-    catch(
-        ( repository_status:insert(
-              row(DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt),
-              InsertionResult, RecordId
-          ),
-          format("[OK] survived: ~q record_id=~q~n", [InsertionResult, RecordId]),
+        ( onGetAuthorFeed(none, Total, Post, OneBased),
+          format("[OK] onGetAuthorFeed survived for post_index=~w~n", [Index]),
           halt(0)
         ),
-        InsertErr,
-        ( format("[KO] repository_status:insert threw: ~q~n", [InsertErr]),
+        Err,
+        ( format("[KO] onGetAuthorFeed threw: ~q~n", [Err]),
           halt(1) )
     ).
 
