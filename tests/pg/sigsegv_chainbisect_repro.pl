@@ -52,16 +52,20 @@ default_url("http://127.0.0.1:8080/feed.json").
 load_feed_posts_via_http(Posts) :-
     default_url(DefaultUrl),
     env_chars_default("FEED_URL", DefaultUrl, URL),
-    RequestHeaders = [
-        'User-Agent'('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36')
-    ],
-    Options = [
-        method(get),
-        status_code(_StatusCode),
-        request_headers(RequestHeaders),
-        headers(_ResponseHeaders)
-    ],
-    format("[..] http_open ~s~n", [URL]),
+    env_chars_default("HTTP_OPTS", "prod", OptsMode),
+    (   OptsMode == "prod"
+    ->  RequestHeaders = [
+            'User-Agent'('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36')
+        ],
+        Options = [
+            method(get),
+            status_code(_StatusCode),
+            request_headers(RequestHeaders),
+            headers(_ResponseHeaders)
+        ]
+    ;   Options = []
+    ),
+    format("[..] http_open ~s (HTTP_OPTS=~s)~n", [URL, OptsMode]),
     http_open(URL, Stream, Options),
     read_stream(Stream, BodyChars),
     length(BodyChars, BodyLen),
