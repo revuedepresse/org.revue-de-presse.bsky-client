@@ -165,6 +165,10 @@ test-iterate-or-report-failure: ### Regression: silent maplist failure on the fe
 test-feed-capture-replay: ### Hermetic replay of /tmp/segv-investigation/last-feed-pairs.pl through insert_record_args/9
 	@scryer-prolog ./tests/feed_capture_replay_test.pl -g halt
 
+test-already-indexed-by-uri: compose-up ### Regression: onGetAuthorFeed dedup keys on per-post URI, not page cursor (fix for the May 23-24 throughput collapse)
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/already_indexed_by_uri_test.pl -g 'run_test'
+
 probe-prod-auth: ### Read-only auth probe against the DB defined in .env.local
 	@set -a; . ./.env.local; set +a; \
 	scryer-prolog ./src/infrastructure/pg/probe.pl -g 'run'

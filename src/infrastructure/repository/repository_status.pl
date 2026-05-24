@@ -2,6 +2,7 @@
     by_criteria/2,
     by_indexed_at/2,
     count/1,
+    exists_by_uri_t/3,
     extract_lookup_ust_id/2,
     id_hash/3,
     insert/3,
@@ -333,6 +334,21 @@ by_hash_sql(SQL) :-
 count_matching_records(row(Hash), Result) :-
     count_matching_records_sql(SQL),
     value(SQL, [Hash], Result).
+
+%% exists_by_uri_t(+Handle, +URI, ?T).
+%
+% Reified existence check for a `weaving_status` row identified
+% by the (Handle, URI) pair via the `ust_hash` unique index.
+%
+% Used by onGetAuthorFeed/2 to dedup per-post instead of per page
+% cursor. The previous lookup keyed on the page's NextCursor
+% timestamp matched any pre-existing row whose `ust_created_at`
+% second collided with that cursor, so every NEW post on the page
+% wrongly threw `already_indexed_post` and the maplist halted.
+exists_by_uri_t(Handle, URI, T) :-
+    hash(handle(Handle)-uri(URI), Hash),
+    count_matching_records(row(Hash), Count),
+    if_(Count = 0, T = false, T = true).
 
 count_matching_records_sql(SQL) :-
     table(Table),
