@@ -15,6 +15,10 @@
 :- use_module('../../src/infrastructure/pg/connection', [
     pg_query/3
 ]).
+:- use_module('../../src/infrastructure/repository/repository_status', [
+    exists_by_uri_t/3,
+    insert/3
+]).
 
 /*
 The absolute minimum reproducer.
@@ -95,7 +99,11 @@ run :-
 
     count_sql(SelectSQL),
     format("[..] Q0: SELECT count(*) WHERE ust_hash = $1~n", []),
-    (   getenv("USE_PROJECT_PG", "1")
+    (   getenv("USE_EXISTS", "1")
+    ->  format("[..] (using repository_status:exists_by_uri_t/3 directly)~n", []),
+        exists_by_uri_t("h", "u", _T0),
+        R0 = '<via exists_by_uri_t>'
+    ;   getenv("USE_PROJECT_PG", "1")
     ->  format("[..] (using project pg_query/3 with bb_put cache)~n", []),
         pg_query(SelectSQL, [Hash], R0)
     ;   query(Conn, SelectSQL, [Hash], R0)
