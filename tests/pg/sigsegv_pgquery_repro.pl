@@ -1,11 +1,13 @@
 :- module(sigsegv_pgquery_repro, [run/0]).
 
 :- use_module(library(assoc)).
+:- use_module(library(base64)).
 :- use_module(library(charsio)).
 :- use_module(library(crypto)).
 :- use_module(library(format)).
 :- use_module(library(lists)).
 :- use_module(library(os)).
+:- use_module(library(reif)).
 
 :- use_module('../../deps/postgresql-prolog/postgresql', [
     connect/6,
@@ -42,6 +44,8 @@ Set up the test PG first via `make compose-up`, then truncate
 */
 
 env_chars(Name, Value) :- getenv(Name, Value).
+
+char_code_inv(Code, Char) :- char_code(Char, Code).
 
 env_number(Name, Number) :-
     getenv(Name, Chars),
@@ -100,14 +104,25 @@ run :-
     format("[..] Q0 returned ~q~n", [R0]),
 
     % Mimic encode_field_value from client.pl:83-87 between Q0 and Q1.
-    % This is the b02e0c47 commit's candidate for the corruption
-    % writer ("the FFI surface used for chars_utf8bytes/2").
+    % The COMPLETE chain: write_term_to_chars + chars_utf8bytes +
+    % maplist + chars_base64. This is the b02e0c47 commit's named
+    % candidate ("the FFI surface used for chars_utf8bytes/2").
     (   getenv("USE_ENCODE", "1")
-    ->  format("[..] write_term_to_chars + chars_utf8bytes + chars_base64 (encode_field_value path)~n", []),
+    ->  format("[..] full encode_field_value chain~n", []),
         empty_assoc(EmptyAssoc),
         write_term_to_chars(EmptyAssoc, [quoted(true), double_quotes(true)], Quoted),
-        chars_utf8bytes(Quoted, _Utf8Bytes)
+        chars_utf8bytes(Quoted, Utf8Bytes),
+        maplist(char_code_inv, Utf8Bytes, FieldUtf8Bytes),
+        chars_base64(FieldUtf8Bytes, EncodedFieldValue, []),
+        length(EncodedFieldValue, EncLen),
+        format("[..] encoded to ~w base64 chars~n", [EncLen])
     ;   format("[..] skipping encode_field_value path~n", [])
+    ),
+    % if_/3 from reif -- exists_by_uri_t closes with if_(Count = 0, ...)
+    (   getenv("USE_REIF", "1")
+    ->  format("[..] reif if_/3 call~n", []),
+        if_(0 = 0, true, true)
+    ;   true
     ),
 
     insert_sql(InsertSQL),
