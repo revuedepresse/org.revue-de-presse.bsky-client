@@ -58,7 +58,7 @@ load_feed_posts_via_http(Posts) :-
         'User-Agent'('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36')
     ],
     Options = [
-        method('GET'),
+        method(get),
         status_code(StatusCode),
         request_headers(RequestHeaders),
         headers(ResponseHeaders)
