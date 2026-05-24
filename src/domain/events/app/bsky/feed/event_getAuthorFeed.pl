@@ -25,7 +25,7 @@ re-run of the worker leaves no duplicates.
 
 :- use_module('../../../../../infrastructure/repository/repository_status', [
     by_criteria/2,
-    by_indexed_at/2,
+    exists_by_uri_t/3,
     id_hash/3,
     insert/2
 ]).
@@ -67,24 +67,29 @@ onGetAuthorFeed(Cursor, TotalPosts, Post, Index) :-
     %% Handling onGetAuthorFeed Event
     %
     %% onGetAuthorFeed(+Cursor, +Post)
-    onGetAuthorFeed(Cursor, Post) :-
+    %
+    % Cursor is the page-level NextCursor, kept in the signature
+    % for the maplist call shape but no longer used for dedup --
+    % per-post existence is now keyed on the post's own URI via
+    % the ust_hash unique index. Keying on the page cursor wrongly
+    % rejected every post on a page whose oldest indexedAt second
+    % collided with an existing row.
+    onGetAuthorFeed(_Cursor, Post) :-
         insert_record_args(
             Post,
             DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
             likes(LikeCount)-reposts(RepostCount)
         ),
-        by_indexed_at(indexed_at(Cursor)-handle(Handle), Rows),
-        length(Rows, N),
         if_(
-            N = 0,
-            writeln([no_records_found_by_cursor|[Cursor]], true),
-            throw(already_indexed_post(uri(URI)))
-        ),
-
-        try_inserting_publication_record(
-            DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
-            likes(LikeCount)-reposts(RepostCount),
-            _PublicationInsertionResult
+            exists_by_uri_t(Handle, URI),
+            throw(already_indexed_post(uri(URI))),
+            ( writeln([no_records_found_by_uri|[URI]], true),
+              try_inserting_publication_record(
+                  DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
+                  likes(LikeCount)-reposts(RepostCount),
+                  _PublicationInsertionResult
+              )
+            )
         ).
 
         %% insert_record_args(+Post, -DisplayName, -Handle, -Text, -AuthorAvatar, -Payload, -URI, -CreatedAt, -Popularity)
