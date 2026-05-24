@@ -22,6 +22,22 @@ function configure() {
     # helps when the crash is reachable via panic_unwind first.
     export RUST_BACKTRACE="${RUST_BACKTRACE:-full}"
     export RUST_LIB_BACKTRACE="${RUST_LIB_BACKTRACE:-full}"
+
+    # Prefer the in-tree patched scryer-prolog binary if it has been
+    # built. deps/scryer-prolog ships ahead of the published release
+    # by the commit `b02e0c47 fix: Guard Unifier::unify_constant
+    # against bogus arena pointers` -- which is the fix for the
+    # EXC_BAD_ACCESS @ 0x301c7 SIGSEGV that takes down the worker
+    # mid-iteration of the getAuthorFeed maplist on the legacy
+    # v0.10.0-96 binary. Falling back to whatever scryer-prolog is
+    # already on PATH keeps fresh checkouts working without forcing
+    # a `cargo build --release` up front; the worker will SIGSEGV
+    # against an unpatched binary but `classify_worker_exit` /
+    # `preserve_segv_captures` will at least say so out loud.
+    local patched_scryer="./deps/scryer-prolog/target/release/scryer-prolog"
+    if [ -x "${patched_scryer}" ]; then
+        export PATH="$(cd "$(dirname "${patched_scryer}")" && pwd):${PATH}"
+    fi
 }
 
 function com__atproto__server__createSession() {
@@ -97,7 +113,7 @@ function app__bsky__feed__getAuthorFeed() {
 
     set +e
     scryer-prolog \
-        -g 'app__bsky__feed__getAuthorFeed_without_memoization("'"${author}"'", Prop).' \
+        -g 'app__bsky__feed__getAuthorFeed("'"${author}"'", Prop).' \
         -g halt \
         ./src/app/bsky/feed/getAuthorFeed.pl
     local rc=$?
@@ -108,6 +124,25 @@ function app__bsky__feed__getAuthorFeed() {
     fi
 
     return "${rc}"
+}
+
+# When a process is killed by a signal, the shell reports rc = 128 + signo.
+# This is a UNIX convention -- a clean prolog failure stays in 1..127 and a
+# signal kill (SIGSEGV = 11 -> 139, SIGABRT = 6 -> 134, SIGKILL = 9 -> 137)
+# lands above 128. We surface that boundary as a labelled error so cron /
+# supervisor / operator logs can grep `worker_crashed_by_signal=` and
+# distinguish a VM crash from "the predicate returned false".
+function classify_worker_exit() {
+    local rc=$1
+    if [ "${rc}" -ge 128 ]; then
+        local signo=$((rc - 128))
+        local signame
+        signame=$(kill -l "${signo}" 2>/dev/null || echo "UNKNOWN")
+        printf 'worker_crashed_by_signal=%d signal_name=SIG%s exit_code=%d\n' \
+            "${signo}" "${signame}" "${rc}"
+    else
+        printf 'worker_failed_cleanly exit_code=%d\n' "${rc}"
+    fi
 }
 
 # Snapshot whatever the Prolog-side capture writers left under
@@ -122,10 +157,13 @@ function preserve_segv_captures() {
     local ts
     ts=$(date -u +%Y%m%dT%H%M%SZ)
     local dest="var/tmp/segv-investigation/crash-${ts}-pid$$"
+    local classification
+    classification=$(classify_worker_exit "${rc}")
     mkdir -p "${dest}"
     {
         printf 'timestamp_utc=%s\n' "${ts}"
         printf 'exit_code=%d\n' "${rc}"
+        printf '%s\n' "${classification}"
         printf 'author=%s\n' "${author}"
         printf 'host=%s\n' "$(hostname)"
         printf 'scryer_version=%s\n' "$(scryer-prolog --version 2>/dev/null || echo unknown)"
@@ -137,7 +175,7 @@ function preserve_segv_captures() {
             cp "/tmp/segv-investigation/${f}" "${dest}/"
         fi
     done
-    echo "[crash-capture] preserved captures in ${dest} (exit=${rc})" >&2
+    echo "[crash-capture] ${classification} captures_at=${dest}" >&2
 }
 
 # https://docs.bsky.app/docs/api/app-bsky-graph-get-list

@@ -1,6 +1,6 @@
 SHELL:=/bin/bash
 
-.PHONY: configure create_session create_poste doc doc-setup doc-clean doc-serve
+.PHONY: configure create_session create_poste doc doc-setup doc-clean doc-serve scryer-prolog-build
 
 COMPOSE_PROJECT_NAME ?= 'org_example_bsky'
 WORKER ?= 'org.example.bsky'
@@ -172,6 +172,10 @@ test-already-indexed-by-uri: compose-up ### Regression: onGetAuthorFeed dedup ke
 probe-prod-auth: ### Read-only auth probe against the DB defined in .env.local
 	@set -a; . ./.env.local; set +a; \
 	scryer-prolog ./src/infrastructure/pg/probe.pl -g 'run'
+
+scryer-prolog-build: ### Sync deps/scryer-prolog to the recorded SHA and rebuild the release binary (deps/scryer-prolog/target/release/scryer-prolog) -- fun.sh's `configure` prepends that path so the worker runs the patched VM.
+	@git submodule update --init --recursive deps/scryer-prolog
+	@cd deps/scryer-prolog && cargo build --release
 
 doc-setup: ### Clone doclog's own dependencies (teruel, djota) into deps/doclog
 	@if [ ! -f deps/doclog/Makefile ]; then \
