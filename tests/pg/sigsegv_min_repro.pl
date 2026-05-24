@@ -58,18 +58,23 @@ run :-
              "DATABASE_PASSWORD","DATABASE_DB_NAME"]),
 
     env_chars_default("SOURCE", "http", Source),
-    (   Source == "file"
+    (   Source == "none"
+    ->  format("[..] SOURCE=none (no read_stream at all)~n", [])
+    ;   Source == "file"
     ->  env_chars_default("FEED_FILE", "/tmp/minimal-feed.json", Path),
         format("[..] SOURCE=file open(~s)~n", [Path]),
-        open(Path, read, Stream)
+        open(Path, read, Stream),
+        read_stream(Stream, BodyChars),
+        length(BodyChars, BodyLen),
+        format("[..] body chars=~w~n", [BodyLen])
     ;   default_url(DefaultUrl),
         env_chars_default("FEED_URL", DefaultUrl, URL),
         format("[..] SOURCE=http http_open(~s)~n", [URL]),
-        http_open(URL, Stream, [])
+        http_open(URL, Stream, []),
+        read_stream(Stream, BodyChars),
+        length(BodyChars, BodyLen),
+        format("[..] body chars=~w~n", [BodyLen])
     ),
-    read_stream(Stream, BodyChars),
-    length(BodyChars, BodyLen),
-    format("[..] body chars=~w~n", [BodyLen]),
 
     (   env_bool("PARSE")
     ->  format("[..] PARSE=1, running phrase(json_chars(pairs(_)), Chars)~n", []),
