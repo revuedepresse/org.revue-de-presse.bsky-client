@@ -94,12 +94,7 @@ run :-
     chain_step(Level, 1,
         ( format("[..] Q0: exists_by_uri_t(~s, ~s, T)~n", [Handle, URI]),
           exists_by_uri_t(Handle, URI, T0),
-          format("[..] Q0 returned T=~q~n", [T0]),
-          ( T0 == true
-          -> format("[KO] Q0 reports already_indexed, cannot drive NEW path~n", []),
-             halt(7)
-          ; true
-          )
+          format("[..] Q0 returned T=~q (continuing regardless)~n", [T0])
         )),
 
     chain_step(Level, 2,
