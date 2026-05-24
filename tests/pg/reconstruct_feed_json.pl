@@ -92,12 +92,9 @@ run :-
     format("[..] output=~s~n", [OutputPath]),
 
     open(InputPath, read, In),
-    catch(
-        read_stream(In, RawChars),
-        E,
-        (close(In), throw(E))
-    ),
-    close(In),
+    % read_stream/2 reads to EOF and closes the stream itself
+    % (src/stream.pl:26-28), so no explicit close here.
+    read_stream(In, RawChars),
 
     length(RawChars, RawLen),
     format("[..] raw input length=~w~n", [RawLen]),
