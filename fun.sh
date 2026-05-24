@@ -111,6 +111,14 @@ function app__bsky__feed__getAuthorFeed() {
 
     mkdir -p /tmp/segv-investigation var/tmp/segv-investigation
 
+    # Enable coredumps for the scryer process. With the host's default
+    # kernel.core_pattern=core the kernel drops a `core` file in the
+    # process's cwd on SIGSEGV; preserve_segv_captures picks it up
+    # alongside the Prolog-side captures. Clear any stale core from a
+    # previous run first so we don't archive the wrong dump.
+    ulimit -c unlimited 2>/dev/null || true
+    rm -f ./core 2>/dev/null || true
+
     set +e
     scryer-prolog \
         -g 'app__bsky__feed__getAuthorFeed("'"${author}"'", Prop).' \
@@ -175,6 +183,17 @@ function preserve_segv_captures() {
             cp "/tmp/segv-investigation/${f}" "${dest}/"
         fi
     done
+
+    # If the kernel left a coredump in cwd (because ulimit -c was
+    # raised before the scryer launch), move it into the capture
+    # dir and record which binary it corresponds to so a later gdb
+    # session can resolve symbols against the right scryer build.
+    if [ -f ./core ]; then
+        mv ./core "${dest}/coredump"
+        readlink -f "$(command -v scryer-prolog 2>/dev/null)" \
+            > "${dest}/coredump.binary.txt" 2>/dev/null || true
+    fi
+
     echo "[crash-capture] ${classification} captures_at=${dest}" >&2
 }
 
