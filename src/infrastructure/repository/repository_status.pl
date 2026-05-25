@@ -565,18 +565,33 @@ psql_count_matching_records_sql(Hash, SQL) :-
 
 %% exists_by_uri_t(+Handle, +URI, ?T).
 %
-% Reified existence check for a `weaving_status` row identified
-% by the (Handle, URI) pair via the `ust_hash` unique index.
+% Existence check for a `weaving_status` row identified by the
+% (Handle, URI) pair via the `ust_hash` unique index.
 %
-% Used by onGetAuthorFeed/2 to dedup per-post instead of per page
-% cursor. The previous lookup keyed on the page's NextCursor
-% timestamp matched any pre-existing row whose `ust_created_at`
-% second collided with that cursor, so every NEW post on the page
-% wrongly threw `already_indexed_post` and the maplist halted.
+% Uses count_matching_records_raw/2 + a native if-then-else instead
+% of the former count_matching_records/2 + reif:if_/3 path. The old
+% path triggered a scryer-prolog unify_constant SIGSEGV via the
+% if_/3 call inside adapt_single_value/2 (value/3's result adaptor);
+% this path avoids both if_/3 occurrences entirely.
 exists_by_uri_t(Handle, URI, T) :-
     hash(handle(Handle)-uri(URI), Hash),
-    count_matching_records(row(Hash), Count),
-    if_(Count = 0, T = false, T = true).
+    count_matching_records_raw(Hash, Count),
+    ( Count =:= 0 -> T = false ; T = true ).
+
+count_matching_records_raw(Hash, Count) :-
+    pg_backend("wire"),
+    count_matching_records_sql(SQL),
+    pg_query(SQL, [Hash], Reply),
+    interpret_count_reply(Reply, Count).
+count_matching_records_raw(Hash, Count) :-
+    pg_backend("psql"),
+    psql_count_matching_records_sql(Hash, SQL),
+    query_result(SQL, Count).
+
+interpret_count_reply(data([[CountChars|_]|_]), Count) :-
+    number_chars(Count, CountChars).
+interpret_count_reply(error(Err), _) :-
+    throw(pg_error(Err)).
 
 count_matching_records_sql(SQL) :-
     table(Table),
