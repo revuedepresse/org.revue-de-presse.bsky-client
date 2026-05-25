@@ -165,6 +165,18 @@ test-iterate-or-report-failure: ### Regression: silent maplist failure on the fe
 test-malformed-post-skip: ### Regression: insert_record_args/9 defaults Bluesky-omitted-at-zero fields and labels missing required fields instead of silently failing the maplist
 	@scryer-prolog ./tests/malformed_post_skip_test.pl -g halt
 
+staging-db-create: ### Create the org_revue_de_presse_staging database (fresh, empty; for stress-testing the pg_session refactor under full insert load)
+	@/bin/bash -c '. fun.sh && staging_db_create'
+
+staging-db-schema: ### Apply the staging schema (weaving_status / publication / status_popularity / scram_probe) inside org_revue_de_presse_staging
+	@/bin/bash -c '. fun.sh && staging_db_schema'
+
+staging-db-drop: ### Drop org_revue_de_presse_staging entirely (irreversible -- use to reset the stress-test substrate)
+	@/bin/bash -c '. fun.sh && staging_db_drop'
+
+staging-db-truncate: ### Empty the three worker tables in org_revue_de_presse_staging (faster than drop+recreate when you just need a clean run)
+	@/bin/bash -c '. fun.sh && staging_db_truncate'
+
 test-feed-capture-replay: ### Hermetic replay of /tmp/segv-investigation/last-feed-pairs.pl through insert_record_args/9
 	@scryer-prolog ./tests/feed_capture_replay_test.pl -g halt
 

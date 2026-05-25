@@ -484,4 +484,67 @@ function test() {
     rm ./test.log
 }
 
+# --- staging database helpers -----------------------------------------
+#
+# Procedures backing the `make staging-db-*` targets. They are kept
+# here (rather than inlined in the Makefile) so the same shell logic
+# is callable from a regular shell: `bash -c '. ./fun.sh && staging_db_create'`.
+#
+# DATABASE_* credentials come from ./.env.local via staging_db_load_env;
+# the staging DB name is hardcoded to match the SQL files under
+# var/migrations/2026-05-25-staging-*.sql.
+
+function staging_db_name() {
+    printf '%s' 'org_revue_de_presse_staging'
+}
+
+# Source DATABASE_* (and everything else) from ./.env.local into the
+# current shell so the psql wrapper below has the credentials it needs.
+# Uses `set -a` to auto-export each assignment without unsetting the
+# parent shell's unrelated env vars (`configure` does that for the
+# scryer runs; we don't need that here).
+function staging_db_load_env() {
+    if [ ! -f ./.env.local ]; then
+        echo "[staging-db] missing ./.env.local; run from the repo root" >&2
+        return 1
+    fi
+    set -a
+    # shellcheck disable=SC1091
+    . ./.env.local
+    set +a
+}
+
+# psql wrapper that picks the connection from .env.local and applies
+# the same flags every staging-db helper wants: ON_ERROR_STOP=1 so the
+# Makefile (or caller) sees a non-zero exit on the first SQL error.
+function staging_db_psql() {
+    local db="$1"
+    shift
+    staging_db_load_env
+    PGPASSWORD="${DATABASE_PASSWORD}" psql \
+        -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" \
+        -U "${DATABASE_USERNAME}" -d "${db}" \
+        -v ON_ERROR_STOP=1 "$@"
+}
+
+function staging_db_create() {
+    staging_db_psql postgres \
+        -f var/migrations/2026-05-25-staging-create-db.sql
+}
+
+function staging_db_schema() {
+    staging_db_psql "$(staging_db_name)" \
+        -f var/migrations/2026-05-25-staging-schema.sql
+}
+
+function staging_db_drop() {
+    staging_db_psql postgres \
+        -c "DROP DATABASE IF EXISTS $(staging_db_name);"
+}
+
+function staging_db_truncate() {
+    staging_db_psql "$(staging_db_name)" \
+        -c "TRUNCATE TABLE status_popularity, publication, weaving_status RESTART IDENTITY;"
+}
+
 set +Eeuo pipefail
