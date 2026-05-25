@@ -1,0 +1,68 @@
+# Dockerfile.debug -- builds scryer-prolog with full DWARF debug symbols
+# (debuginfo=2) on top of the official rust:1.85-slim-bullseye toolchain
+# image (the MSRV recorded in rust-toolchain.toml). The resulting binary
+# at /usr/local/bin/scryer-prolog stays release-optimised but is NOT
+# stripped, so a coredump from a SIGSEGV can be loaded into gdb to
+# resolve function names, line numbers, and inlined frames.
+#
+# The runtime stage also includes gdb + postgresql-client so the
+# reproducer can run AND a captured core can be analysed without
+# leaving the container.
+#
+# Built via the host's Docker:
+#   make docker-segv-reproducer-build
+# Run via:
+#   make docker-segv-reproducer-run
+
+ARG RUST_VERSION=1.85
+ARG DEBIAN_RELEASE=bullseye
+
+FROM rust:${RUST_VERSION}-slim-${DEBIAN_RELEASE} AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        libssl-dev \
+        musl-tools \
+        pkg-config \
+        git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY ./deps/scryer-prolog /opt/scryer-prolog
+WORKDIR /opt/scryer-prolog
+
+# debuginfo=2 = full DWARF; force-frame-pointers gives stable stack
+# unwinding in coredumps even with release optimisations on. Keep all
+# other release flags unchanged so the binary is byte-equivalent in
+# behaviour to the production scryer-prolog-build target.
+RUN RUSTFLAGS="-C debuginfo=2 -C force-frame-pointers=yes" \
+    cargo build --bin scryer-prolog --release
+
+# ---------------------------------------------------------------------------
+# Runtime stage: scryer with debug symbols + gdb + psql for analysis.
+
+FROM rust:${RUST_VERSION}-slim-${DEBIAN_RELEASE} AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gdb \
+        postgresql-client \
+        ca-certificates \
+        bash \
+        procps \
+        coreutils \
+        findutils \
+        rsync \
+        sed \
+        grep \
+        file \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/scryer-prolog/target/release/scryer-prolog \
+                    /usr/local/bin/scryer-prolog
+
+RUN scryer-prolog --version \
+ && file /usr/local/bin/scryer-prolog | grep -q "not stripped" \
+ && echo "[ok] debug symbols present in scryer-prolog binary"
+
+WORKDIR /workspace
+
+ENTRYPOINT ["/bin/bash"]
