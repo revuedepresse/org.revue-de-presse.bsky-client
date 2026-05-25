@@ -162,6 +162,9 @@ test-memoize-arity: ### Regression: getAuthorFeed no longer assertz's wide respo
 test-iterate-or-report-failure: ### Regression: silent maplist failure on the feed surfaces as a labelled throw, not a quiet success
 	@scryer-prolog ./tests/iterate_or_report_failure_test.pl -g halt
 
+test-malformed-post-skip: ### Regression: insert_record_args/9 defaults Bluesky-omitted-at-zero fields and labels missing required fields instead of silently failing the maplist
+	@scryer-prolog ./tests/malformed_post_skip_test.pl -g halt
+
 test-feed-capture-replay: ### Hermetic replay of /tmp/segv-investigation/last-feed-pairs.pl through insert_record_args/9
 	@scryer-prolog ./tests/feed_capture_replay_test.pl -g halt
 

@@ -18,9 +18,11 @@
 :- use_module(library(time)).
 
 :- use_module('../../../domain/events/app/bsky/feed/event_getAuthorFeed', [
-    onGetAuthorFeed/1,
-    onGetAuthorFeed/2,
-    onGetAuthorFeed/4
+    onGetAuthorFeed/5
+]).
+:- use_module('../../../infrastructure/pg/connection', [
+    open_pg_connection/1,
+    close_pg_connection/1
 ]).
 :- use_module('../../../configuration', [
     credentials_access_jwt/1
@@ -76,8 +78,8 @@ app__bsky__feed__getAuthorFeed_headers(ListHeaders) :-
         'User-Agent'('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36')
     ].
 
-%% send_request(+Params, +AnchorIn, -AnchorOut, -ResponsePairs, -StatusCode).
-send_request(Params, AnchorIn, AnchorOut, ResponsePairs, StatusCode) :-
+%% send_request(+Session, +Params, +AnchorIn, -AnchorOut, -ResponsePairs, -StatusCode).
+send_request(Session, Params, AnchorIn, AnchorOut, ResponsePairs, StatusCode) :-
     endpoint_spec_pairs(SpecPairs, false),
 
     pairs_keys(SpecPairs, [string(Verb)]),
@@ -126,7 +128,7 @@ send_request(Params, AnchorIn, AnchorOut, ResponsePairs, StatusCode) :-
     length(Feed, HowManyPostsInFeed),
     numlist(HowManyPostsInFeed, IndicesStartingAt1),
 
-    once(iterate_or_report_failure(NextCursor, HowManyPostsInFeed, Feed, IndicesStartingAt1, ParamValue, AnchorOut)),
+    once(iterate_or_report_failure(Session, NextCursor, HowManyPostsInFeed, Feed, IndicesStartingAt1, ParamValue, AnchorOut)),
 
     append([OperationId, " call failed"], FailedHttpRequestErrorMessage),
     chars_si(FailedHttpRequestErrorMessage),
@@ -175,19 +177,49 @@ capture_feed_response(BodyChars, ResponsePairs) :-
     nl(PairsStream),
     close(PairsStream).
 
-iterate_or_report_failure(NextCursor, HowManyPostsInFeed, Feed, Indices, ParamValue, Anchor) :-
+%% iterate_or_report_failure(+Session, +NextCursor, +Total, +Feed, +Indices, +ParamValue, +Anchor)
+%
+% Session = pg_session(In, Out). Folds the feed through
+% onGetAuthorFeed/5 threading the connection from one post to the
+% next, then recurses into follow_or_finalize/4 (which may
+% paginate to the next page through the same session).
+%
+% Already-indexed posts stop the per-page fold but not the
+% pagination: the cursor-based recursion continues from the next
+% page. This preserves the pre-refactor behaviour of bailing out
+% of the page after the first already-known post while keeping the
+% per-post catch in onGetAuthorFeed/5 active for everything else
+% (pg_query_silently_failed and malformed_post are routed to
+% skipped_post entries, unknown exceptions propagate).
+iterate_or_report_failure(pg_session(In, OutFinal), NextCursor, Total, Feed, Indices, ParamValue, Anchor) :-
+    fold_feed(pg_session(In, OutFold), Total, NextCursor, Feed, Indices),
+    follow_or_finalize(pg_session(OutFold, OutFinal), NextCursor, ParamValue, Anchor).
+
+%% fold_feed(+Session, +Total, +NextCursor, +Feed, +Indices)
+%
+% Session = pg_session(In, Out). Threads the connection through
+% one onGetAuthorFeed/5 call per post. The catch handler dispatches
+% on whether the call's session output (C1) was already bound by
+% the inner pipeline (nonvar -> use as-is) or not (var -> set to
+% the input). Pure two-clause dispatch via `already_indexed_handler/4`;
+% no cuts.
+fold_feed(pg_session(C, C), _Total, _NextCursor, [], _Indices).
+fold_feed(pg_session(C0, COut), Total, NextCursor, [Post|Rest], [Idx|IdxRest]) :-
     catch(
-        maplist(onGetAuthorFeed(NextCursor, HowManyPostsInFeed), Feed, Indices),
-        E,
-        if_(
-            E = already_indexed_post(URI),
-            writeln([post_indexed_before|[URI]], true),
-            throw(could_not_iterate_over_all_author_feed_post(E))
-        )
-    ),
-    follow_or_finalize(NextCursor, ParamValue, Anchor).
-iterate_or_report_failure(_NextCursor, HowManyPostsInFeed, _Feed, _Indices, _ParamValue, _Anchor) :-
-    report_iteration_failure(HowManyPostsInFeed).
+        ( onGetAuthorFeed(pg_session(C0, C1), NextCursor, Total, Post, Idx),
+          fold_feed(pg_session(C1, COut), Total, NextCursor, Rest, IdxRest)
+        ),
+        already_indexed_post(URI),
+        already_indexed_handler(URI, C0, C1, COut)
+    ).
+
+already_indexed_handler(URI, _C0, C1, C1) :-
+    nonvar(C1),
+    writeln([post_indexed_before|[URI]], true).
+already_indexed_handler(URI, C0, C1, C0) :-
+    var(C1),
+    C1 = C0,
+    writeln([post_indexed_before|[URI]], true).
 
 % Fallback for the maplist-over-feed path: log the count then
 % propagate a labelled exception so the caller's catch in
@@ -214,13 +246,13 @@ set_anchor_if_unset(none, [FirstWrapped|_], FirstIndexedAt) :-
 set_anchor_if_unset(none, [], none) :-
     writeln([cutoff_anchor_skipped_empty_feed], true).
 
-follow_or_finalize('none', _ParamValue, _Anchor) :-
+follow_or_finalize(pg_session(C, C), 'none', _ParamValue, _Anchor) :-
     writeln('fetched all available feed posts', true).
-follow_or_finalize(NextCursor, ParamValue, Anchor) :-
+follow_or_finalize(pg_session(In, Out), NextCursor, ParamValue, Anchor) :-
     dif(NextCursor, 'none'),
     once(resolve_cutoff_date(Anchor, CutoffDate)),
     cursor_date_prefix(NextCursor, CursorDate),
-    once(continue_or_stop_at_cutoff(CursorDate, CutoffDate, NextCursor, ParamValue, Anchor)).
+    once(continue_or_stop_at_cutoff(pg_session(In, Out), CursorDate, CutoffDate, NextCursor, ParamValue, Anchor)).
 
     % resolve_cutoff_date(+Anchor, -CutoffDate).
     %
@@ -243,13 +275,13 @@ follow_or_finalize(NextCursor, ParamValue, Anchor) :-
         length(DatePrefix, 10),
         append(DatePrefix, _, IsoChars).
 
-    continue_or_stop_at_cutoff(CursorDate, CutoffDate, NextCursor, _ParamValue, _Anchor) :-
+    continue_or_stop_at_cutoff(pg_session(C, C), CursorDate, CutoffDate, NextCursor, _ParamValue, _Anchor) :-
         CursorDate @< CutoffDate,
         writeln([stopped_cursor_more_than_two_days_before_anchor|[NextCursor, cutoff(CutoffDate)]], true).
-    continue_or_stop_at_cutoff(CursorDate, CutoffDate, NextCursor, ParamValue, Anchor) :-
+    continue_or_stop_at_cutoff(pg_session(In, Out), CursorDate, CutoffDate, NextCursor, ParamValue, Anchor) :-
         \+ (CursorDate @< CutoffDate),
         NextParams = actor(ParamValue)-cursor(NextCursor),
-        app__bsky__feed__getAuthorFeed_paginate(NextParams, Anchor, _AnchorOut, _Props).
+        app__bsky__feed__getAuthorFeed_paginate(pg_session(In, Out), NextParams, Anchor, _AnchorOut, _Props).
 
 %% app__bsky__feed__getAuthorFeed(+Params, -Props).
 %
@@ -261,25 +293,51 @@ follow_or_finalize(NextCursor, ParamValue, Anchor) :-
 % response and crashed the worker. The predicate now delegates
 % straight to the network call.
 app__bsky__feed__getAuthorFeed(Params, Props) :-
-    app__bsky__feed__getAuthorFeed_paginate(Params, none, _AnchorOut, Props).
+    open_pg_connection(Conn0),
+    catch(
+        ( app__bsky__feed__getAuthorFeed_paginate(pg_session(Conn0, ConnFinal), Params, none, _AnchorOut, Props),
+          close_pg_connection(ConnFinal) ),
+        Err,
+        ( best_effort_close_session(Conn0, ConnFinal),
+          throw(Err) )
+    ).
 
-        %% app__bsky__feed__getAuthorFeed_paginate(+Params, +AnchorIn, -AnchorOut, -Props).
-        app__bsky__feed__getAuthorFeed_paginate(Params, AnchorIn, AnchorOut, Props) :-
-            catch(
-                send_request(Params, AnchorIn, AnchorOut, Pairs, StatusCode),
-                E,
-                if_(
-                    E = failed_http_request(Message, Pairs, StatusCode),
-                    (log_error([Message]), fail),
-                    (log_error([E]), fail)
-                )
-            ),
+%% best_effort_close_session(+Conn0, +ConnFinal)
+%
+% On a throw mid-pagination we may have an unbound ConnFinal (the
+% pipeline never reached the bind point). Close whatever we have:
+% Conn0 always, ConnFinal too if a fresh one was opened. The two
+% clauses dispatch on whether ConnFinal is bound; no cuts.
+best_effort_close_session(Conn0, ConnFinal) :-
+    nonvar(ConnFinal),
+    close_pg_connection(ConnFinal),
+    close_pg_connection_if_distinct(Conn0, ConnFinal).
+best_effort_close_session(Conn0, ConnFinal) :-
+    var(ConnFinal),
+    close_pg_connection(Conn0).
 
-            if_(
-                dif(StatusCode, 200),
-               (by_key("message", Pairs, ErrorMessageChars),
-                chars_si(ErrorMessageChars),
-                atom_chars(ErrorMessage, ErrorMessageChars),
-                log_error([ErrorMessage]), fail),
-                Props = Pairs
-            ).
+close_pg_connection_if_distinct(Conn0, Conn0).
+close_pg_connection_if_distinct(Conn0, ConnFinal) :-
+    dif(Conn0, ConnFinal),
+    close_pg_connection(Conn0).
+
+%% app__bsky__feed__getAuthorFeed_paginate(+Session, +Params, +AnchorIn, -AnchorOut, -Props).
+app__bsky__feed__getAuthorFeed_paginate(pg_session(In, Out), Params, AnchorIn, AnchorOut, Props) :-
+    catch(
+        send_request(pg_session(In, Out), Params, AnchorIn, AnchorOut, Pairs, StatusCode),
+        E,
+        if_(
+            E = failed_http_request(Message, Pairs, StatusCode),
+            (log_error([Message]), fail),
+            (log_error([E]), fail)
+        )
+    ),
+
+    if_(
+        dif(StatusCode, 200),
+       (by_key("message", Pairs, ErrorMessageChars),
+        chars_si(ErrorMessageChars),
+        atom_chars(ErrorMessage, ErrorMessageChars),
+        log_error([ErrorMessage]), fail),
+        Props = Pairs
+    ).
