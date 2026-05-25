@@ -253,8 +253,11 @@ Once you OK this plan:
 
 - [x] Investigation report (`doc/SIGSEGV-REPRODUCER.md`)
 - [x] Minimal reproducer (`tests/pg/sigsegv_min_repro.pl`)
-- [x] Recovery patch (Tier 1) -- in `deps/scryer-prolog` working
-      tree, not yet committed to the submodule SHA
-- [ ] Tier 1 committed to a scryer-prolog fork + submodule bump
+- [x] Recovery patch (Tier 1) -- upgraded to PLAUSIBLE_MIN=4 GiB +
+      recovery-on-PDL (replaces earlier weak `< 0x10000` guard)
+- [x] Tier 1 committed to fork branch `unify-constant-recovery`
+      (2da7f36) + submodule bump recorded in main repo (99919da)
+      **Needs push to GitHub** (`git push origin unify-constant-recovery`
+      inside `deps/scryer-prolog` using personal credentials)
 - [ ] Tier 1.5 (`exists_by_uri_t/3` refactor)
 - [ ] Tier 2 upstream issue filed
