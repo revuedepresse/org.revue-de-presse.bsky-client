@@ -1,10 +1,10 @@
 :- module(repository_popularity, [
-    by_criteria/2,
-    count/1,
-    insert/2,
-    insert_without_unicity_check/2,
-    next_id/1,
-    query/1
+    by_criteria/3,
+    count/2,
+    insert/3,
+    insert_without_unicity_check/3,
+    next_id/2,
+    query/2
 ]).
 
 :- use_module(library(assoc)).
@@ -26,16 +26,16 @@
 ]).
 :- use_module('../pg/client', [
     encode_field_value/2,
-    execute/2,
+    execute/3,
     matching_criteria/2,
-    matching_criteria/4,
+    matching_criteria/5,
+    pg_query_or_throw/4,
     query_result/2,
     query_result_from_file/3,
-    query_result_from_file/4,
+    query_result_from_file/5,
     read_rows/2,
-    value/3
+    value/4
 ]).
-:- use_module('../pg/connection', [pg_query/3]).
 :- use_module('../../configuration', [pg_backend/1]).
 :- use_module('../../logger', [
     log_debug/1,
@@ -54,27 +54,18 @@
 ]).
 
 /**
-Repository for per-post popularity counters.
-
-Append-only by design: every poll appends a new
-`status_popularity` row with `total_favorites`,
-`total_retweets`, and a `checked_at` timestamp. There is no
-UNIQUE constraint, so the table grows linearly and downstream
-readers reduce by `publication_id` to pick the most recent
-sample.
+Repository for per-post popularity counters. Every wire-path
+predicate takes a `pg_session(In, Out)` compound as its first
+argument; psql-path clauses thread the session as a passthrough.
 */
 
-%% table(-Table)
 table("status_popularity").
 
-%% count(-Count)
-%
-% Total number of rows in `status_popularity`. Dispatches on PG_BACKEND.
-count(Count) :-
+count(pg_session(C0, C), Count) :-
     pg_backend("wire"),
     count_sql(SQL),
-    value(SQL, [], Count).
-count(Count) :-
+    value(pg_session(C0, C), SQL, [], Count).
+count(pg_session(C, C), Count) :-
     pg_backend("psql"),
     count_sql(SQL),
     query_result(SQL, Count).
@@ -83,13 +74,9 @@ count_sql(SQL) :-
     table(Table),
     append(["SELECT COUNT(*) AS matching_records_count FROM public.", Table], SQL).
 
-%% query(-HeadersAndRows)
-%
-% Two most recent `status_popularity` rows as header-keyed
-% assocs.
-query(HeadersAndRows) :-
+query(Session, HeadersAndRows) :-
     listing_headers(Headers),
-    query(Rows, [], 2),
+    query(Session, Rows, [], 2),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
@@ -101,7 +88,6 @@ listing_headers([
     "number__string"
 ]).
 
-%% all_clauses(-SQL, -Params, +Limit).
 all_clauses(SQL, [], "ALL") :-
     all_clauses_template("ALL", SQL).
 all_clauses(SQL, [LimitChars], Limit) :-
@@ -127,25 +113,19 @@ all_clauses_template(LimitClause, SQL) :-
         SQL
     ).
 
-%% query(-Rows, +Headers, +Limit).
-query(Rows, Headers, Limit) :-
+query(pg_session(C0, C), Rows, Headers, Limit) :-
     pg_backend("wire"),
     once(all_clauses(SQL, Params, Limit)),
     writeln(query:SQL, true),
-    once(query_result_from_file(SQL, Params, Headers, TmpFile)),
+    once(query_result_from_file(pg_session(C0, C), SQL, Params, Headers, TmpFile)),
     read_rows(TmpFile, Rows).
-query(Rows, _Headers, Limit) :-
+query(pg_session(C, C), Rows, _Headers, Limit) :-
     pg_backend("psql"),
     psql_all_clauses_sql(SQL, Limit),
     writeln(query:SQL, true),
     once(query_result_from_file(SQL, true, TmpFile)),
     read_rows(TmpFile, Rows).
 
-%% psql_all_clauses_sql(-SQL, +Limit).
-%
-% Concat form of the listing SELECT for the psql backend. Limit is
-% either the chars "ALL" or an integer that gets number_chars/2 into
-% the SQL text.
 psql_all_clauses_sql(SQL, "ALL") :-
     psql_all_clauses_template("ALL", SQL).
 psql_all_clauses_sql(SQL, Limit) :-
@@ -171,17 +151,14 @@ psql_all_clauses_template(LimitClause, SQL) :-
         SQL
     ).
 
-%% next_id(-NextId)
-%
-% Next available `status_id` for `status_popularity`. Dispatches on PG_BACKEND.
-next_id(NextId) :-
+next_id(pg_session(C0, C), NextId) :-
     pg_backend("wire"),
     query_max_id_sql(SQL),
-    value(SQL, [], MaxIdValue),
+    value(pg_session(C0, C), SQL, [], MaxIdValue),
     coerce_no_records(MaxIdValue, MaxId),
     NextId #= MaxId + 1,
     validate_id(NextId).
-next_id(NextId) :-
+next_id(pg_session(C, C), NextId) :-
     pg_backend("psql"),
     query_max_id_sql(SQL),
     query_result(SQL, MaxIdValue),
@@ -207,30 +184,18 @@ query_max_id_sql(SQL) :-
         SQL
     ).
 
-%% by_criteria(+Criteria, -HeadersAndRows)
-%
-% Look up all `status_popularity` rows matching the given
-% `record_id(_)` criterion as header-keyed assocs. Dispatches on PG_BACKEND.
-by_criteria(record_id(RecordId), HeadersAndRows) :-
+by_criteria(pg_session(C0, C), record_id(RecordId), HeadersAndRows) :-
     pg_backend("wire"),
     chars_si(RecordId),
     by_criteria_headers(Headers),
     by_criteria_sql(SQL),
-    matching_criteria(SQL, [RecordId], Headers, HeadersAndRows).
-by_criteria(record_id(RecordId), HeadersAndRows) :-
+    matching_criteria(pg_session(C0, C), SQL, [RecordId], Headers, HeadersAndRows).
+by_criteria(pg_session(C, C), record_id(RecordId), HeadersAndRows) :-
     pg_backend("psql"),
     chars_si(RecordId),
     psql_by_criteria_sql(RecordId, SQL),
     matching_criteria(SQL, HeadersAndRows).
 
-%% psql_by_criteria_sql(+RecordId, -SQL).
-%
-% Concat form: caller-supplied RecordId is inlined as a
-% single-quoted SQL literal. RecordId is a controlled identifier
-% (URI shape, validated upstream); the psql-era code used the same
-% convention. The trailing semicolon is omitted because
-% matching_criteria/2 appends "LIMIT 0;" then "LIMIT ALL;" in its
-% two-pass header/rows shape.
 psql_by_criteria_sql(RecordId, SQL) :-
     table(Table),
     append([
@@ -267,37 +232,28 @@ by_criteria_sql(SQL) :-
         "OFFSET 0;"
     ], SQL).
 
-%% insert(+Row, -InsertionResult)
-%
-% Pre-counts existing rows for `URI` and either inserts a new
-% one or logs the existing snapshot. Used by callers that want
-% per-URI uniqueness. Most production traffic instead goes
-% through [[repository_popularity#insert_without_unicity_check]].
+%% insert(+Session, +Row, -InsertionResult)
 insert(
-    row(
-        RecordId,
-        URI,
-        Likes,
-        RePosts
-    ),
+    pg_session(C0, C),
+    row(RecordId, URI, Likes, RePosts),
     InsertionResult
 ) :-
-    count_matching_records(row(URI), TotalMatchingRecords),
+    count_matching_records(pg_session(C0, C1), row(URI), TotalMatchingRecords),
     if_(
         dif(1, TotalMatchingRecords),
-        insert_new_popularity(RecordId, URI, Likes, RePosts, InsertionResult),
-        report_existing_popularity(URI, InsertionResult)
+        insert_new_popularity(pg_session(C1, C), RecordId, URI, Likes, RePosts, InsertionResult),
+        report_existing_popularity(pg_session(C1, C), URI, InsertionResult)
     ).
 
-insert_new_popularity(RecordId, URI, Likes, RePosts, ok) :-
+insert_new_popularity(pg_session(C0, C), RecordId, URI, Likes, RePosts, ok) :-
     pg_backend("wire"),
     uuidv4_string(Id),
     coerce_chars(Likes, LikesChars),
     coerce_chars(RePosts, RePostsChars),
     coerce_chars(RecordId, RecordIdChars),
     insert_sql(SQL),
-    execute(SQL, [Id, RecordIdChars, URI, LikesChars, RePostsChars]).
-insert_new_popularity(RecordId, URI, Likes, RePosts, ok) :-
+    execute(pg_session(C0, C), SQL, [Id, RecordIdChars, URI, LikesChars, RePostsChars]).
+insert_new_popularity(pg_session(C, C), RecordId, URI, Likes, RePosts, ok) :-
     pg_backend("psql"),
     uuidv4_string(Id),
     coerce_chars(Likes, LikesChars),
@@ -306,13 +262,6 @@ insert_new_popularity(RecordId, URI, Likes, RePosts, ok) :-
     psql_insert_sql(Id, RecordIdChars, URI, LikesChars, RePostsChars, SQL),
     query_result(SQL, _Result).
 
-%% psql_insert_sql(+Id, +RecordIdChars, +URI, +LikesChars, +RePostsChars, -SQL).
-%
-% Concatenated INSERT for the psql backend. Identifiers (Id, RecordIdChars,
-% URI) are inlined as single-quoted SQL literals; numeric chars (Likes,
-% RePosts) are inlined unquoted - same convention as the pre-69f3f97
-% client. No RETURNING; the caller treats the query_result/2 reply as
-% success (the matching wire body binds InsertionResult to ok).
 psql_insert_sql(Id, RecordIdChars, URI, LikesChars, RePostsChars, SQL) :-
     table(Table),
     append(
@@ -331,24 +280,18 @@ psql_insert_sql(Id, RecordIdChars, URI, LikesChars, RePostsChars, SQL) :-
         SQL
     ).
 
-report_existing_popularity(URI, ok) :-
+report_existing_popularity(pg_session(C0, C), URI, ok) :-
     pg_backend("wire"),
     select_by_uri_headers(SelectHeaders),
     select_by_uri_sql(SelectSQL),
-    matching_criteria(SelectSQL, [URI], SelectHeaders, Rows),
+    matching_criteria(pg_session(C0, C), SelectSQL, [URI], SelectHeaders, Rows),
     writeln([popularity_rows|[Rows]], true).
-report_existing_popularity(URI, ok) :-
+report_existing_popularity(pg_session(C, C), URI, ok) :-
     pg_backend("psql"),
     psql_select_by_uri_sql(URI, SelectSQL),
     matching_criteria(SelectSQL, Rows),
     writeln([popularity_rows|[Rows]], true).
 
-%% psql_select_by_uri_sql(+URI, -SQL).
-%
-% Concat form of the publication_id lookup for the psql backend.
-% URI is inlined as a single-quoted SQL literal. No trailing
-% semicolon - matching_criteria/2 appends "LIMIT 0;" / "LIMIT ALL;"
-% in its two-pass header/rows shape.
 psql_select_by_uri_sql(URI, SQL) :-
     table(Table),
     append(
@@ -397,36 +340,27 @@ select_by_uri_sql(SQL) :-
         SQL
     ).
 
-%% insert_without_unicity_check(+Row, -InsertionResult)
+%% insert_without_unicity_check(+Session, +Row, -InsertionResult)
 %
-% Append-only INSERT through the wire client. Skips the
-% pre-count, so every call adds a row regardless of duplicates.
-% This is the hot-path entry point used by
-% `event_getAuthorFeed`.
-insert_without_unicity_check(Row, InsertionResult) :-
-    once(insert_without_unicity_check_attempt(Row, InsertionResult)).
+% Hot-path entry point used by event_getAuthorFeed. Append-only;
+% no pre-count. Threads the session through so a wire reset gets
+% picked up by the popularity insert as well.
+insert_without_unicity_check(Session, Row, InsertionResult) :-
+    once(insert_without_unicity_check_attempt(Session, Row, InsertionResult)).
 
-insert_without_unicity_check_attempt(Row, InsertionResult) :-
+insert_without_unicity_check_attempt(Session, Row, InsertionResult) :-
     catch(
-        do_insert_without_unicity_check(Row, InsertionResult),
+        do_insert_without_unicity_check(Session, Row, InsertionResult),
         Cause,
         log_error([cannot_insert_popularity_without_unicity_check(Cause)])
     ),
     writeln([inserted_popularity_without_unicity_check_successfully|[]], true).
-insert_without_unicity_check_attempt(Row, _) :-
+insert_without_unicity_check_attempt(pg_session(C, C), Row, _) :-
     writeln([cannot_insert_popularity_without_unicity_check(Row)], true).
 
-%% do_insert_without_unicity_check(+Row, -InsertionResult).
-%
-% Bind-parameter INSERT via the wire client. Append-only by design;
-% no UNIQUE constraint or ON CONFLICT clause.
 do_insert_without_unicity_check(
-    row(
-        RecordId,
-        URI,
-        Likes,
-        RePosts
-    ),
+    pg_session(C0, C),
+    row(RecordId, URI, Likes, RePosts),
     InsertionResult
 ) :-
     pg_backend("wire"),
@@ -435,15 +369,11 @@ do_insert_without_unicity_check(
     coerce_chars(RePosts, RePostsChars),
     coerce_chars(RecordId, RecordIdChars),
     popularity_insert_sql(SQL),
-    pg_query(SQL, [Id, RecordIdChars, URI, LikesChars, RePostsChars], Reply),
+    pg_query_or_throw(pg_session(C0, C), SQL, [Id, RecordIdChars, URI, LikesChars, RePostsChars], Reply),
     interpret_popularity_insert(Reply, InsertionResult).
 do_insert_without_unicity_check(
-    row(
-        RecordId,
-        URI,
-        Likes,
-        RePosts
-    ),
+    pg_session(C, C),
+    row(RecordId, URI, Likes, RePosts),
     InsertionResult
 ) :-
     pg_backend("psql"),
@@ -455,15 +385,6 @@ do_insert_without_unicity_check(
     query_result(SQL, Result),
     interpret_popularity_insert_psql(Result, InsertionResult).
 
-%% psql_popularity_insert_sql(+Id, +RecordIdChars, +URI, +LikesChars,
-%%                           +RePostsChars, -SQL).
-%
-% Concat form of the append-only popularity INSERT for the psql
-% backend. Mirrors popularity_insert_sql/1 (wire) but inlines values
-% as single-quoted SQL literals for chars and unquoted numeric chars
-% for the counter fields. No RETURNING - the caller maps the
-% query_result/2 reply onto the wire `ok` contract via
-% interpret_popularity_insert_psql/2.
 psql_popularity_insert_sql(Id, RecordIdChars, URI, LikesChars, RePostsChars, SQL) :-
     table(Table),
     append(
@@ -482,12 +403,6 @@ psql_popularity_insert_sql(Id, RecordIdChars, URI, LikesChars, RePostsChars, SQL
         SQL
     ).
 
-%% interpret_popularity_insert_psql(+Result, -InsertionResult).
-%
-% Adapt the psql client's single-statement reply (ok | integer |
-% chars | no_records_found) to the wire-era `ok` contract used by
-% callers. INSERT-without-RETURNING reports `ok`; any other shape is
-% surfaced as a thrown error so it doesn't get silently swallowed.
 interpret_popularity_insert_psql(ok, ok).
 interpret_popularity_insert_psql(no_records_found, ok).
 interpret_popularity_insert_psql(Other, _) :-
@@ -513,12 +428,11 @@ coerce_chars(V, V) :- \+ integer(V), \+ atom(V).
 interpret_popularity_insert(data(_), ok).
 interpret_popularity_insert(error(Err), _) :- throw(pg_error(Err)).
 
-%% count_matching_records(+Row, -Result). Dispatches on PG_BACKEND.
-count_matching_records(row(URI), Result) :-
+count_matching_records(pg_session(C0, C), row(URI), Result) :-
     pg_backend("wire"),
     count_matching_records_sql(SQL),
-    value(SQL, [URI], Result).
-count_matching_records(row(URI), Result) :-
+    value(pg_session(C0, C), SQL, [URI], Result).
+count_matching_records(pg_session(C, C), row(URI), Result) :-
     pg_backend("psql"),
     psql_count_matching_records_sql(URI, SQL),
     query_result(SQL, Result).

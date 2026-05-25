@@ -1,40 +1,41 @@
 :- module(event_getAuthorFeed, [
-    onGetAuthorFeed/4,
+    onGetAuthorFeed/5,
     insert_record_args/9
 ]).
 
 /**
 Domain event handler for `app.bsky.feed.getAuthorFeed`.
 
-Called once per post returned by the feed traversal. Decodes
-each post into the fields the repository layer expects,
-short-circuits if a status row already exists at this cursor,
-then chains three idempotent writes: `weaving_status` (with
-ON CONFLICT to recover an existing `ust_id`), `publication`
-(also with ON CONFLICT), and `status_popularity` (append-only).
-Idempotence is enforced at the database, not in prolog, so a
-re-run of the worker leaves no duplicates.
+onGetAuthorFeed/5 takes a `pg_session(In, Out)` compound as the
+first argument. Connection threading is uniform: the compound's
+input slot is the connection the predicate starts with, and after
+the body the output slot is bound to either the same connection
+(happy path) or a freshly opened one (wire-recovery path).
+
+The per-post catch routes around `pg_query_silently_failed/2` and
+`malformed_post/1` by recording the offending post and binding the
+session's output slot to the input (no DB state change). Every
+other exception is re-raised with the session left in a consistent
+state by the underlying client.pl handlers.
 */
 
 :- use_module(library(assoc)).
 :- use_module(library(charsio)).
 :- use_module(library(lists)).
 :- use_module(library(reif)).
+:- use_module(library(dif)).
 :- use_module(library(serialization/json)).
 :- use_module(library(time)).
 
 :- use_module('../../../../../infrastructure/repository/repository_status', [
-    by_criteria/2,
-    exists_by_uri_t/3,
-    id_hash/3,
-    insert/2
+    exists_by_uri_t/4,
+    insert/4
 ]).
 :- use_module('../../../../../infrastructure/repository/repository_popularity', [
-    insert_without_unicity_check/2
+    insert_without_unicity_check/3
 ]).
 :- use_module('../../../../../infrastructure/repository/repository_publication', [
-    by_criteria/2,
-    insert/2
+    insert/3
 ]).
 :- use_module('../../../../../logger', [
     log_debug/1,
@@ -52,177 +53,229 @@ re-run of the worker leaves no duplicates.
     writeln/2
 ]).
 
-%% onGetAuthorFeed(+Cursor, +TotalPosts, +Post, +Index)
+%% onGetAuthorFeed(+Session, +Cursor, +TotalPosts, +Post, +Index)
 %
-% Handle one post returned by `getAuthorFeed`. `Cursor` is the
-% feed cursor's ISO-8601 timestamp; `Post` is the JSON-DCG
-% pair list for the post; `Index` and `TotalPosts` carry the
-% post's position on the current page for logging. Writes
-% `weaving_status`, `publication`, and `status_popularity` in
-% sequence, each idempotent at the DB layer.
-onGetAuthorFeed(Cursor, TotalPosts, Post, Index) :-
+% Session = pg_session(In, Out). After the call, Out is bound:
+% to a fresh connection if a wire reconnect happened during the
+% DB calls, or to In otherwise.
+onGetAuthorFeed(pg_session(In, Out), Cursor, TotalPosts, Post, Index) :-
     writeln([processing_post_at_index|[(Index/TotalPosts)]], true),
     catch(
-        onGetAuthorFeed(Cursor, Post),
-        pg_query_silently_failed(SQL, Params),
-        ( record_skipped_post(Index, Post, pg_query_silently_failed(SQL, Params)),
-          writeln(
-              [skipped_post|[
-                  index(Index/TotalPosts),
-                  reason(pg_query_silently_failed)
-              ]],
-              true
-          )
-        )
+        process_post(pg_session(In, Out), Cursor, Post),
+        Caught,
+        ( ensure_session_out_bound(pg_session(In, Out)),
+          on_post_exception(Caught, Index, TotalPosts, Post) )
     ).
 
-    %% Handling onGetAuthorFeed Event
-    %
-    %% onGetAuthorFeed(+Cursor, +Post)
-    %
-    % Cursor is the page-level NextCursor, kept in the signature
-    % for the maplist call shape but no longer used for dedup --
-    % per-post existence is now keyed on the post's own URI via
-    % the ust_hash unique index. Keying on the page cursor wrongly
-    % rejected every post on a page whose oldest indexedAt second
-    % collided with an existing row.
-    onGetAuthorFeed(_Cursor, Post) :-
-        insert_record_args(
-            Post,
-            DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
-            likes(LikeCount)-reposts(RepostCount)
-        ),
-        if_(
-            exists_by_uri_t(Handle, URI),
-            throw(already_indexed_post(uri(URI))),
-            ( writeln([no_records_found_by_uri|[URI]], true),
-              try_inserting_publication_record(
-                  DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
-                  likes(LikeCount)-reposts(RepostCount),
-                  _PublicationInsertionResult
-              )
-            )
-        ).
+%% ensure_session_out_bound(+Session).
+%
+% Pre-condition for the post-catch handler. On the success path
+% process_post binds Out either to In (no reconnect) or to a fresh
+% connection (reconnect). On a throw mid-pipeline Out may still be
+% unbound -- the two clauses below cover both cases without using
+% cut or `->`: var/1 gates clause selection structurally.
+ensure_session_out_bound(pg_session(In, Out)) :-
+    var(Out),
+    Out = In.
+ensure_session_out_bound(pg_session(_In, Out)) :-
+    nonvar(Out).
 
-        %% insert_record_args(+Post, -DisplayName, -Handle, -Text, -AuthorAvatar, -Payload, -URI, -CreatedAt, -Popularity)
-        insert_record_args(
-            Post,
-            DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
-            likes(LikeCount)-reposts(RepostCount)
-        ) :-
-            wrapped_pairs_to_assoc(Post, PostAssoc),
-            writeln(post:Post),
-            writeln(assoc:PostAssoc),
+%% on_post_exception(+Exception, +Index, +TotalPosts, +Post).
+%
+% Skips known-safe-to-route-around exceptions, re-raises the rest.
+% Pure pattern + dif/2 dispatch; no cuts. Session is bound by
+% ensure_session_out_bound/1 before this is called.
+on_post_exception(pg_query_silently_failed(SQL, Params), Index, TotalPosts, Post) :-
+    record_skipped_post(Index, Post, pg_query_silently_failed(SQL, Params)),
+    writeln(
+        [skipped_post|[
+            index(Index/TotalPosts),
+            reason(pg_query_silently_failed)
+        ]],
+        true
+    ).
+on_post_exception(malformed_post(Reason), Index, TotalPosts, Post) :-
+    record_skipped_post(Index, Post, malformed_post(Reason)),
+    writeln(
+        [skipped_post|[
+            index(Index/TotalPosts),
+            reason(malformed_post(Reason))
+        ]],
+        true
+    ).
+on_post_exception(Other, _Index, _Total, _Post) :-
+    dif(Other, pg_query_silently_failed(_, _)),
+    dif(Other, malformed_post(_)),
+    throw(Other).
 
-            get_assoc(post, PostAssoc, FeedPost),
-            writeln(feed_post:FeedPost),
+%% process_post(+Session, +Cursor, +Post).
+%
+% Pipeline: extract fields, dedup by URI, chain status +
+% publication + popularity inserts. Session threads through every
+% DB call; the outer compound's Out slot is bound at the end of
+% the chain (either to the final connection on the success path,
+% or by the catch handler in onGetAuthorFeed on the throw path).
+process_post(pg_session(In, Out), _Cursor, Post) :-
+    insert_record_args(
+        Post,
+        DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
+        likes(LikeCount)-reposts(RepostCount)
+    ),
+    exists_by_uri_t(pg_session(In, C1), Handle, URI, Exists),
+    handle_existence(
+        Exists,
+        pg_session(C1, Out),
+        URI,
+        args(DisplayName, Handle, Text, AuthorAvatar, Payload, CreatedAt,
+             likes(LikeCount)-reposts(RepostCount))
+    ).
 
-            get_assoc(author, FeedPost, Author),
-            get_assoc(displayName, Author, DisplayName),
-            get_assoc(handle, Author, Handle),
-            get_assoc(avatar, Author, AuthorAvatar),
+%% handle_existence(+Exists, +Session, +URI, +Args).
+%
+% Pure two-clause dispatch on the reified existence Truth.
+handle_existence(true, pg_session(C, C), URI, _Args) :-
+    throw(already_indexed_post(uri(URI))).
+handle_existence(false, Session, URI,
+                 args(DisplayName, Handle, Text, AuthorAvatar, Payload, CreatedAt,
+                      likes(LikeCount)-reposts(RepostCount))) :-
+    writeln([no_records_found_by_uri|[URI]], true),
+    try_inserting_publication_record(
+        Session,
+        DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
+        likes(LikeCount)-reposts(RepostCount),
+        _PublicationInsertionResult
+    ).
 
-            get_assoc(likeCount, FeedPost, LikeCount),
-            get_assoc(repostCount, FeedPost, RepostCount),
+%% insert_record_args(+Post, -DisplayName, -Handle, -Text, -AuthorAvatar, -Payload, -URI, -CreatedAt, -Popularity)
+%
+% Field extraction goes through assoc_required/3 for fields whose
+% absence makes the post unstorable and assoc_optional/4 for fields
+% the Bluesky API legitimately omits at zero/empty values.
+insert_record_args(
+    Post,
+    DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
+    likes(LikeCount)-reposts(RepostCount)
+) :-
+    wrapped_pairs_to_assoc(Post, PostAssoc),
+    writeln(post:Post),
+    writeln(assoc:PostAssoc),
 
-            get_assoc(record, FeedPost, Record),
-            get_assoc(text, Record, Text),
-            get_assoc(createdAt, Record, CreatedAt),
+    assoc_required(post, PostAssoc, FeedPost),
+    writeln(feed_post:FeedPost),
 
-            get_assoc(uri, FeedPost, URI),
-            Payload = FeedPost.
+    assoc_required(author, FeedPost, Author),
+    assoc_optional(displayName, Author, DisplayName, []),
+    assoc_required(handle, Author, Handle),
+    assoc_optional(avatar, Author, AuthorAvatar, []),
 
-        %% try_inserting_publication_record(
-        %%  +DisplayName, +Handle, +Text, +AuthorAvatar, +Payload, +URI, +CreatedAt,
-        %%  +Popularity,
-        %%  -InsertionResult
-        %% ),
-        %
-        % Idempotence is enforced at the DB layer via UNIQUE (hash);
-        % repository_publication:insert/2 uses INSERT ... ON CONFLICT DO
-        % NOTHING RETURNING legacy_id and tells us whether a row was
-        % actually written (new(_)) or skipped (duplicate(_)).
-        try_inserting_publication_record(
-            DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
-            likes(LikeCount)-reposts(RepostCount),
-            InsertionResult
-        ) :-
-            try_inserting_status_record(
-                DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
-                likes(LikeCount)-reposts(RepostCount),
-                RecordId
-            ),
-            repository_publication:insert(
-                row(
-                    DisplayName,
-                    Handle,
-                    Text,
-                    AuthorAvatar,
-                    Payload,
-                    URI,
-                    CreatedAt,
-                    RecordId
-                ),
-                InsertionResult
-            ),
-            writeln(publication_record_insertion(InsertionResult), true).
+    assoc_optional(likeCount, FeedPost, LikeCount, 0),
+    assoc_optional(repostCount, FeedPost, RepostCount, 0),
 
-        %% try_inserting_status_record(+DisplayName, +Handle, +Text, +AuthorAvatar, +Payload, +URI, +CreatedAt, +Popularity, -RecordId),
-        %
-        % repository_status:insert/3 is now idempotent at the DB layer
-        % (UNIQUE (ust_hash) + ON CONFLICT DO NOTHING RETURNING ust_id),
-        % and always yields a ust_id - either freshly minted or fetched
-        % via the post-conflict SELECT. Popularity is always appended.
-        try_inserting_status_record(
-            DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
-            likes(LikeCount)-reposts(RepostCount),
+    assoc_required(record, FeedPost, Record),
+    assoc_required(text, Record, Text),
+    assoc_required(createdAt, Record, CreatedAt),
+
+    assoc_required(uri, FeedPost, URI),
+    Payload = FeedPost.
+
+%% assoc_lookup_t(+Key, +Assoc, -Found).
+assoc_lookup_t(Key, Assoc, Found) :-
+    assoc_to_list(Assoc, KVs),
+    pairs_lookup_t(Key, KVs, Found).
+
+pairs_lookup_t(_Key, [], absent).
+pairs_lookup_t(Key, [K-V|KVs], Found) :-
+    if_(
+        Key = K,
+        Found = present(V),
+        pairs_lookup_t(Key, KVs, Found)
+    ).
+
+assoc_required(Key, Assoc, Value) :-
+    assoc_lookup_t(Key, Assoc, Found),
+    assoc_required_resolve(Key, Found, Value).
+
+assoc_required_resolve(_Key, present(Value), Value).
+assoc_required_resolve(Key, absent, _) :-
+    throw(malformed_post(missing_field(Key))).
+
+assoc_optional(Key, Assoc, Value, Default) :-
+    assoc_lookup_t(Key, Assoc, Found),
+    assoc_optional_resolve(Found, Default, Value).
+
+assoc_optional_resolve(present(Value), _Default, Value).
+assoc_optional_resolve(absent, Default, Default).
+
+%% try_inserting_publication_record(+Session, ..., -InsertionResult).
+%
+% Chains status -> publication inserts, threading session through.
+% Idempotence is at the DB layer via UNIQUE (hash).
+try_inserting_publication_record(
+    pg_session(In, Out),
+    DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
+    likes(LikeCount)-reposts(RepostCount),
+    InsertionResult
+) :-
+    try_inserting_status_record(
+        pg_session(In, C1),
+        DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
+        likes(LikeCount)-reposts(RepostCount),
+        RecordId
+    ),
+    repository_publication:insert(
+        pg_session(C1, Out),
+        row(
+            DisplayName,
+            Handle,
+            Text,
+            AuthorAvatar,
+            Payload,
+            URI,
+            CreatedAt,
             RecordId
-        ) :-
-            writeln([likes_reposts|[likes(LikeCount)-reposts(RepostCount)]], true),
-            repository_status:insert(
-                row(
-                    DisplayName,
-                    Handle,
-                    Text,
-                    AuthorAvatar,
-                    Payload,
-                    URI,
-                    CreatedAt
-                ),
-                InsertionResult,
-                RecordId
-            ),
-            once(( ground(RecordId) ; throw(invalid_publication_id) )),
-            writeln([status_record_insertion|[InsertionResult]], true),
-            writeln([inserted_record_id|[RecordId]], true),
-            repository_popularity:insert_without_unicity_check(
-                row(RecordId, URI, LikeCount, RepostCount),
-                _PopularityInsertionResult
-            ).
+        ),
+        InsertionResult
+    ),
+    writeln(publication_record_insertion(InsertionResult), true).
+
+%% try_inserting_status_record(+Session, ..., -RecordId).
+%
+% Status insert + popularity insert chained through the session.
+try_inserting_status_record(
+    pg_session(In, Out),
+    DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
+    likes(LikeCount)-reposts(RepostCount),
+    RecordId
+) :-
+    writeln([likes_reposts|[likes(LikeCount)-reposts(RepostCount)]], true),
+    repository_status:insert(
+        pg_session(In, C1),
+        row(
+            DisplayName,
+            Handle,
+            Text,
+            AuthorAvatar,
+            Payload,
+            URI,
+            CreatedAt
+        ),
+        InsertionResult,
+        RecordId
+    ),
+    once(( ground(RecordId) ; throw(invalid_publication_id) )),
+    writeln([status_record_insertion|[InsertionResult]], true),
+    writeln([inserted_record_id|[RecordId]], true),
+    repository_popularity:insert_without_unicity_check(
+        pg_session(C1, Out),
+        row(RecordId, URI, LikeCount, RepostCount),
+        _PopularityInsertionResult
+    ).
 
 %% record_skipped_post(+Index, +Post, +Reason).
 %
-% Append the offending Post term and surrounding context to
-% /tmp/segv-investigation/skipped_posts.pl when onGetAuthorFeed/2
-% surfaces a labelled pg_query_silently_failed/2 throw and the
-% outer maplist routes around it. The file is the same convention
-% used by capture_feed_response/2 in getAuthorFeed.pl and
-% record_pg_query_failure/3 in client.pl, so a single sweep of
-% /tmp/segv-investigation/ recovers every artifact tied to a
-% given run. I/O errors are swallowed: this writer must never
-% mask the underlying pg_query failure it is documenting.
-%
-% Each entry is one self-contained clause:
-%
-%   skipped_post(
-%     at(<ISO-8601 chars>),
-%     index(<integer>),
-%     reason(<Reason>),
-%     post(<full JSON-DCG pair term>)
-%   ).
-%
-% so a downstream reader can `consult/1` the file and replay each
-% skipped post in isolation.
+% Persist the offending post for downstream replay. I/O errors are
+% swallowed so this writer cannot mask the underlying failure it
+% is documenting.
 record_skipped_post(Index, Post, Reason) :-
     catch(
         ( current_time(T),
