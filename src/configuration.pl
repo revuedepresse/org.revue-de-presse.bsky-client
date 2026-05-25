@@ -12,6 +12,7 @@
     log_level/1,
     list_at_uri/1,
     personal_data_server_host/1,
+    pg_backend/1,
     public_bluesky_app_view_api_host/1,
     temporary_dir/1
 ]).
@@ -163,3 +164,23 @@ database_username(DatabaseUsername) :-
 database_db_name(DatabaseDbName) :-
     assert_env_var_is_declared("DATABASE_DB_NAME", DatabaseDbName, missing_database_parameter('Please export DATABASE_DB_NAME environment variable.')),
     assert_env_var_non_empty("DATABASE_DB_NAME", DatabaseDbName).
+
+%% pg_backend(-Backend)
+%
+% Active Postgres transport, from `PG_BACKEND`. Two values:
+%
+%   - "wire" — postgresql-prolog over TCP (default; SCRAM-SHA-256).
+%   - "psql" — `psql(1)` shell-out + `PGPASSWORD` env (fall-back).
+%
+% Unset means "wire" so existing deployments stay on the wire path
+% without any env change. An empty value (`PG_BACKEND=`) makes every
+% dispatch clause fail at its guard — a Prolog failure at the call
+% site is easier to root-cause than a swallowed default.
+%
+% Two clauses, no cut: `pg_backend("wire")` and `pg_backend("psql")`
+% are mutually exclusive at runtime, so each is used as a guard goal
+% at the head of dispatching repository predicates.
+pg_backend(Backend) :-
+    getenv("PG_BACKEND", Backend).
+pg_backend("wire") :-
+    \+ getenv("PG_BACKEND", _).

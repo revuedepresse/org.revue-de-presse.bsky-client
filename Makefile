@@ -169,6 +169,29 @@ test-already-indexed-by-uri: compose-up ### Regression: onGetAuthorFeed dedup ke
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./tests/pg/already_indexed_by_uri_test.pl -g 'run_test'
 
+test-repository-inserts-psql: compose-up ### repository_inserts test under PG_BACKEND=psql (shell-out fall-back transport)
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_inserts_test.pl -g 'run_test'
+
+test-repository-publisher-psql: compose-up ### repository_publisher test under PG_BACKEND=psql
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_publisher_test.pl -g 'run_test'
+
+test-repository-list-psql: compose-up ### repository_list test under PG_BACKEND=psql
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test'
+
+test-already-indexed-by-uri-psql: compose-up ### Dedup-by-URI regression under PG_BACKEND=psql (verifies count_matching_records/2 seam)
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql scryer-prolog ./tests/pg/already_indexed_by_uri_test.pl -g 'run_test'
+
+test-clean-text-psql: compose-up ### End-to-end: clean_text/2 is applied on the psql ingest path (repository_status:insert/3)
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql scryer-prolog ./tests/pg/clean_text_psql_test.pl -g 'run_test'
+
+test-backend-default: ### pg_backend/1 falls back to "wire" when PG_BACKEND is unset
+	@unset PG_BACKEND; scryer-prolog ./tests/pg/backend_default_test.pl -g 'run_test'
+
 probe-prod-auth: ### Read-only auth probe against the DB defined in .env.local
 	@set -a; . ./.env.local; set +a; \
 	scryer-prolog ./src/infrastructure/pg/probe.pl -g 'run'
@@ -176,6 +199,23 @@ probe-prod-auth: ### Read-only auth probe against the DB defined in .env.local
 scryer-prolog-build: ### Sync deps/scryer-prolog to the recorded SHA and rebuild the release binary (deps/scryer-prolog/target/release/scryer-prolog) -- fun.sh's `configure` prepends that path so the worker runs the patched VM.
 	@git submodule update --init --recursive deps/scryer-prolog
 	@cd deps/scryer-prolog && cargo build --release
+
+scryer-prolog-build-with-debug-symbols: ### Build scryer-prolog at the recorded SHA WITH full DWARF debug symbols (debuginfo=2). Same release optimizations + same code path as scryer-prolog-build, but the resulting binary is unstripped, so a coredump from a SIGSEGV can be analysed with gdb to resolve function names, file/line numbers, and inlined frames. Use when investigating a fresh crash captured under var/tmp/segv-investigation*/.
+	@git submodule update --init --recursive deps/scryer-prolog
+	@cd deps/scryer-prolog && RUSTFLAGS="-C debuginfo=2" cargo build --release
+
+docker-segv-reproducer-build: ### Build the Docker image (org.revue-de-presse.bsky.segv-reproducer:debug) containing scryer-prolog compiled with full DWARF debug symbols + gdb + psql client. Uses the official rust:1.85-slim-bullseye toolchain image, so no local cargo install is required -- works anywhere Docker runs, including the production host.
+	@git submodule update --init --recursive deps/scryer-prolog
+	@docker compose -f compose.repro.yaml build segv-reproducer
+
+docker-segv-reproducer-run: ### Run the concurrent SIGSEGV reproducer inside the debug-symbol container against the DB defined in .env.local. Env knobs: PARALLEL (default 3), REPRODUCER_ROUNDS (default 50), HOST_DUMP_DIR (default ./var/tmp/coredumps). Requires patched-VM captures under var/tmp/segv-investigation-pull/ or var/tmp/segv-investigation/. On a SIGSEGV the kernel writes a coredump per the host's kernel.core_pattern -- if that path is bind-mounted into the container at /coredumps the reproducer's tail summary lists it.
+	@mkdir -p "$${HOST_DUMP_DIR:-./var/tmp/coredumps}"
+	@set -a; . ./.env.local; set +a; \
+		docker compose -f compose.repro.yaml run --rm segv-reproducer
+
+docker-segv-gdb: ### Drop into an interactive gdb-equipped container for post-mortem analysis of a coredump produced by docker-segv-reproducer-run. Sources .env.local so DATABASE_* env vars are injected (silences compose interpolation warnings; gdb itself does not connect to PG). Mounts the repo read-only and ./var/tmp/coredumps (or $$HOST_DUMP_DIR) read-only at /coredumps. Then inside: gdb /usr/local/bin/scryer-prolog /coredumps/<dump>
+	@set -a; . ./.env.local; set +a; \
+		docker compose -f compose.repro.yaml run --rm segv-gdb
 
 doc-setup: ### Clone doclog's own dependencies (teruel, djota) into deps/doclog
 	@if [ ! -f deps/doclog/Makefile ]; then \
