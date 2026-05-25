@@ -259,5 +259,8 @@ Once you OK this plan:
       (2da7f36) + submodule bump recorded in main repo (99919da)
       **Needs push to GitHub** (`git push origin unify-constant-recovery`
       inside `deps/scryer-prolog` using personal credentials)
-- [ ] Tier 1.5 (`exists_by_uri_t/3` refactor)
+- [x] Tier 1.5 (`exists_by_uri_t/3` refactor -- drops both `if_/3`
+      occurrences from the count path; `make test-already-indexed-by-uri`
+      and `make test-already-indexed-by-uri-psql` are the verification
+      targets when Docker is available)
 - [ ] Tier 2 upstream issue filed
