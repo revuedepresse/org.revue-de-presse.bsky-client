@@ -21,13 +21,17 @@
     app__bsky__feed__getAuthorFeed/2
 ]).
 :- use_module('../../../domain/events/app/bsky/actor/event_getProfile', [
-    onGetProfile/1
+    onGetProfile/2
 ]).
 :- use_module('../../../domain/events/app/bsky/graph/event_getList', [
-    onGetList/2
+    onGetList/3
 ]).
 :- use_module('../../../domain/events/app/bsky/graph/event_getListItem', [
-    onGetListItem/2
+    onGetListItem/3
+]).
+:- use_module('../../../infrastructure/pg/connection', [
+    open_pg_connection/1,
+    close_pg_connection/1
 ]).
 :- use_module('../../../http', [
     public_bluesky_appview_api_endpoint/2,
@@ -68,8 +72,8 @@ app__bsky__graph__getList_headers(ListHeaders) :-
     header_content_type_application_json(ApplicationJsonContentTypeHeader),
     ListHeaders = [ApplicationJsonContentTypeHeader].
 
-%% send_request(+MainListAtUri, -ResponsePairs, -StatusCode).
-send_request(MainListAtUri, ResponsePairs, StatusCode) :-
+%% send_request(+Session, +MainListAtUri, -ResponsePairs, -StatusCode).
+send_request(pg_session(C0, C), MainListAtUri, ResponsePairs, StatusCode) :-
     endpoint_spec_pairs(SpecPairs, false),
 
     pairs_keys(SpecPairs, [string(Verb)]),
@@ -110,12 +114,12 @@ send_request(MainListAtUri, ResponsePairs, StatusCode) :-
 
     % See ./domain/.../graph/event_getList.pl
     % where `onGetList` event handler is implemented
-    onGetList(ListUri, Payload),
+    onGetList(pg_session(C0, C1), ListUri, Payload),
 
     % Emits
     % - `onGetListItem` event handled by ./domain/.../graph/event_getListsItem.pl,
     % - `onGetProfile` event handled by ./domain/.../actor/event_getProfile.pl
-    list_uri(MainListAtUri, JSONAssoc, ListUri),
+    list_uri(pg_session(C1, C), MainListAtUri, JSONAssoc, ListUri),
 
     if_(
         dif(StatusCode, 200),
@@ -137,34 +141,46 @@ payload(BodyChars, Payload) :-
     maplist(char_code_at, Utf8Bytes, Utf8BytesPayload),
     chars_base64(Utf8BytesPayload, Payload, []).
 
-%% list_uri(+MainListAtUri, +JSONAssoc, -Uri).
-list_uri(MainListAtUri, JSONAssoc, Uri) :-
+%% list_uri(+Session, +MainListAtUri, +JSONAssoc, -Uri).
+list_uri(Session, MainListAtUri, JSONAssoc, Uri) :-
     get_assoc(list, JSONAssoc, List),
     get_assoc(items, JSONAssoc, ReversedItems),
     reverse(ReversedItems, Items),
-    process_items(MainListAtUri, Items),
+    process_items(Session, MainListAtUri, Items),
     get_assoc(uri, List, Uri).
 
-    %% process_items(+_MainListAtUri, +ItemsAssocs).
-    process_items(MainListAtUri, ItemsAssocs) :-
+    %% process_items(+Session, +_MainListAtUri, +ItemsAssocs).
+    %
+    % Folds the connection through every item, first for the
+    % profiles (publishers_list rows), then for the list items
+    % (profile events and weaving_user records).
+    process_items(pg_session(C0, C), MainListAtUri, ItemsAssocs) :-
         maplist(wrapped_pairs_to_assoc, ItemsAssocs, WrappedItemsAssocs),
-        foldl(try_to_get_profile(MainListAtUri), WrappedItemsAssocs, [], []),
-        maplist(onGetListItem, WrappedItemsAssocs, ItemsAssocs).
+        foldl(try_to_get_profile(MainListAtUri), WrappedItemsAssocs, C0, C1),
+        foldl(on_get_list_item, WrappedItemsAssocs, ItemsAssocs, C1, C).
 
-    %% try_to_get_profile(+MainListAtUri, +Assoc, +In, -In).
-    try_to_get_profile(MainListAtUri, Assoc, In, In) :-
+    %% on_get_list_item(+WrappedItemAssoc, +ItemAssoc, +In, -Out).
+    on_get_list_item(WrappedItemAssoc, ItemAssoc, In, Out) :-
+        onGetListItem(pg_session(In, Out), WrappedItemAssoc, ItemAssoc).
+
+    %% try_to_get_profile(+MainListAtUri, +Assoc, +In, -Out).
+    %
+    % The catch undoes the bindings of the goal it guards, so a
+    % caught error leaves the session on its input connection.
+    try_to_get_profile(MainListAtUri, Assoc, In, Out) :-
         catch(
-            get_profile(MainListAtUri, Assoc, In, In),
+            get_profile(MainListAtUri, Assoc, In, Out),
             E,
-            if_(
-                E = pre_existing_publisher(_),
-                writeln(cannot_select_publishers(E), true),
-                log_error([error_on_getProfile_event(E)])
-            )
+            ( Out = In,
+              if_(
+                  E = pre_existing_publisher(_),
+                  writeln(cannot_select_publishers(E), true),
+                  log_error([error_on_getProfile_event(E)])
+              ) )
         ).
 
-    %% get_profile(+MainListAtUri, +Assoc, +In, -In).
-    get_profile(MainListAtUri, Assoc, In, In) :-
+    %% get_profile(+MainListAtUri, +Assoc, +In, -Out).
+    get_profile(MainListAtUri, Assoc, In, Out) :-
         get_assoc(subject, Assoc, Subject),
         get_assoc(did, Subject, ActorParam),
 
@@ -178,20 +194,31 @@ list_uri(MainListAtUri, JSONAssoc, Uri) :-
         get_assoc(followersCount, PayloadAssoc, FollowersCount),
         get_assoc(followsCount, PayloadAssoc, FollowsCount),
 
-        onGetProfile(props(MainListAtUri, FollowersCount, FollowsCount, ActorParam, Payload)).
+        onGetProfile(pg_session(In, Out), props(MainListAtUri, FollowersCount, FollowsCount, ActorParam, Payload)).
 
 %% [app.bsky.graph.getList](https://docs.bsky.app/docs/api/app-bsky-graph-get-list)
 %
 %% app__bsky__graph__getList(+MainListAtUri, -Props).
+%
+% Opens one connection for the whole list and closes it on every
+% path, as app__bsky__feed__getAuthorFeed/2 does. A request that
+% fails without throwing is turned into a throw so the connection
+% is closed before the predicate fails.
 app__bsky__graph__getList(MainListAtUri, Props) :-
+    open_pg_connection(Conn0),
     catch(
-        (send_request(MainListAtUri, Pairs, StatusCode)),
+        ( once((
+              send_request(pg_session(Conn0, ConnFinal), MainListAtUri, Pairs, StatusCode)
+          ;   throw(get_list_request_failed(MainListAtUri))
+          )),
+          close_session(Conn0, ConnFinal) ),
         E,
-        if_(
-            E = failed_http_request(Message, Pairs, StatusCode),
-            (log_error([Message]), fail),
-            (log_error([E]), fail)
-        )
+        ( best_effort_close_session(Conn0, ConnFinal),
+          if_(
+              E = failed_http_request(Message, Pairs, StatusCode),
+              (log_error([Message]), fail),
+              (log_error([E]), fail)
+          ) )
     ),
 
     if_(
@@ -202,3 +229,24 @@ app__bsky__graph__getList(MainListAtUri, Props) :-
         log_error([ErrorMessage]), fail),
         Props = Pairs
     ).
+
+%% close_session(+Conn0, +ConnFinal)
+close_session(Conn0, ConnFinal) :-
+    close_pg_connection(ConnFinal),
+    close_pg_connection_if_distinct(Conn0, ConnFinal).
+
+%% best_effort_close_session(+Conn0, ?ConnFinal)
+%
+% Same contract as getAuthorFeed's: after a throw ConnFinal may be
+% unbound, in which case only Conn0 is closed. No cuts.
+best_effort_close_session(Conn0, ConnFinal) :-
+    nonvar(ConnFinal),
+    close_session(Conn0, ConnFinal).
+best_effort_close_session(Conn0, ConnFinal) :-
+    var(ConnFinal),
+    close_pg_connection(Conn0).
+
+close_pg_connection_if_distinct(Conn0, Conn0).
+close_pg_connection_if_distinct(Conn0, ConnFinal) :-
+    dif(Conn0, ConnFinal),
+    close_pg_connection(Conn0).
