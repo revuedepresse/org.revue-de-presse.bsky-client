@@ -138,6 +138,10 @@ test-repository-list: compose-up ### Exercise repository_list:insert/3, by_list_
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test' -g 'halt(1)'
 
+test-stored-payload: compose-up ### Regression: stored list payloads decode back to JSON (no-break spaces, escaped quotes)
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/stored_payload_test.pl -g 'run_test' -g 'halt(1)'
+
 test-repository-list-item: compose-up ### Exercise repository_list_item:insert/3, the by-screen-name lookups (hit + miss) and insert_list_items_if_not_exists/3
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./tests/pg/repository_list_item_test.pl -g 'run_test' -g 'halt(1)'
