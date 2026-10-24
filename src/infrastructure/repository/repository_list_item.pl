@@ -831,7 +831,7 @@ from_event(Payload, row(Avatar, Description, DID, Handle, DisplayName)) :-
     writeln('list items keys':SubjectKeys),
     get_assoc(avatar, Subject, Avatar),
     writeln(avatar:Avatar),
-    get_assoc(displayName, Subject, DisplayName),
+    display_name_or_handle(Subject, DisplayName),
     writeln(displayName:DisplayName),
     get_assoc(did, Subject, DID),
     writeln(did:DID),
@@ -841,21 +841,26 @@ from_event(Payload, row(Avatar, Description, DID, Handle, DisplayName)) :-
     writeln(createdAt:CreatedAt),
     get_assoc(indexedAt, Subject, IndexedAt),
     writeln(indexedAt:IndexedAt),
-    catch(
-        ( extract_associated_chat(Subject),
-          extract_or_default_description(Subject, Description) ),
-        key_not_found(Field),
-        writeln(not_found(Field))
+    extract_associated_chat(Subject),
+    extract_or_default_description(Subject, Description).
+
+% A profile may have no display name; its handle stands in for it.
+display_name_or_handle(Subject, DisplayName) :-
+    (   get_assoc(displayName, Subject, DisplayName0)
+    ->  DisplayName = DisplayName0
+    ;   get_assoc(handle, Subject, DisplayName)
     ).
 
+% Chat settings are only logged. Profiles may have no "associated"
+% object, or one without "chat" (e.g. only "activitySubscription"):
+% neither must stop the member from being recorded.
 extract_associated_chat(Subject) :-
-    get_assoc(associated, Subject, Associated),
-    get_assoc(chat, Associated, Chat),
-    get_assoc(allowIncoming, Chat, AllowIncomingChat),
-    writeln(associated:AllowIncomingChat).
-extract_associated_chat(Subject) :-
-    \+ get_assoc(associated, Subject, _),
-    throw(key_not_found(associated)).
+    (   get_assoc(associated, Subject, Associated),
+        get_assoc(chat, Associated, Chat),
+        get_assoc(allowIncoming, Chat, AllowIncomingChat)
+    ->  writeln(associated:AllowIncomingChat)
+    ;   writeln(not_found(associated_chat))
+    ).
 
 extract_or_default_description(Subject, Description) :-
     get_assoc(description, Subject, Description),
