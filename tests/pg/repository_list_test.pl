@@ -2,6 +2,7 @@
 
 :- use_module(library(assoc)).
 :- use_module(library(charsio)).
+:- use_module(library(dif)).
 :- use_module(library(format)).
 :- use_module(library(lists)).
 :- use_module(library(os)).
@@ -51,6 +52,7 @@ list_payload(ListURI, Payload) :-
 %   4. by_list_uri/3 throws cannot_read_rows_selected_by(list_id) for an
 %      unknown list URI -- event_getList relies on that throw to insert.
 %   5. by_list_uri_or_throw/3 decodes the payload and merges list_id.
+%   6. A second, distinct list gets its own event and list_id.
 run_test :-
     maplist(env_or_die,
             ["DATABASE_HOST","DATABASE_PORT","DATABASE_USERNAME",
@@ -108,6 +110,19 @@ run_test :-
     ->  format("[ok] by_list_uri_or_throw/3 merged list_id into the decoded payload~n", [])
     ;   format("[KO] by_list_uri_or_throw/3 returned ~w~n", [Assoc]), halt(1) ),
 
-    close_pg_connection(C4),
+    % A second, distinct list must get its own event and list_id, even
+    % though nothing was written to publishers_list in between.
+    list_payload("at://list-probe-second", SecondPayload),
+    repository_list:insert(pg_session(C4, C5), row("at://list-probe-second", SecondPayload), _),
+    pg_query(C5,
+        "SELECT list_id::text FROM publishers_list_collected_event WHERE list_name = $1",
+        ["at://list-probe-second"],
+        SecondReply),
+    (   SecondReply = data([[SecondListIdChars]]),
+        dif(SecondListIdChars, ListIdChars)
+    ->  format("[ok] a second list gets its own event, list_id=~s~n", [SecondListIdChars])
+    ;   format("[KO] second list's events: ~w (first list_id=~s)~n", [SecondReply, ListIdChars]), halt(1) ),
+
+    close_pg_connection(C5),
     format("[OK] repository_list_test passed~n", []),
     halt(0).

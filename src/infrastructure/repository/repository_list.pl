@@ -355,24 +355,22 @@ by_list_uri_sql(SQL) :-
         "OFFSET 0 LIMIT ALL;"
     ], SQL).
 
-%% count_matching_records(+Session, +NextId, -Result). Dispatches on PG_BACKEND.
-count_matching_records(pg_session(C0, C), NextId, Result) :-
+%% count_matching_records(+Session, +ListName, -Result). Dispatches on PG_BACKEND.
+count_matching_records(pg_session(C0, C), ListName, Result) :-
     pg_backend("wire"),
     count_matching_records_sql(SQL),
-    number_chars(NextId, NextIdChars),
-    value(pg_session(C0, C), SQL, [NextIdChars], Result).
-count_matching_records(pg_session(C, C), NextId, Result) :-
+    value(pg_session(C0, C), SQL, [ListName], Result).
+count_matching_records(pg_session(C, C), ListName, Result) :-
     pg_backend("psql"),
-    number_chars(NextId, NextIdChars),
-    psql_count_matching_records_sql(NextIdChars, SQL),
+    psql_count_matching_records_sql(ListName, SQL),
     query_result(SQL, Result).
 
-psql_count_matching_records_sql(NextIdChars, SQL) :-
+psql_count_matching_records_sql(ListName, SQL) :-
     event_table(EventTable),
     append([
         "SELECT count(*) how_many_records ",
         "FROM public.", EventTable, " ",
-        "WHERE list_id::bigint = ", NextIdChars, ";"
+        "WHERE list_name = '", ListName, "';"
     ], SQL).
 
 count_matching_records_sql(SQL) :-
@@ -380,31 +378,35 @@ count_matching_records_sql(SQL) :-
     append([
         "SELECT count(*) how_many_records ",
         "FROM public.", EventTable, " ",
-        "WHERE list_id::bigint = $1;"
+        "WHERE list_name = $1;"
     ], SQL).
 
 %% insert(+Session, +Row, -InsertionResult)
 %
-% Insert a new `publishers_list_collected_event` row, or log
-% the existing payload if a row with the matching `list_id`
-% already exists. `InsertionResult` is always `ok`.
+% Insert a new `publishers_list_collected_event` row for
+% `ListName`, or log the existing payload if the list was
+% already recorded. A new list takes the next event `list_id`
+% (`next_event_id/2`), so no two lists share one. The list's
+% `publishers_list` members carry that `list_id`.
+% `InsertionResult` is always `ok`.
 insert(pg_session(C0, C), row(ListName, Payload), InsertionResult) :-
-    next_id(pg_session(C0, C1), NextId),
-    count_matching_records(pg_session(C1, C2), NextId, TotalMatchingRecords),
+    count_matching_records(pg_session(C0, C1), ListName, TotalMatchingRecords),
     if_(
-        dif(1, TotalMatchingRecords),
-        insert_new(pg_session(C2, C), NextId, ListName, Payload, InsertionResult),
-        report_existing(pg_session(C2, C), NextId, InsertionResult)
+        TotalMatchingRecords = 0,
+        insert_new(pg_session(C1, C), ListName, Payload, InsertionResult),
+        report_existing(pg_session(C1, C), ListName, InsertionResult)
     ).
 
-insert_new(pg_session(C0, C), NextId, ListName, Payload, ok) :-
+insert_new(pg_session(C0, C), ListName, Payload, ok) :-
     pg_backend("wire"),
+    next_event_id(pg_session(C0, C1), NextId),
     uuidv4_string(NextPrimaryKey),
     number_chars(NextId, NextIdChars),
     insert_event_sql(SQL),
-    execute(pg_session(C0, C), SQL, [NextPrimaryKey, NextIdChars, ListName, Payload]).
-insert_new(pg_session(C, C), NextId, ListName, Payload, ok) :-
+    execute(pg_session(C1, C), SQL, [NextPrimaryKey, NextIdChars, ListName, Payload]).
+insert_new(pg_session(C, C), ListName, Payload, ok) :-
     pg_backend("psql"),
+    next_event_id(pg_session(C, C), NextId),
     uuidv4_string(NextPrimaryKey),
     number_chars(NextId, NextIdChars),
     psql_insert_event_sql(NextPrimaryKey, NextIdChars, ListName, Payload, SQL),
@@ -434,26 +436,25 @@ psql_insert_event_sql(NextPrimaryKey, NextIdChars, ListName, Payload, SQL) :-
         SQL
     ).
 
-report_existing(pg_session(C0, C), NextId, ok) :-
+report_existing(pg_session(C0, C), ListName, ok) :-
     pg_backend("wire"),
-    number_chars(NextId, NextIdChars),
     select_payload_sql(SelectSQL),
-    value(pg_session(C0, C), SelectSQL, [NextIdChars], SelectionResult),
+    value(pg_session(C0, C), SelectSQL, [ListName], SelectionResult),
     log_existing_payload(SelectionResult).
-report_existing(pg_session(C, C), NextId, ok) :-
+report_existing(pg_session(C, C), ListName, ok) :-
     pg_backend("psql"),
-    number_chars(NextId, NextIdChars),
-    psql_select_payload_sql(NextIdChars, SelectSQL),
+    psql_select_payload_sql(ListName, SelectSQL),
     query_result(SelectSQL, SelectionResult),
     log_existing_payload(SelectionResult).
 
-psql_select_payload_sql(NextIdChars, SQL) :-
+psql_select_payload_sql(ListName, SQL) :-
     event_table(EventTable),
     append(
         [
             "SELECT l.payload AS payload ",
             "FROM public.", EventTable, " l ",
-            "WHERE l.list_id::bigint = ", NextIdChars, ";"
+            "WHERE l.list_name = '", ListName, "' ",
+            "ORDER BY l.occurred_at DESC LIMIT 1;"
         ],
         SQL
     ).
@@ -487,7 +488,8 @@ select_payload_sql(SQL) :-
         [
             "SELECT l.payload AS payload ",
             "FROM public.", EventTable, " l ",
-            "WHERE l.list_id::bigint = $1;"
+            "WHERE l.list_name = $1 ",
+            "ORDER BY l.occurred_at DESC LIMIT 1;"
         ],
         SQL
     ).
