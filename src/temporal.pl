@@ -8,7 +8,11 @@
 ISO-8601 date helpers.
 
 Each predicate shells out to `date(1)` because Scryer has no
-built-in for `%Y-%m-%dT%H:%M:%SZ` formatting. The command line
+built-in for `%Y-%m-%dT%H:%M:%SZ` formatting. The command runs
+through os_ext:shell_or_throw/3, so a shell that cannot run (SHELL
+unset, as in a systemd unit) throws `shell_unavailable/1` instead of
+failing silently. Output is written with `printf '%s'`, not
+`echo -n`, which `/bin/sh` does not support everywhere. The command line
 tries the GNU `date -d` form first and falls back to the BSD
 `date -v` form, so the same predicate works under Debian (the
 production image) and macOS (local development).
@@ -23,6 +27,7 @@ production image) and macOS (local development).
 ]).
 :- use_module(os_ext, [
     remove_temporary_file/1,
+    shell_or_throw/3,
     temporary_file/2
 ]).
 :- use_module(stream, [
@@ -42,10 +47,10 @@ check_shell_status(Status, Msg) :-
 date_iso8601(Iso8601Date) :-
     temporary_file("date-iso-8601", TempFile),
 
-    append(["touch ", TempFile, "; echo -n $(date -u +%Y-%m-%dT%H:%M:%SZ) > ", TempFile], GetDateCmd),
+    append(["touch ", TempFile, "; printf '%s' $(date -u +%Y-%m-%dT%H:%M:%SZ) > ", TempFile], GetDateCmd),
     log_debug(['GetDateCmd: ', GetDateCmd]),
 
-    shell(GetDateCmd, GetDateStatus),
+    shell_or_throw(GetDateCmd, 'Failed to get date', GetDateStatus),
     log_debug(['GetDateStatus: ', GetDateStatus]),
     check_shell_status(GetDateStatus, 'Failed to get date'),
 
@@ -66,7 +71,7 @@ date_iso8601_days_ago(DaysAgo, Iso8601Date) :-
     number_chars(DaysAgo, DaysAgoChars),
     append([
         "touch ", TempFile,
-        "; echo -n $(",
+        "; printf '%s' $(",
         "date -u -d '", DaysAgoChars, " days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null",
         " || ",
         "date -u -v -", DaysAgoChars, "d +%Y-%m-%dT%H:%M:%SZ",
@@ -74,7 +79,7 @@ date_iso8601_days_ago(DaysAgo, Iso8601Date) :-
     ], GetDateCmd),
     log_debug(['GetDateCmd: ', GetDateCmd]),
 
-    shell(GetDateCmd, GetDateStatus),
+    shell_or_throw(GetDateCmd, 'Failed to get date N days ago', GetDateStatus),
     log_debug(['GetDateStatus: ', GetDateStatus]),
     check_shell_status(GetDateStatus, 'Failed to get date N days ago'),
 
@@ -98,7 +103,7 @@ date_iso8601_days_before(DaysBefore, AnchorIso, ResultDate) :-
     number_chars(DaysBefore, DaysChars),
     append([
         "touch ", TempFile,
-        "; echo -n $(",
+        "; printf '%s' $(",
         "date -u -d '", AnchorDateChars, " - ", DaysChars, " days' +%Y-%m-%d 2>/dev/null",
         " || ",
         "date -u -j -v -", DaysChars, "d -f '%Y-%m-%d' '", AnchorDateChars, "' +%Y-%m-%d",
@@ -106,7 +111,7 @@ date_iso8601_days_before(DaysBefore, AnchorIso, ResultDate) :-
     ], GetDateCmd),
     log_debug(['GetDateCmd: ', GetDateCmd]),
 
-    shell(GetDateCmd, GetDateStatus),
+    shell_or_throw(GetDateCmd, 'Failed to compute date N days before anchor', GetDateStatus),
     log_debug(['GetDateStatus: ', GetDateStatus]),
     check_shell_status(GetDateStatus, 'Failed to compute date N days before anchor'),
 

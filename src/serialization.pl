@@ -35,6 +35,7 @@ pretty-printing through `jq`.
 ]).
 :- use_module(os_ext, [
     remove_temporary_file/1,
+    shell_or_throw/3,
     temporary_file/2,
     temporary_file/3
 ]).
@@ -100,7 +101,7 @@ beautify_json(TempFile, JSONChars) :-
     char_code(Eol, 10),
     log_debug(['Command: ', Eol, Cmd]),
 
-    shell(Cmd, CmdExecutionStatus),
+    shell_or_throw(Cmd, 'Failed to beautify JSON', CmdExecutionStatus),
     if_(
         dif(CmdExecutionStatus, 0),
         throw(unexpected_command_exit_code('Failed to beautify JSON')),
