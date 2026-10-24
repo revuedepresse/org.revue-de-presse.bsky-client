@@ -1,5 +1,6 @@
 :- module(os_ext, [
     remove_temporary_file/1,
+    shell_or_throw/3,
     temporary_file/2,
     temporary_file/3
 ]).
@@ -30,6 +31,21 @@ deletes them. Used wherever the worker has to shell out to
     writeln/1,
     writeln/2
 ]).
+
+%% shell_or_throw(+Command, +Label, -Status)
+%
+% Run `Command` with shell/2 and unify `Status` with its exit status.
+% Scryer's shell/2 runs the command through `$SHELL` and fails, without
+% raising anything, when SHELL is unset (a systemd unit has none); that
+% failure is turned into `shell_unavailable(Label)` so callers' catch
+% and log paths see it. `Label` says what the command was for; the
+% command itself is not part of the error, as it can hold credentials
+% (the psql client's PGPASSWORD).
+shell_or_throw(Command, Label, Status) :-
+    (   shell(Command, Status)
+    ->  true
+    ;   throw(shell_unavailable(Label))
+    ).
 
 %% remove_temporary_file(+TempFile)
 %
