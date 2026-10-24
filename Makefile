@@ -126,17 +126,21 @@ test-idempotence: compose-up ### Verify ON CONFLICT (hash) DO NOTHING on the pub
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./tests/pg/idempotence_test.pl -g 'run_test'
 
-test-repository-inserts: compose-up ### Exercise repository_status:insert/3 and repository_popularity:do_insert_without_unicity_check/2 end-to-end
+test-repository-inserts: compose-up ### Exercise repository_status:insert/4 and repository_popularity:insert_without_unicity_check/3 end-to-end
 	@set -a; . ./.env.test; set +a; \
-	scryer-prolog ./tests/pg/repository_inserts_test.pl -g 'run_test'
+	scryer-prolog ./tests/pg/repository_inserts_test.pl -g 'run_test' -g 'halt(1)'
 
-test-repository-publisher: compose-up ### Exercise repository_publisher:insert/2 (new + duplicate paths) and the $$1::bigint / $$2::bigint bind casts
+test-repository-publisher: compose-up ### Exercise repository_publisher:insert/3 (new + duplicate paths), by_criteria/4 (hit + miss) and the $$1::bigint / $$2::bigint bind casts
 	@set -a; . ./.env.test; set +a; \
-	scryer-prolog ./tests/pg/repository_publisher_test.pl -g 'run_test'
+	scryer-prolog ./tests/pg/repository_publisher_test.pl -g 'run_test' -g 'halt(1)'
 
-test-repository-list: compose-up ### Exercise repository_list:insert/2 (new path) and the $$2::bigint bind cast on list_id
+test-repository-list: compose-up ### Exercise repository_list:insert/3, by_list_uri/3 (hit + miss) and the $$2::bigint bind cast on list_id
 	@set -a; . ./.env.test; set +a; \
-	scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test'
+	scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test' -g 'halt(1)'
+
+test-repository-list-item: compose-up ### Exercise repository_list_item:insert/3, the by-screen-name lookups (hit + miss) and insert_list_items_if_not_exists/3
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/repository_list_item_test.pl -g 'run_test' -g 'halt(1)'
 
 test-by-indexed-at: compose-up ### Reproducer for the by_indexed_at/2 SIGSEGV under the SELECT/INSERT/SELECT cycle
 	@set -a; . ./.env.test; set +a; \
@@ -186,15 +190,19 @@ test-already-indexed-by-uri: compose-up ### Regression: onGetAuthorFeed dedup ke
 
 test-repository-inserts-psql: compose-up ### repository_inserts test under PG_BACKEND=psql (shell-out fall-back transport)
 	@set -a; . ./.env.test; set +a; \
-	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_inserts_test.pl -g 'run_test'
+	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_inserts_test.pl -g 'run_test' -g 'halt(1)'
 
 test-repository-publisher-psql: compose-up ### repository_publisher test under PG_BACKEND=psql
 	@set -a; . ./.env.test; set +a; \
-	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_publisher_test.pl -g 'run_test'
+	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_publisher_test.pl -g 'run_test' -g 'halt(1)'
 
 test-repository-list-psql: compose-up ### repository_list test under PG_BACKEND=psql
 	@set -a; . ./.env.test; set +a; \
-	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test'
+	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test' -g 'halt(1)'
+
+test-repository-list-item-psql: compose-up ### repository_list_item test under PG_BACKEND=psql
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_list_item_test.pl -g 'run_test' -g 'halt(1)'
 
 test-already-indexed-by-uri-psql: compose-up ### Dedup-by-URI regression under PG_BACKEND=psql (verifies count_matching_records/2 seam)
 	@set -a; . ./.env.test; set +a; \
