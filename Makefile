@@ -160,6 +160,14 @@ test-segv-replay: ### Replays /tmp/segv-investigation/last-by-indexed-at.pl agai
 test-extract-lookup-ust-id: ### Regression: repository_status:extract_lookup_ust_id/2 rejects malformed lookup replies
 	@scryer-prolog ./tests/pg/extract_lookup_ust_id_test.pl -g 'run_test'
 
+test-list-import-handlers: compose-up ### Drive onGetList / onGetProfile / onGetListItem on one session and check the list's rows and relationships
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/list_import_handlers_test.pl -g 'run_test' -g 'halt(1)'
+
+test-list-import-handlers-psql: compose-up ### list import handlers under PG_BACKEND=psql
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql scryer-prolog ./tests/pg/list_import_handlers_test.pl -g 'run_test' -g 'halt(1)'
+
 test-client-arity: ### Static check: imported predicates exist, and calls to pg/client.pl use exported arities
 	@python3 -I ./tests/client_arity_check.py .
 
