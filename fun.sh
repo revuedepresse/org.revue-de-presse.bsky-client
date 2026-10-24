@@ -5,7 +5,7 @@ function configure() {
     local name
     local value
 
-    for envar in $(env | grep -vE '^(SHELL|HOME|USER|PATH|ACTOR|AUTHOR|FEED_SINCE|TEXT|RUST_BACKTRACE|RUST_LIB_BACKTRACE)' | cut -f 1 -d '='); do
+    for envar in $(env | grep -vE '^(SHELL|HOME|USER|PATH|ACTOR|AUTHOR|FEED_SINCE|LIST_IMPORT_MEMBER_FEEDS|TEXT|RUST_BACKTRACE|RUST_LIB_BACKTRACE)' | cut -f 1 -d '='); do
         unset "${envar}"
     done
 

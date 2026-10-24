@@ -1,6 +1,8 @@
 :- module('getList', [
     app__bsky__graph__getList/2,
+    import_member_feed/2,
     member_feed/2,
+    member_feeds/1,
     payload/2
 ]).
 
@@ -10,6 +12,7 @@
 :- use_module(library(dcgs)).
 :- use_module(library(http/http_open)).
 :- use_module(library(lists)).
+:- use_module(library(os)).
 :- use_module(library(pairs)).
 :- use_module(library(reif)).
 :- use_module(library(si)).
@@ -189,7 +192,7 @@ list_uri(Session, MainListAtUri, JSONAssoc, Uri) :-
 
         writeln(gettingProfileByDID(ActorParam)),
         app__bsky__actor__getProfile(ActorParam, Payload),
-        member_feed(app__bsky__feed__getAuthorFeed, ActorParam),
+        import_member_feed(app__bsky__feed__getAuthorFeed, ActorParam),
 
         writeln(received_payload(Payload)),
         pairs_to_assoc(Payload, PayloadAssoc),
@@ -199,12 +202,44 @@ list_uri(Session, MainListAtUri, JSONAssoc, Uri) :-
 
         onGetProfile(pg_session(In, Out), props(MainListAtUri, FollowersCount, FollowsCount, ActorParam, Payload)).
 
+%% member_feeds(-Option).
+%
+% `on` when LIST_IMPORT_MEMBER_FEEDS is "1", `off` when it is unset,
+% empty or "0". The hourly fetch already collects every member's
+% posts, so a list import only fetches them when asked to. Any other
+% value throws invalid_list_import_member_feeds/1 rather than guessing.
+member_feeds(Option) :-
+    (   getenv("LIST_IMPORT_MEMBER_FEEDS", Value)
+    ->  member_feeds_setting(Value, Option)
+    ;   Option = off
+    ).
+
+member_feeds_setting(Value, Option) :-
+    (   Value == "1"
+    ->  Option = on
+    ;   ( Value == [] ; Value == "0" )
+    ->  Option = off
+    ;   throw(invalid_list_import_member_feeds(Value))
+    ).
+
+%% import_member_feed(+FetchFeed, +Actor).
+%
+% Runs member_feed/2 when member_feeds/1 is `on`; otherwise does not
+% call FetchFeed at all.
+import_member_feed(FetchFeed, Actor) :-
+    member_feeds(Option),
+    (   Option == on
+    ->  member_feed(FetchFeed, Actor)
+    ;   log_debug([member_feed_skipped(Actor)])
+    ).
+
 %% member_feed(+FetchFeed, +Actor).
 %
 % Fetches a member's recent posts with call(FetchFeed, Actor, Props).
 % Recording the membership does not depend on it (the hourly fetch
 % covers the posts anyway), so a fetch that fails or throws is logged
 % and the import goes on with the next step.
+% Opt-in: see import_member_feed/2.
 member_feed(FetchFeed, Actor) :-
     (   catch(call(FetchFeed, Actor, _Props), E, ( log_error([member_feed_error(Actor, E)]), true ))
     ->  true
@@ -218,8 +253,11 @@ member_feed(FetchFeed, Actor) :-
 % Opens one connection for the whole list and closes it on every
 % path, as app__bsky__feed__getAuthorFeed/2 does. A request that
 % fails without throwing is turned into a throw so the connection
-% is closed before the predicate fails.
+% is closed before the predicate fails. LIST_IMPORT_MEMBER_FEEDS is
+% checked first, so a malformed value stops the import before any
+% request instead of failing every member.
 app__bsky__graph__getList(MainListAtUri, Props) :-
+    member_feeds(_),
     open_pg_connection(Conn0),
     catch(
         ( once((
