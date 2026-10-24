@@ -1,5 +1,6 @@
 :- module('getList', [
     app__bsky__graph__getList/2,
+    import_member/5,
     import_member_feed/2,
     member_feed/2,
     member_feeds/1,
@@ -33,6 +34,9 @@
 ]).
 :- use_module('../../../domain/events/app/bsky/graph/event_getListItem', [
     onGetListItem/3
+]).
+:- use_module('../../../infrastructure/repository/repository_publisher', [
+    recorded/3
 ]).
 :- use_module('../../../infrastructure/pg/connection', [
     open_pg_connection/1,
@@ -187,20 +191,44 @@ list_uri(Session, MainListAtUri, JSONAssoc, Uri) :-
 
     %% get_profile(+MainListAtUri, +Assoc, +In, -Out).
     get_profile(MainListAtUri, Assoc, In, Out) :-
-        get_assoc(subject, Assoc, Subject),
-        get_assoc(did, Subject, ActorParam),
+        import_member(
+            fetchers(app__bsky__actor__getProfile, app__bsky__feed__getAuthorFeed),
+            MainListAtUri, Assoc, In, Out
+        ).
 
-        writeln(gettingProfileByDID(ActorParam)),
-        app__bsky__actor__getProfile(ActorParam, Payload),
-        import_member_feed(app__bsky__feed__getAuthorFeed, ActorParam),
+%% import_member(+Fetchers, +MainListAtUri, +Assoc, +In, -Out).
+%
+% Records one list member in publishers_list. A member already
+% recorded for the list (an interrupted import being re-run) is
+% skipped without any request. Otherwise its profile is fetched and
+% handed to onGetProfile/2. `Fetchers` is `fetchers(FetchProfile,
+% FetchFeed)`, called as call(FetchProfile, DID, ProfilePairs) and
+% through import_member_feed/2; getList passes the Bluesky requests,
+% tests pass stubs.
+import_member(Fetchers, MainListAtUri, Assoc, In, Out) :-
+    get_assoc(subject, Assoc, Subject),
+    get_assoc(did, Subject, ActorParam),
 
-        writeln(received_payload(Payload)),
-        pairs_to_assoc(Payload, PayloadAssoc),
+    recorded(pg_session(In, Mid), row(MainListAtUri, ActorParam), Recorded),
+    (   Recorded == true
+    ->  log_info([member_already_recorded(ActorParam)]),
+        Out = Mid
+    ;   import_new_member(Fetchers, MainListAtUri, ActorParam, Mid, Out)
+    ).
 
-        get_assoc(followersCount, PayloadAssoc, FollowersCount),
-        get_assoc(followsCount, PayloadAssoc, FollowsCount),
+%% import_new_member(+Fetchers, +MainListAtUri, +DID, +In, -Out).
+import_new_member(fetchers(FetchProfile, FetchFeed), MainListAtUri, ActorParam, In, Out) :-
+    writeln(gettingProfileByDID(ActorParam)),
+    call(FetchProfile, ActorParam, Payload),
+    import_member_feed(FetchFeed, ActorParam),
 
-        onGetProfile(pg_session(In, Out), props(MainListAtUri, FollowersCount, FollowsCount, ActorParam, Payload)).
+    writeln(received_payload(Payload)),
+    pairs_to_assoc(Payload, PayloadAssoc),
+
+    get_assoc(followersCount, PayloadAssoc, FollowersCount),
+    get_assoc(followsCount, PayloadAssoc, FollowsCount),
+
+    onGetProfile(pg_session(In, Out), props(MainListAtUri, FollowersCount, FollowsCount, ActorParam, Payload)).
 
 %% member_feeds(-Option).
 %

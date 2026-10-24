@@ -3,7 +3,8 @@
     count/2,
     insert/3,
     next_id/2,
-    query/2
+    query/2,
+    recorded/3
 ]).
 
 :- use_module(library(assoc)).
@@ -400,6 +401,19 @@ select_by_did_and_name_sql(SQL) :-
 coerce_chars(N, Chars) :- integer(N), number_chars(N, Chars).
 coerce_chars(A, Chars) :- \+ integer(A), atom(A), atom_chars(A, Chars).
 coerce_chars(V, V) :- \+ integer(V), \+ atom(V).
+
+%% recorded(+Session, +Row, -Recorded)
+%
+% `Recorded` is `true` when `publishers_list` already holds the member
+% `row(ListURI, DID)` (same list URI and DID as insert/3 checks),
+% `false` otherwise. Dispatches on PG_BACKEND through
+% count_matching_records/3.
+recorded(Session, row(ListURI, DID), Recorded) :-
+    count_matching_records(Session, row(ListURI, DID), Count),
+    (   integer(Count), Count > 0
+    ->  Recorded = true
+    ;   Recorded = false
+    ).
 
 %% count_matching_records(+Session, +Row, -Result). Dispatches on PG_BACKEND.
 count_matching_records(pg_session(C0, C), row(ListURI, DID), Result) :-
