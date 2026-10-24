@@ -1,5 +1,6 @@
 :- module('getList', [
-    app__bsky__graph__getList/2
+    app__bsky__graph__getList/2,
+    payload/2
 ]).
 
 :- use_module(library(assoc)).
@@ -50,7 +51,6 @@
     char_code_at/2,
     keys/3,
     pairs_to_assoc/2,
-    to_json_chars/2,
     unwrap_pairs/2,
     wrapped_pairs_to_assoc/2
 ]).
@@ -134,9 +134,11 @@ send_request(pg_session(C0, C), MainListAtUri, ResponsePairs, StatusCode) :-
     ).
 
 %% payload(+BodyChars, -Payload).
+%
+% Stores the response body as received, as the base64 of its Prolog
+% string literal (read back by serialization:stored_payload_json_chars/2).
 payload(BodyChars, Payload) :-
-    to_json_chars(BodyChars, JSONChars),
-    write_term_to_chars(JSONChars, [quoted(false),double_quotes(true)], Chars),
+    write_term_to_chars(BodyChars, [quoted(false),double_quotes(true)], Chars),
     chars_utf8bytes(Chars, Utf8Bytes),
     maplist(char_code_at, Utf8Bytes, Utf8BytesPayload),
     chars_base64(Utf8BytesPayload, Payload, []).

@@ -32,7 +32,7 @@ threads it through the repository calls.
 :- use_module('../../../../../serialization', [
     char_code_at/2,
     pairs_to_assoc/2,
-    to_json_chars/2
+    stored_payload_json_chars/2
 ]).
 :- use_module('../../../../../stream', [
     writeln/1,
@@ -64,9 +64,7 @@ decode_first_row_payload(Rows) :-
     chars_base64(Utf8BytesPayload, FirstRowPayload, []),
     maplist(char_code, Utf8BytesPayload, Utf8Bytes),
     chars_utf8bytes(PayloadChars, Utf8Bytes),
-    append([Prefix, ['"']], PayloadChars),
-    append([['"'], Suffix], Prefix),
-    to_json_chars(Suffix, JSONChars),
+    stored_payload_json_chars(PayloadChars, JSONChars),
     phrase(json_chars(pairs(Pairs)), JSONChars, []),
     maplist(get_key, Pairs, Keys),
     pairs_to_assoc(Pairs, _Assoc),

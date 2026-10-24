@@ -4,6 +4,7 @@
     char_code_at/2,
     keys/3,
     pairs_to_assoc/2,
+    stored_payload_json_chars/2,
     unwrap_pairs/2,
     to_json_chars/2,
     wrapped_pairs_to_assoc/2
@@ -21,6 +22,7 @@ pretty-printing through `jq`.
 */
 
 :- use_module(library(assoc)).
+:- use_module(library(charsio)).
 :- use_module(library(lists)).
 :- use_module(library(os)).
 :- use_module(library(pairs)).
@@ -61,6 +63,24 @@ to_json_chars(Chars, JSONChars) :-
 
     once(beautify_json(JsonFile, JSONChars)),
     log_debug([JSONChars]).
+
+%% stored_payload_json_chars(+PayloadChars, -JSONChars)
+%
+% Payloads are stored as the Prolog string literal of their JSON text
+% (see getList.pl's payload/2): double quotes, backslashes and
+% characters such as the no-break space come out escaped (\", \\,
+% \xa0\), but jq's line breaks are written as they are. Those can
+% only be layout between JSON tokens (a line break inside a JSON string
+% is the escape \n), so they are escaped before the literal is read
+% back. Reading it undoes every escape and recovers the JSON text
+% exactly.
+stored_payload_json_chars(PayloadChars, JSONChars) :-
+    foldl(escape_line_break, PayloadChars, Escaped, []),
+    append(Escaped, ".", Term),
+    read_from_chars(Term, JSONChars).
+
+escape_line_break('\n', ['\\', n|Rest], Rest) :- !.
+escape_line_break(Char, [Char|Rest], Rest).
 
 %% beautify_json(+JsonFile, -JSONChars)
 %
