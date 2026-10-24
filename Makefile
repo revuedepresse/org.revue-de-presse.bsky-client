@@ -172,6 +172,16 @@ test-list-import-handlers-psql: compose-up ### list import handlers under PG_BAC
 	@set -a; . ./.env.test; set +a; \
 	PG_BACKEND=psql scryer-prolog ./tests/pg/list_import_handlers_test.pl -g 'run_test' -g 'halt(1)'
 
+test-list-member-profile: compose-up ### Regression: re-running a list import skips getProfile for members already in publishers_list
+	@mkdir -p ./var/tmp
+	@set -a; . ./.env.test; set +a; \
+	TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/pg/list_member_profile_test.pl -g 'run_test' -g 'halt(1)'
+
+test-list-member-profile-psql: compose-up ### list member profile skip under PG_BACKEND=psql
+	@mkdir -p ./var/tmp
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/pg/list_member_profile_test.pl -g 'run_test' -g 'halt(1)'
+
 test-client-arity: ### Static check: imported predicates exist, and calls to pg/client.pl use exported arities
 	@python3 -I ./tests/client_arity_check.py .
 
