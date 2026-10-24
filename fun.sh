@@ -489,6 +489,10 @@ function test() {
         ./tests/clean_text_test.pl \
         -g halt |
         tee ./test.log
+    # Scryer only reports a missing predicate when the call runs: check
+    # imports and client.pl arities statically.
+    python3 -I ./tests/client_arity_check.py . |
+        tee -a ./test.log
     # shellcheck disable=SC2046
     if [ $(grep -c '\[KO\]' ./test.log) -gt 0 ]; then
         printf '%s.%s' 'Some tests failed' $'\n'
