@@ -181,6 +181,9 @@ test-feed-since: ### FEED_SINCE=YYYY-MM-DD moves getAuthorFeed's pagination cut-
 test-list-item-from-event: ### Regression: every coop-medias.org member decodes into its weaving_user row (profiles without chat settings)
 	@mkdir -p var/tmp; TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/list_item_from_event_test.pl -g halt
 
+test-list-member-feed: ### Regression: a member's feed failing during a list import does not abort the import
+	@mkdir -p var/tmp; TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/list_member_feed_test.pl -g halt
+
 test-memoize-arity: ### Regression: getAuthorFeed no longer assertz's wide responses (scryer max_arity = 255)
 	@scryer-prolog ./tests/memoize_arity_test.pl -g halt
 
