@@ -1,5 +1,5 @@
 :- module(event_getProfile, [
-    onGetProfile/1
+    onGetProfile/2
 ]).
 
 /**
@@ -11,6 +11,9 @@ combination; on `cannot_read_rows_selection`, inserts a new
 row instead. Surfaces a `pre_existing_publisher/1` throw when
 the row is already there so the upstream pipeline can short-
 circuit re-processing.
+
+Takes a `pg_session(In, Out)` compound as its first argument and
+threads it through the repository calls.
 */
 
 :- use_module(library(assoc)).
@@ -20,11 +23,11 @@ circuit re-processing.
 :- use_module(library(serialization/json)).
 
 :- use_module('../../../../../infrastructure/repository/repository_list', [
-    by_list_uri_or_throw/2
+    by_list_uri_or_throw/3
 ]).
 :- use_module('../../../../../infrastructure/repository/repository_publisher', [
-    by_criteria/3,
-    insert/2
+    by_criteria/4,
+    insert/3
 ]).
 :- use_module('../../../../../logger', [
     log_debug/1,
@@ -41,26 +44,27 @@ circuit re-processing.
     writeln/2
 ]).
 
-%% onGetProfile(+Props)
+%% onGetProfile(+Session, +Props)
 %
 % Handle a profile observation. `Props` is a
 % `props(ListURI, FollowersCount, FollowsCount, DID, Payload)`
 % term. Reads the existing publisher row by
 % `(ListURI, DID)`; on miss inserts a new row, otherwise
-% throws `pre_existing_publisher/1`.
-onGetProfile(props(ListURI, FollowersCount, FollowsCount, DID, Payload)) :-
+% throws `pre_existing_publisher/1`. Any other error is
+% re-thrown for the caller to log.
+onGetProfile(pg_session(C0, C), props(ListURI, FollowersCount, FollowsCount, DID, Payload)) :-
     catch(
-        on_get_profile_check_existing(ListURI, DID),
+        on_get_profile_check_existing(pg_session(C0, C), ListURI, DID),
         Cause,
         if_(
             Cause = cannot_read_rows_selection,
-            on_get_profile_insert(ListURI, FollowersCount, FollowsCount, DID, Payload),
+            on_get_profile_insert(pg_session(C0, C), ListURI, FollowersCount, FollowsCount, DID, Payload),
             on_get_profile_propagate(Cause)
         )
     ).
 
-on_get_profile_check_existing(ListURI, DID) :-
-    once(repository_publisher:by_criteria(list_uri(ListURI), did(DID), Rows)),
+on_get_profile_check_existing(Session, ListURI, DID) :-
+    once(repository_publisher:by_criteria(Session, list_uri(ListURI), did(DID), Rows)),
     once(report_existing_publisher_row(Rows)).
 
 report_existing_publisher_row(Rows) :-
@@ -70,11 +74,12 @@ report_existing_publisher_row(Rows) :-
     throw(pre_existing_publisher(PreExistingDID)).
 report_existing_publisher_row(_).
 
-on_get_profile_insert(ListURI, FollowersCount, FollowsCount, DID, Payload) :-
+on_get_profile_insert(pg_session(C0, C), ListURI, FollowersCount, FollowsCount, DID, Payload) :-
     once((
-        by_list_uri_or_throw(list_uri(ListURI), ListUriPairs),
+        by_list_uri_or_throw(pg_session(C0, C1), list_uri(ListURI), ListUriPairs),
         get_assoc(list_id, ListUriPairs, ListId),
         repository_publisher:insert(
+            pg_session(C1, C),
             row(
                 ListId,
                 ListURI,
@@ -90,3 +95,6 @@ on_get_profile_insert(ListURI, FollowersCount, FollowsCount, DID, Payload) :-
 
 on_get_profile_propagate(pre_existing_publisher(PreExistingDID)) :-
     throw(pre_existing_publisher(PreExistingDID)).
+on_get_profile_propagate(Cause) :-
+    dif(Cause, pre_existing_publisher(_)),
+    throw(Cause).

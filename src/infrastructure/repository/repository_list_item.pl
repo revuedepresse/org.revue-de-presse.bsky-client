@@ -1,13 +1,13 @@
 :- module(repository_list_item, [
-    event_by_screen_name/2,
+    event_by_screen_name/3,
     from_event/2,
-    record_by_screen_name/2,
-    count/1,
-    insert/2,
-    insert_list_items_if_not_exists/2,
-    insert_record/2,
-    next_id/1,
-    query/1
+    record_by_screen_name/3,
+    count/2,
+    insert/3,
+    insert_list_items_if_not_exists/3,
+    insert_record/3,
+    next_id/2,
+    query/2
 ]).
 
 :- use_module(library(assoc)).
@@ -28,13 +28,13 @@
     to_json/3
 ]).
 :- use_module('../pg/client', [
-    execute/2,
+    execute/3,
     matching_criteria/2,
     query_result/2,
     query_result_from_file/3,
-    query_result_from_file/4,
+    query_result_from_file/5,
     read_rows/2,
-    value/3
+    value/4
 ]).
 :- use_module('../../configuration', [pg_backend/1]).
 :- use_module('../../logger', [
@@ -63,8 +63,13 @@ Reads and writes `weaving_user` (the canonical member records
 that downstream callers select by handle) and
 `member_profile_collected_event` (the append-only log of every
 profile snapshot we've collected). The public surface mirrors
-the rest of the repository layer: `count/1`, `query/1`,
-`insert/2`, `next_id/1`, plus screen-name lookups.
+the rest of the repository layer: `count/2`, `query/2`,
+`insert/3`, `next_id/2`, plus screen-name lookups.
+
+Every wire-path predicate takes a `pg_session(In, Out)` compound
+as its first argument; psql-path clauses thread the session as a
+passthrough (input = output) since the psql shell-out is
+stateless.
 */
 
 %% table(-Table).
@@ -73,14 +78,14 @@ table("weaving_user").
 %% event_table(-EventTable).
 event_table("member_profile_collected_event").
 
-%% count(-Count)
+%% count(+Session, -Count)
 %
 % Total number of rows in `weaving_user`. Dispatches on PG_BACKEND.
-count(Count) :-
+count(pg_session(C0, C), Count) :-
     pg_backend("wire"),
     count_sql(SQL),
-    value(SQL, [], Count).
-count(Count) :-
+    value(pg_session(C0, C), SQL, [], Count).
+count(pg_session(C, C), Count) :-
     pg_backend("psql"),
     count_sql(SQL),
     query_result(SQL, Count).
@@ -89,12 +94,12 @@ count_sql(SQL) :-
     table(Table),
     append(["SELECT count(*) AS matching_records_count FROM public.", Table], SQL).
 
-%% query(-HeadersAndRows)
+%% query(+Session, -HeadersAndRows)
 %
 % First 15 rows of `weaving_user` as header-keyed assocs.
-query(HeadersAndRows) :-
+query(Session, HeadersAndRows) :-
     listing_headers(Headers),
-    query(Rows, [], 15),
+    query(Session, Rows, [], 15),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
@@ -126,10 +131,10 @@ all_clauses_template(LimitClause, SQL) :-
             "r.usr_twitter_username::text AS string__handle, ",
             "r.usr_twitter_id::text AS string__did, ",
             "COALESCE(r.usr_user_name::text, r.usr_twitter_username::text, ' ') AS string__username, ",
-            "COALESCE(r.usr_avatar::text, ' ') AS string__avatar, ",
+            "COALESCE(NULLIF(r.usr_avatar::text, ''), ' ') AS string__avatar, ",
             "r.description::bytea AS string__description, ",
-            "COALESCE(r.url::text, ' ') AS string__uri, ",
-            "COALESCE(r.last_status_publication_date::text, ' ') AS string__indexed_at ",
+            "COALESCE(NULLIF(r.url::text, ''), ' ') AS string__uri, ",
+            "COALESCE(NULLIF(r.last_status_publication_date::text, ''), ' ') AS string__indexed_at ",
             "FROM public.", Table, " r ",
             "ORDER BY r.usr_id DESC ",
             "OFFSET 0 ",
@@ -138,13 +143,13 @@ all_clauses_template(LimitClause, SQL) :-
         SQL
     ).
 
-%% query(-Rows, +Headers, +Limit).
-query(Rows, Headers, Limit) :-
+%% query(+Session, -Rows, +Headers, +Limit). Dispatches on PG_BACKEND.
+query(pg_session(C0, C), Rows, Headers, Limit) :-
     pg_backend("wire"),
     once(all_clauses(SQL, Params, Limit)),
-    once(query_result_from_file(SQL, Params, Headers, TmpFile)),
+    once(query_result_from_file(pg_session(C0, C), SQL, Params, Headers, TmpFile)),
     read_rows(TmpFile, Rows).
-query(Rows, _Headers, Limit) :-
+query(pg_session(C, C), Rows, _Headers, Limit) :-
     pg_backend("psql"),
     psql_all_clauses_sql(SQL, Limit),
     once(query_result_from_file(SQL, true, TmpFile)),
@@ -171,10 +176,10 @@ psql_all_clauses_template(LimitClause, SQL) :-
             "r.usr_twitter_username::text AS string__handle, ",
             "r.usr_twitter_id::text AS string__did, ",
             "COALESCE(r.usr_user_name::text, r.usr_twitter_username::text, ' ') AS string__username, ",
-            "COALESCE(r.usr_avatar::text, ' ') AS string__avatar, ",
+            "COALESCE(NULLIF(r.usr_avatar::text, ''), ' ') AS string__avatar, ",
             "r.description::bytea AS string__description, ",
-            "COALESCE(r.url::text, ' ') AS string__uri, ",
-            "COALESCE(r.last_status_publication_date::text, ' ') AS string__indexed_at ",
+            "COALESCE(NULLIF(r.url::text, ''), ' ') AS string__uri, ",
+            "COALESCE(NULLIF(r.last_status_publication_date::text, ''), ' ') AS string__indexed_at ",
             "FROM public.", Table, " r ",
             "ORDER BY r.usr_id DESC ",
             "OFFSET 0 ",
@@ -183,17 +188,17 @@ psql_all_clauses_template(LimitClause, SQL) :-
         SQL
     ).
 
-%% next_id(-NextId)
+%% next_id(+Session, -NextId)
 %
 % Next available `usr_id` for `weaving_user`. Dispatches on PG_BACKEND.
-next_id(NextId) :-
+next_id(pg_session(C0, C), NextId) :-
     pg_backend("wire"),
     query_max_id_sql(SQL),
-    value(SQL, [], MaxIdValue),
+    value(pg_session(C0, C), SQL, [], MaxIdValue),
     coerce_no_records(MaxIdValue, MaxId),
     NextId #= MaxId + 1,
     validate_id(NextId).
-next_id(NextId) :-
+next_id(pg_session(C, C), NextId) :-
     pg_backend("psql"),
     query_max_id_sql(SQL),
     query_result(SQL, MaxIdValue),
@@ -219,21 +224,24 @@ query_max_id_sql(SQL) :-
         SQL
     ).
 
-%% event_by_screen_name(+ScreenName, -HeadersAndRows)
+%% event_by_screen_name(+Session, +ScreenName, -HeadersAndRows)
 %
 % Multi-row read of `member_profile_collected_event` for the
-% given handle, restricted to events from 2025 onward.
-event_by_screen_name(ScreenName, HeadersAndRows) :-
+% given handle, restricted to events from 2025 onward. Throws
+% `cannot_read_rows_selected_by(screen_name)` when no event
+% matches, which `event_getListItem` turns into an insert.
+event_by_screen_name(pg_session(C0, C), ScreenName, HeadersAndRows) :-
     pg_backend("wire"),
     chars_si(ScreenName),
     event_by_screen_name_headers(Headers),
     event_by_screen_name_sql(SQL),
     log_debug([SQL]),
-    once(query_result_from_file(SQL, [ScreenName], [], TmpFile)),
+    once(query_result_from_file(pg_session(C0, C), SQL, [ScreenName], [], TmpFile)),
     once(read_rows_or_throw_screen_name(TmpFile, Rows)),
+    rows_or_throw_on_miss(Rows),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
-event_by_screen_name(ScreenName, HeadersAndRows) :-
+event_by_screen_name(pg_session(C, C), ScreenName, HeadersAndRows) :-
     pg_backend("psql"),
     chars_si(ScreenName),
     event_by_screen_name_headers(Headers),
@@ -241,6 +249,7 @@ event_by_screen_name(ScreenName, HeadersAndRows) :-
     log_debug([SQL]),
     once(query_result_from_file(SQL, true, TmpFile)),
     once(read_rows_or_throw_screen_name(TmpFile, Rows)),
+    rows_or_throw_on_miss(Rows),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
@@ -262,6 +271,14 @@ psql_event_by_screen_name_sql(ScreenName, SQL) :-
 read_rows_or_throw_screen_name(TmpFile, Rows) :- read_rows(TmpFile, Rows).
 read_rows_or_throw_screen_name(_, _) :- throw(cannot_read_rows_selected_by(screen_name)).
 
+%% rows_or_throw_on_miss(+Rows)
+%
+% A query that matches nothing yields `[]` on both backends; turn
+% that into the throw callers catch to take their insert path.
+rows_or_throw_on_miss([]) :-
+    throw(cannot_read_rows_selected_by(screen_name)).
+rows_or_throw_on_miss([_|_]).
+
 event_by_screen_name_headers([
     "string__payload",
     "string__screen_name"
@@ -277,21 +294,24 @@ event_by_screen_name_sql(SQL) :-
         "OFFSET 0 LIMIT ALL;"
     ], SQL).
 
-%% record_by_screen_name(+ScreenName, -HeadersAndRows)
+%% record_by_screen_name(+Session, +ScreenName, -HeadersAndRows)
 %
 % Full denormalised `weaving_user` row for the given handle,
-% returned as a single-row list of header-keyed assocs.
-record_by_screen_name(ScreenName, HeadersAndRows) :-
+% returned as a single-row list of header-keyed assocs. Throws
+% `cannot_read_rows_selected_by(screen_name)` when no record
+% matches.
+record_by_screen_name(pg_session(C0, C), ScreenName, HeadersAndRows) :-
     pg_backend("wire"),
     chars_si(ScreenName),
     record_by_screen_name_headers(Headers),
     record_by_screen_name_sql(SQL),
     log_debug([SQL]),
-    once(query_result_from_file(SQL, [ScreenName], [], TmpFile)),
+    once(query_result_from_file(pg_session(C0, C), SQL, [ScreenName], [], TmpFile)),
     once(read_rows_or_throw_screen_name(TmpFile, Rows)),
+    rows_or_throw_on_miss(Rows),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
-record_by_screen_name(ScreenName, HeadersAndRows) :-
+record_by_screen_name(pg_session(C, C), ScreenName, HeadersAndRows) :-
     pg_backend("psql"),
     chars_si(ScreenName),
     record_by_screen_name_headers(Headers),
@@ -299,6 +319,7 @@ record_by_screen_name(ScreenName, HeadersAndRows) :-
     log_debug([SQL]),
     once(query_result_from_file(SQL, true, TmpFile)),
     once(read_rows_or_throw_screen_name(TmpFile, Rows)),
+    rows_or_throw_on_miss(Rows),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
@@ -311,32 +332,32 @@ psql_record_by_screen_name_sql(ScreenName, SQL) :-
     table(Table),
     append([
         "SELECT ",
-        "r.usr_id AS number__id, ",
-        "r.usr_api_key AS string__api_key, ",
-        "r.max_status_id AS number__max_status_id, ",
-        "r.min_status_id AS number__min_status_id, ",
-        "r.max_like_id AS number__max_status_id, ",
-        "r.min_like_id AS number__min_status_id, ",
-        "r.total_statuses AS number__total_statuses, ",
-        "r.total_likes AS number__total_likes, ",
-        "r.description AS string__id, ",
-        "r.url AS string__url, ",
-        "r.last_status_publication_date AS string__last_status_publication_date, ",
-        "r.total_subscribees AS number__total_subscribees, ",
-        "r.total_subscriptions AS number__total_subscriptions, ",
-        "r.usr_twitter_id AS string__twitter_id, ",
-        "r.usr_twitter_username AS string__twitter_username, ",
-        "r.usr_avatar AS string__avatar, ",
-        "r.usr_full_name AS string__full_name, ",
-        "r.usr_status AS boolean__status, ",
-        "r.usr_user_name AS string__user_name, ",
-        "r.usr_username_canonical AS string__user_name_canonical, ",
-        "r.usr_email AS string__email, ",
-        "r.usr_email_canonical AS string__email_canonical, ",
-        "r.protected AS boolean__protected, ",
-        "r.suspended AS boolean__suspended, ",
-        "r.not_found AS boolean__not_found, ",
-        "r.usr_position_in_hierarchy AS number__position_in_hierarchy ",
+        "COALESCE(NULLIF(r.usr_id::text, ''), ' ') AS number__id, ",
+        "COALESCE(NULLIF(r.usr_api_key::text, ''), ' ') AS string__api_key, ",
+        "COALESCE(NULLIF(r.max_status_id::text, ''), ' ') AS number__max_status_id, ",
+        "COALESCE(NULLIF(r.min_status_id::text, ''), ' ') AS number__min_status_id, ",
+        "COALESCE(NULLIF(r.max_like_id::text, ''), ' ') AS number__max_like_id, ",
+        "COALESCE(NULLIF(r.min_like_id::text, ''), ' ') AS number__min_like_id, ",
+        "COALESCE(NULLIF(r.total_statuses::text, ''), ' ') AS number__total_statuses, ",
+        "COALESCE(NULLIF(r.total_likes::text, ''), ' ') AS number__total_likes, ",
+        "COALESCE(NULLIF(r.description::text, ''), ' ') AS string__description, ",
+        "COALESCE(NULLIF(r.url::text, ''), ' ') AS string__url, ",
+        "COALESCE(NULLIF(r.last_status_publication_date::text, ''), ' ') AS string__last_status_publication_date, ",
+        "COALESCE(NULLIF(r.total_subscribees::text, ''), ' ') AS number__total_subscribees, ",
+        "COALESCE(NULLIF(r.total_subscriptions::text, ''), ' ') AS number__total_subscriptions, ",
+        "COALESCE(NULLIF(r.usr_twitter_id::text, ''), ' ') AS string__twitter_id, ",
+        "COALESCE(NULLIF(r.usr_twitter_username::text, ''), ' ') AS string__twitter_username, ",
+        "COALESCE(NULLIF(r.usr_avatar::text, ''), ' ') AS string__avatar, ",
+        "COALESCE(NULLIF(r.usr_full_name::text, ''), ' ') AS string__full_name, ",
+        "COALESCE(NULLIF(r.usr_status::text, ''), ' ') AS boolean__status, ",
+        "COALESCE(NULLIF(r.usr_user_name::text, ''), ' ') AS string__user_name, ",
+        "COALESCE(NULLIF(r.usr_username_canonical::text, ''), ' ') AS string__user_name_canonical, ",
+        "COALESCE(NULLIF(r.usr_email::text, ''), ' ') AS string__email, ",
+        "COALESCE(NULLIF(r.usr_email_canonical::text, ''), ' ') AS string__email_canonical, ",
+        "COALESCE(NULLIF(r.protected::text, ''), ' ') AS boolean__protected, ",
+        "COALESCE(NULLIF(r.suspended::text, ''), ' ') AS boolean__suspended, ",
+        "COALESCE(NULLIF(r.not_found::text, ''), ' ') AS boolean__not_found, ",
+        "COALESCE(NULLIF(r.usr_position_in_hierarchy::text, ''), ' ') AS number__position_in_hierarchy ",
         "FROM public.", Table, " r ",
         "WHERE r.usr_twitter_username = '", ScreenName, "' ",
         "OFFSET 0 LIMIT ALL;"
@@ -347,11 +368,11 @@ record_by_screen_name_headers([
     "string__api_key",
     "number__max_status_id",
     "number__min_status_id",
-    "number__max_status_id",
-    "number__min_status_id",
+    "number__max_like_id",
+    "number__min_like_id",
     "number__total_statuses",
     "number__total_likes",
-    "string__id",
+    "string__description",
     "string__url",
     "string__last_status_publication_date",
     "number__total_subscribees",
@@ -371,60 +392,64 @@ record_by_screen_name_headers([
     "number__position_in_hierarchy"
 ]).
 
+% Every column is COALESCEd to a single space: rows//1 merges
+% consecutive separators, so an empty (NULL or '') field would shift
+% the columns after it and make to_json/3 fail. Same convention
+% as all_clauses_template/2.
 record_by_screen_name_sql(SQL) :-
     table(Table),
     append([
         "SELECT ",
-        "r.usr_id AS number__id, ",
-        "r.usr_api_key AS string__api_key, ",
-        "r.max_status_id AS number__max_status_id, ",
-        "r.min_status_id AS number__min_status_id, ",
-        "r.max_like_id AS number__max_status_id, ",
-        "r.min_like_id AS number__min_status_id, ",
-        "r.total_statuses AS number__total_statuses, ",
-        "r.total_likes AS number__total_likes, ",
-        "r.description AS string__id, ",
-        "r.url AS string__url, ",
-        "r.last_status_publication_date AS string__last_status_publication_date, ",
-        "r.total_subscribees AS number__total_subscribees, ",
-        "r.total_subscriptions AS number__total_subscriptions, ",
-        "r.usr_twitter_id AS string__twitter_id, ",
-        "r.usr_twitter_username AS string__twitter_username, ",
-        "r.usr_avatar AS string__avatar, ",
-        "r.usr_full_name AS string__full_name, ",
-        "r.usr_status AS boolean__status, ",
-        "r.usr_user_name AS string__user_name, ",
-        "r.usr_username_canonical AS string__user_name_canonical, ",
-        "r.usr_email AS string__email, ",
-        "r.usr_email_canonical AS string__email_canonical, ",
-        "r.protected AS boolean__protected, ",
-        "r.suspended AS boolean__suspended, ",
-        "r.not_found AS boolean__not_found, ",
-        "r.usr_position_in_hierarchy AS number__position_in_hierarchy ",
+        "COALESCE(NULLIF(r.usr_id::text, ''), ' ') AS number__id, ",
+        "COALESCE(NULLIF(r.usr_api_key::text, ''), ' ') AS string__api_key, ",
+        "COALESCE(NULLIF(r.max_status_id::text, ''), ' ') AS number__max_status_id, ",
+        "COALESCE(NULLIF(r.min_status_id::text, ''), ' ') AS number__min_status_id, ",
+        "COALESCE(NULLIF(r.max_like_id::text, ''), ' ') AS number__max_like_id, ",
+        "COALESCE(NULLIF(r.min_like_id::text, ''), ' ') AS number__min_like_id, ",
+        "COALESCE(NULLIF(r.total_statuses::text, ''), ' ') AS number__total_statuses, ",
+        "COALESCE(NULLIF(r.total_likes::text, ''), ' ') AS number__total_likes, ",
+        "COALESCE(NULLIF(r.description::text, ''), ' ') AS string__description, ",
+        "COALESCE(NULLIF(r.url::text, ''), ' ') AS string__url, ",
+        "COALESCE(NULLIF(r.last_status_publication_date::text, ''), ' ') AS string__last_status_publication_date, ",
+        "COALESCE(NULLIF(r.total_subscribees::text, ''), ' ') AS number__total_subscribees, ",
+        "COALESCE(NULLIF(r.total_subscriptions::text, ''), ' ') AS number__total_subscriptions, ",
+        "COALESCE(NULLIF(r.usr_twitter_id::text, ''), ' ') AS string__twitter_id, ",
+        "COALESCE(NULLIF(r.usr_twitter_username::text, ''), ' ') AS string__twitter_username, ",
+        "COALESCE(NULLIF(r.usr_avatar::text, ''), ' ') AS string__avatar, ",
+        "COALESCE(NULLIF(r.usr_full_name::text, ''), ' ') AS string__full_name, ",
+        "COALESCE(NULLIF(r.usr_status::text, ''), ' ') AS boolean__status, ",
+        "COALESCE(NULLIF(r.usr_user_name::text, ''), ' ') AS string__user_name, ",
+        "COALESCE(NULLIF(r.usr_username_canonical::text, ''), ' ') AS string__user_name_canonical, ",
+        "COALESCE(NULLIF(r.usr_email::text, ''), ' ') AS string__email, ",
+        "COALESCE(NULLIF(r.usr_email_canonical::text, ''), ' ') AS string__email_canonical, ",
+        "COALESCE(NULLIF(r.protected::text, ''), ' ') AS boolean__protected, ",
+        "COALESCE(NULLIF(r.suspended::text, ''), ' ') AS boolean__suspended, ",
+        "COALESCE(NULLIF(r.not_found::text, ''), ' ') AS boolean__not_found, ",
+        "COALESCE(NULLIF(r.usr_position_in_hierarchy::text, ''), ' ') AS number__position_in_hierarchy ",
         "FROM public.", Table, " r ",
         "WHERE r.usr_twitter_username = $1 ",
         "OFFSET 0 LIMIT ALL;"
     ], SQL).
 
-%% insert(+Row, -InsertionResult)
+%% insert(+Session, +Row, -InsertionResult)
 %
 % Insert a new `member_profile_collected_event` for
 % `ScreenName` carrying `Payload`, or log the existing payload
 % if an event already exists. Always succeeds with `ok`.
-insert(row(ScreenName, Payload), InsertionResult) :-
-    count_matching_events(ScreenName, TotalMatchingEvents),
+insert(pg_session(C0, C), row(ScreenName, Payload), InsertionResult) :-
+    count_matching_events(pg_session(C0, C1), ScreenName, TotalMatchingEvents),
     if_(
         dif(1, TotalMatchingEvents),
-        insert_new_event(ScreenName, Payload, InsertionResult),
-        report_existing_event(ScreenName, InsertionResult)
+        insert_new_event(pg_session(C1, C), ScreenName, Payload, InsertionResult),
+        report_existing_event(pg_session(C1, C), ScreenName, InsertionResult)
     ).
 
-insert_new_event(ScreenName, Payload, ok) :-
+insert_new_event(pg_session(C0, C), ScreenName, Payload, ok) :-
     pg_backend("wire"),
     uuidv4_string(NextId),
     insert_event_sql(SQL),
-    execute(SQL, [NextId, ScreenName, Payload]).
-insert_new_event(ScreenName, Payload, ok) :-
+    execute(pg_session(C0, C), SQL, [NextId, ScreenName, Payload]).
+insert_new_event(pg_session(C, C), ScreenName, Payload, ok) :-
     pg_backend("psql"),
     uuidv4_string(NextId),
     psql_insert_event_sql(NextId, ScreenName, Payload, SQL),
@@ -451,12 +476,12 @@ psql_insert_event_sql(NextId, ScreenName, Payload, SQL) :-
         SQL
     ).
 
-report_existing_event(ScreenName, ok) :-
+report_existing_event(pg_session(C0, C), ScreenName, ok) :-
     pg_backend("wire"),
     select_event_payload_sql(SelectSQL),
-    value(SelectSQL, [ScreenName], SelectionResult),
+    value(pg_session(C0, C), SelectSQL, [ScreenName], SelectionResult),
     log_existing_event_payload(SelectionResult).
-report_existing_event(ScreenName, ok) :-
+report_existing_event(pg_session(C, C), ScreenName, ok) :-
     pg_backend("psql"),
     psql_select_event_payload_sql(ScreenName, SelectSQL),
     query_result(SelectSQL, SelectionResult),
@@ -473,6 +498,9 @@ psql_select_event_payload_sql(ScreenName, SQL) :-
         SQL
     ).
 
+% Profile events hold the item's JSON pairs written as a quoted
+% Prolog term (see event_getListItem:onGetListItem/2), not a
+% quoted JSON string, so the payload is logged as decoded.
 log_existing_event_payload(no_records_found) :-
     log_debug([no_existing_event_payload]).
 log_existing_event_payload(SelectionResult) :-
@@ -480,10 +508,7 @@ log_existing_event_payload(SelectionResult) :-
     chars_base64(DecodedBase64Payload, SelectionResult, []),
     maplist(char_code, DecodedBase64Payload, DecodedBytes),
     chars_utf8bytes(DecodedChars, DecodedBytes),
-    append([Prefix, ['"']], DecodedChars),
-    append([['"'], Suffix], Prefix),
-    to_json_chars(Suffix, JSONChars),
-    log_debug([JSONChars]).
+    log_debug([DecodedChars]).
 
 insert_event_sql(SQL) :-
     event_table(EventTable),
@@ -507,12 +532,12 @@ select_event_payload_sql(SQL) :-
         SQL
     ).
 
-%% count_matching_events(+ScreenName, -Result). Dispatches on PG_BACKEND.
-count_matching_events(ScreenName, Result) :-
+%% count_matching_events(+Session, +ScreenName, -Result). Dispatches on PG_BACKEND.
+count_matching_events(pg_session(C0, C), ScreenName, Result) :-
     pg_backend("wire"),
     count_matching_events_sql(SQL),
-    value(SQL, [ScreenName], Result).
-count_matching_events(ScreenName, Result) :-
+    value(pg_session(C0, C), SQL, [ScreenName], Result).
+count_matching_events(pg_session(C, C), ScreenName, Result) :-
     pg_backend("psql"),
     psql_count_matching_events_sql(ScreenName, SQL),
     query_result(SQL, Result).
@@ -539,11 +564,12 @@ encode_field_value(FieldValue, EncodedFieldValue) :-
     maplist(char_code_at, Utf8Bytes, FieldUtf8Bytes),
     chars_base64(FieldUtf8Bytes, EncodedFieldValue, []).
 
-%% insert_record(+Row, -InsertionResult)
+%% insert_record(+Session, +Row, -InsertionResult)
 %
 % Insert a new `weaving_user` row for the given handle, or log
 % the existing record's id if one already exists.
 insert_record(
+    pg_session(C0, C),
     row(
         Avatar,
         Description,
@@ -553,17 +579,17 @@ insert_record(
     ),
     InsertionResult
 ) :-
-    count_matching_records(Handle, TotalMatchingRecords),
+    count_matching_records(pg_session(C0, C1), Handle, TotalMatchingRecords),
     write_term(total: TotalMatchingRecords, [double_quotes(true)]), nl,
     if_(
         dif(1, TotalMatchingRecords),
-        insert_new_record(Avatar, Description, Did, Handle, DisplayName, InsertionResult),
-        report_existing_record(Handle, InsertionResult)
+        insert_new_record(pg_session(C1, C), Avatar, Description, Did, Handle, DisplayName, InsertionResult),
+        report_existing_record(pg_session(C1, C), Handle, InsertionResult)
     ).
 
-insert_new_record(Avatar, Description, Did, Handle, DisplayName, ok) :-
+insert_new_record(pg_session(C0, C), Avatar, Description, Did, Handle, DisplayName, ok) :-
     pg_backend("wire"),
-    next_id(NextId),
+    next_id(pg_session(C0, C1), NextId),
     write_term(next_id: NextId, [double_quotes(true)]), nl,
     number_chars(NextId, NextIdChars),
     clean_text(DisplayName, CleanedDisplayName),
@@ -583,14 +609,14 @@ insert_new_record(Avatar, Description, Did, Handle, DisplayName, ok) :-
         Handle
     ],
     catch(
-        execute(SQL, Params),
+        execute(pg_session(C1, C), SQL, Params),
         E,
         throw(cannot_insert_record_into_database(E))
     ),
     write_term(record_insertion_result(ok), [double_quotes(true)]), nl.
-insert_new_record(Avatar, Description, Did, Handle, DisplayName, ok) :-
+insert_new_record(pg_session(C, C), Avatar, Description, Did, Handle, DisplayName, ok) :-
     pg_backend("psql"),
-    next_id(NextId),
+    next_id(pg_session(C, C), NextId),
     write_term(next_id: NextId, [double_quotes(true)]), nl,
     number_chars(NextId, NextIdChars),
     clean_text(DisplayName, CleanedDisplayName),
@@ -660,12 +686,12 @@ psql_insert_record_sql(
         SQL
     ).
 
-report_existing_record(Handle, ok) :-
+report_existing_record(pg_session(C0, C), Handle, ok) :-
     pg_backend("wire"),
     select_record_id_sql(SelectSQL),
-    value(SelectSQL, [Handle], SelectionResult),
+    value(pg_session(C0, C), SelectSQL, [Handle], SelectionResult),
     write_term(selection:SelectionResult, [double_quotes(true)]).
-report_existing_record(Handle, ok) :-
+report_existing_record(pg_session(C, C), Handle, ok) :-
     pg_backend("psql"),
     psql_select_record_id_sql(Handle, SelectSQL),
     query_result(SelectSQL, SelectionResult),
@@ -720,12 +746,12 @@ select_record_id_sql(SQL) :-
         SQL
     ).
 
-%% count_matching_records(+Handle, -Result). Dispatches on PG_BACKEND.
-count_matching_records(Handle, Result) :-
+%% count_matching_records(+Session, +Handle, -Result). Dispatches on PG_BACKEND.
+count_matching_records(pg_session(C0, C), Handle, Result) :-
     pg_backend("wire"),
     count_matching_records_sql(SQL),
-    value(SQL, [Handle], Result).
-count_matching_records(Handle, Result) :-
+    value(pg_session(C0, C), SQL, [Handle], Result).
+count_matching_records(pg_session(C, C), Handle, Result) :-
     pg_backend("psql"),
     psql_count_matching_records_sql(Handle, SQL),
     query_result(SQL, Result).
@@ -746,12 +772,15 @@ count_matching_records_sql(SQL) :-
         "WHERE r.usr_user_name::text = $1;"
     ], SQL).
 
-%% insert_list_items_if_not_exists(+Row, -HeadersAndRowsSelectedByHandle)
+%% insert_list_items_if_not_exists(+Session, +Row, -HeadersAndRowsSelectedByHandle)
 %
-% Composite of `record_by_screen_name/2` and
-% `insert_record/2`: try to read the existing record first;
-% on a miss, fall through to insert and log the outcome.
+% Composite of `record_by_screen_name/3` and
+% `insert_record/3`: try to read the existing record first;
+% on a miss, fall through to insert and log the outcome. A
+% failed insert is logged and leaves the session on its input
+% connection, so the caller can carry on with the next item.
 insert_list_items_if_not_exists(
+    pg_session(C0, C),
     row(
         Avatar,
         Description,
@@ -762,11 +791,12 @@ insert_list_items_if_not_exists(
     HeadersAndRowsSelectedByHandle
 ) :-
     catch(
-        record_by_screen_name(Handle, HeadersAndRowsSelectedByHandle),
+        record_by_screen_name(pg_session(C0, C), Handle, HeadersAndRowsSelectedByHandle),
         E,
         (log_info([E]),
         catch(
-            (insert_record(
+            (once(insert_record(
+                pg_session(C0, C),
                 row(
                     Avatar,
                     Description,
@@ -775,10 +805,10 @@ insert_list_items_if_not_exists(
                     DisplayName
                 ),
                 InsertionResult
-            ),
+            )),
             writeln(member_record_insertion_result(InsertionResult), true)),
             Err,
-            log_error([error_on_record_insertion(Err)])
+            (log_error([error_on_record_insertion(Err)]), C = C0)
         ))
     ).
 
