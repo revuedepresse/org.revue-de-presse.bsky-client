@@ -194,11 +194,14 @@ test-list-item-from-event: ### Regression: every coop-medias.org member decodes 
 test-list-member-feed: ### Regression: a member's feed failing during a list import does not abort the import
 	@mkdir -p var/tmp; TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/list_member_feed_test.pl -g halt
 
-test-shell-unavailable: ### Regression: without SHELL (systemd units), shell/2 fails silently; the date and jq helpers must throw shell_unavailable/1 instead
+test-shell-unavailable: ### Regression: without SHELL (systemd units), shell/2 fails silently; shell_or_throw/3 must run commands under /bin/sh then, and throw shell_unavailable/1 when the shell cannot run
 	@mkdir -p var/tmp; env -u SHELL TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/shell_unavailable_test.pl -g halt
 
 test-configure-shell: ### Regression: fun.sh configure exports SHELL (default /bin/sh) so scryer's shell/2 runs under systemd units, which have none
 	@bash ./tests/configure_shell_test.sh
+
+test-no-direct-shell-call: ### Guard: no shell/2 call in src/ outside os_ext:shell_or_throw/3
+	@bash ./tests/no_direct_shell_call_test.sh
 
 test-memoize-arity: ### Regression: getAuthorFeed no longer assertz's wide responses (scryer max_arity = 255)
 	@scryer-prolog ./tests/memoize_arity_test.pl -g halt
