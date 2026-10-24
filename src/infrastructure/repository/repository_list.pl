@@ -42,7 +42,7 @@
 :- use_module('../../os_ext', [remove_temporary_file/1]).
 :- use_module('../../serialization', [
     pairs_to_assoc/2,
-    to_json_chars/2
+    stored_payload_json_chars/2
 ]).
 :- use_module('../../stream', [
     read_stream/2,
@@ -269,9 +269,7 @@ by_list_uri_or_throw_attempt(Session, MainListAtUri, Assoc) :-
     chars_base64(Utf8BytesPayload, FirstListURIRowPayload, []),
     maplist(char_code, Utf8BytesPayload, Utf8Bytes),
     chars_utf8bytes(PayloadChars, Utf8Bytes),
-    append([Prefix, ['"']], PayloadChars),
-    append([['"'], Suffix], Prefix),
-    to_json_chars(Suffix, JSONChars),
+    stored_payload_json_chars(PayloadChars, JSONChars),
     phrase(json_chars(pairs(Pairs)), JSONChars, []),
     log_debug([pairs: Pairs]),
     pairs_to_assoc(Pairs, AnonymousAssoc),
@@ -466,9 +464,7 @@ log_existing_payload(SelectionResult) :-
     chars_base64(DecodedBase64Payload, SelectionResult, []),
     maplist(char_code, DecodedBase64Payload, DecodedBytes),
     chars_utf8bytes(DecodedChars, DecodedBytes),
-    append([Prefix, ['"']], DecodedChars),
-    append([['"'], Suffix], Prefix),
-    to_json_chars(Suffix, JSONChars),
+    stored_payload_json_chars(DecodedChars, JSONChars),
     log_info([JSONChars]).
 
 insert_event_sql(SQL) :-

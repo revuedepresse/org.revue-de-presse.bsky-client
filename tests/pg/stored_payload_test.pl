@@ -17,25 +17,13 @@
     by_list_uri_or_throw/3,
     insert/3
 ]).
-:- use_module('../../src/serialization', [
-    char_code_at/2,
-    to_json_chars/2
-]).
+:- use_module('../../src/app/bsky/graph/getList', [payload/2]).
 
-%% stored_payload(+BodyChars, -Payload)
+%% decodes(+C0, -C, +Label, +ListURI, +BodyChars, -Assoc)
 %
-% Encodes a getList response body the way getList.pl's payload/2
-% does, so the decoding below sees exactly what production stores.
-stored_payload(BodyChars, Payload) :-
-    to_json_chars(BodyChars, JSONChars),
-    write_term_to_chars(JSONChars, [quoted(false),double_quotes(true)], Chars),
-    chars_utf8bytes(Chars, Utf8Bytes),
-    maplist(char_code_at, Utf8Bytes, Utf8BytesPayload),
-    chars_base64(Utf8BytesPayload, Payload, []).
-
-%% decodes(+Label, +ListURI, +BodyChars, -Assoc)
+% Stores BodyChars through getList's payload/2, then decodes it back.
 decodes(C0, C, Label, ListURI, BodyChars, Assoc) :-
-    stored_payload(BodyChars, Payload),
+    getList:payload(BodyChars, Payload),
     repository_list:insert(pg_session(C0, C1), row(ListURI, Payload), _),
     catch(
         repository_list:by_list_uri_or_throw(pg_session(C1, C), list_uri(ListURI), Assoc),
