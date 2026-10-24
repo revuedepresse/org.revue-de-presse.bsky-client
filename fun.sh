@@ -222,8 +222,9 @@ function infrastructure__list__count() {
     configure
 
     scryer-prolog \
-        -g 'count(Count), writeq(Count).' \
+        -g 'open_pg_connection(C0), count(pg_session(C0, C), Count), writeq(Count), close_pg_connection(C).' \
         -g 'halt.' \
+        ./src/infrastructure/pg/connection.pl \
         ./src/infrastructure/repository/repository_list.pl
 }
 
@@ -231,8 +232,9 @@ function infrastructure__list__query() {
     configure
 
     scryer-prolog \
-        -g 'query(Result), writeq(Result).' \
+        -g 'open_pg_connection(C0), query(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
+        ./src/infrastructure/pg/connection.pl \
         ./src/infrastructure/repository/repository_list.pl
 }
 
@@ -240,8 +242,9 @@ function infrastructure__list__next_event_id() {
     configure
 
     scryer-prolog \
-        -g 'next_event_id(Result), writeq(Result).' \
+        -g 'open_pg_connection(C0), next_event_id(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
+        ./src/infrastructure/pg/connection.pl \
         ./src/infrastructure/repository/repository_list.pl
 }
 
@@ -249,8 +252,9 @@ function infrastructure__list__next_id() {
     configure
 
     scryer-prolog \
-        -g 'next_id(Result), writeq(Result).' \
+        -g 'open_pg_connection(C0), next_id(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
+        ./src/infrastructure/pg/connection.pl \
         ./src/infrastructure/repository/repository_list.pl
 }
 
@@ -258,8 +262,9 @@ function infrastructure__list_item__count() {
     configure
 
     scryer-prolog \
-        -g 'count(Count), writeq(Count)' \
+        -g 'open_pg_connection(C0), count(pg_session(C0, C), Count), writeq(Count), close_pg_connection(C).' \
         -g 'halt.' \
+        ./src/infrastructure/pg/connection.pl \
         ./src/infrastructure/repository/repository_list_item.pl
 }
 
@@ -267,8 +272,9 @@ function infrastructure__list_item__query() {
     configure
 
     scryer-prolog \
-        -g 'query(Result), writeq(Result).' \
+        -g 'open_pg_connection(C0), query(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
+        ./src/infrastructure/pg/connection.pl \
         ./src/infrastructure/repository/repository_list_item.pl
 }
 
@@ -276,8 +282,9 @@ function infrastructure__list_item__next_id() {
     configure
 
     scryer-prolog \
-        -g 'next_id(Result), writeq(Result).' \
+        -g 'open_pg_connection(C0), next_id(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
+        ./src/infrastructure/pg/connection.pl \
         ./src/infrastructure/repository/repository_list_item.pl
 }
 
@@ -285,8 +292,9 @@ function infrastructure__publisher__count() {
     configure
 
     scryer-prolog \
-        -g 'count(Count), writeq(Count)' \
+        -g 'open_pg_connection(C0), count(pg_session(C0, C), Count), writeq(Count), close_pg_connection(C).' \
         -g 'halt.' \
+        ./src/infrastructure/pg/connection.pl \
         ./src/infrastructure/repository/repository_publisher.pl
 }
 
@@ -294,8 +302,9 @@ function infrastructure__publisher__query() {
     configure
 
     scryer-prolog \
-        -g 'query(Result), writeq(Result).' \
+        -g 'open_pg_connection(C0), query(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
+        ./src/infrastructure/pg/connection.pl \
         ./src/infrastructure/repository/repository_publisher.pl
 }
 
@@ -303,8 +312,9 @@ function infrastructure__publisher__next_id() {
     configure
 
     scryer-prolog \
-        -g 'next_id(Result), writeq(Result).' \
+        -g 'open_pg_connection(C0), next_id(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
+        ./src/infrastructure/pg/connection.pl \
         ./src/infrastructure/repository/repository_publisher.pl
 }
 
@@ -312,8 +322,9 @@ function infrastructure__status__count() {
     configure
 
     scryer-prolog \
-        -g 'count(Count), writeq(Count).' \
+        -g 'open_pg_connection(C0), count(pg_session(C0, C), Count), writeq(Count), close_pg_connection(C).' \
         -g 'halt.' \
+        ./src/infrastructure/pg/connection.pl \
         ./src/infrastructure/repository/repository_status.pl
 }
 
@@ -330,8 +341,9 @@ function infrastructure__status__next_id() {
     configure
 
     scryer-prolog \
-        -g 'next_id(Result), writeq(Result).' \
+        -g 'open_pg_connection(C0), next_id(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
+        ./src/infrastructure/pg/connection.pl \
         ./src/infrastructure/repository/repository_status.pl
 }
 
@@ -339,8 +351,9 @@ function infrastructure__popularity__count() {
     configure
 
     scryer-prolog \
-        -g 'count(Count), writeq(Count).' \
+        -g 'open_pg_connection(C0), count(pg_session(C0, C), Count), writeq(Count), close_pg_connection(C).' \
         -g 'halt.' \
+        ./src/infrastructure/pg/connection.pl \
         ./src/infrastructure/repository/repository_popularity.pl
 }
 
@@ -357,8 +370,9 @@ function infrastructure__popularity__next_id() {
     configure
 
     scryer-prolog \
-        -g 'next_id(Result), writeq(Result).' \
+        -g 'open_pg_connection(C0), next_id(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
+        ./src/infrastructure/pg/connection.pl \
         ./src/infrastructure/repository/repository_popularity.pl
 }
 
@@ -366,8 +380,9 @@ function infrastructure__publication__count() {
     configure
 
     scryer-prolog \
-        -g 'count(Count), writeq(Count).' \
+        -g 'open_pg_connection(C0), count(pg_session(C0, C), Count), writeq(Count), close_pg_connection(C).' \
         -g 'halt.' \
+        ./src/infrastructure/pg/connection.pl \
         ./src/infrastructure/repository/repository_publication.pl
 }
 
@@ -384,8 +399,9 @@ function infrastructure__publication__next_id() {
     configure
 
     scryer-prolog \
-        -g 'next_id(Result), writeq(Result).' \
+        -g 'open_pg_connection(C0), next_id(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
+        ./src/infrastructure/pg/connection.pl \
         ./src/infrastructure/repository/repository_publication.pl
 }
 

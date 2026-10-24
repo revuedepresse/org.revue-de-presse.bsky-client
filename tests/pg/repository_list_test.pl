@@ -84,13 +84,13 @@ run_test :-
         ["at://list-probe"],
         Reply),
     (   Reply = data([[ListIdChars|_]|_]),
-        catch(number_chars(StoredListId, ListIdChars), _, false)
+        catch(number_chars(_, ListIdChars), _, false)
     ->  format("[ok] stored list_id=~s~n", [ListIdChars])
     ;   format("[KO] verification SELECT returned ~w~n", [Reply]), halt(1) ),
 
     repository_list:by_list_uri(pg_session(C2, C3), "at://list-probe", Rows),
     (   Rows = [Row],
-        get_assoc(list_id, Row, StoredListId)
+        get_assoc(list_id, Row, ListIdChars)
     ->  format("[ok] by_list_uri/3 found the stored row~n", [])
     ;   format("[KO] by_list_uri/3 returned ~w~n", [Rows]), halt(1) ),
 
@@ -104,7 +104,7 @@ run_test :-
     ),
 
     repository_list:by_list_uri_or_throw(pg_session(C3, C4), list_uri("at://list-probe"), Assoc),
-    (   get_assoc(list_id, Assoc, StoredListId)
+    (   get_assoc(list_id, Assoc, ListIdChars)
     ->  format("[ok] by_list_uri_or_throw/3 merged list_id into the decoded payload~n", [])
     ;   format("[KO] by_list_uri_or_throw/3 returned ~w~n", [Assoc]), halt(1) ),
 
