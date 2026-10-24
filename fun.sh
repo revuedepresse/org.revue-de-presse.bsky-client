@@ -501,6 +501,9 @@ function test() {
     # imports and client.pl arities statically.
     python3 -I ./tests/client_arity_check.py . |
         tee -a ./test.log
+    # Every shell-out must go through os_ext:shell_or_throw/3.
+    bash ./tests/no_direct_shell_call_test.sh |
+        tee -a ./test.log
     # shellcheck disable=SC2046
     if [ $(grep -c '\[KO\]' ./test.log) -gt 0 ]; then
         printf '%s.%s' 'Some tests failed' $'\n'
