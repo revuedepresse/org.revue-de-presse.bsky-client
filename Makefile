@@ -187,6 +187,9 @@ test-list-member-feed: ### Regression: a member's feed failing during a list imp
 test-shell-unavailable: ### Regression: without SHELL (systemd units), shell/2 fails silently; the date and jq helpers must throw shell_unavailable/1 instead
 	@mkdir -p var/tmp; env -u SHELL TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/shell_unavailable_test.pl -g halt
 
+test-configure-shell: ### Regression: fun.sh configure exports SHELL (default /bin/sh) so scryer's shell/2 runs under systemd units, which have none
+	@bash ./tests/configure_shell_test.sh
+
 test-memoize-arity: ### Regression: getAuthorFeed no longer assertz's wide responses (scryer max_arity = 255)
 	@scryer-prolog ./tests/memoize_arity_test.pl -g halt
 
