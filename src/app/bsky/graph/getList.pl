@@ -1,5 +1,6 @@
 :- module('getList', [
     app__bsky__graph__getList/2,
+    member_feed/2,
     payload/2
 ]).
 
@@ -188,7 +189,7 @@ list_uri(Session, MainListAtUri, JSONAssoc, Uri) :-
 
         writeln(gettingProfileByDID(ActorParam)),
         app__bsky__actor__getProfile(ActorParam, Payload),
-        app__bsky__feed__getAuthorFeed(ActorParam, _),
+        member_feed(app__bsky__feed__getAuthorFeed, ActorParam),
 
         writeln(received_payload(Payload)),
         pairs_to_assoc(Payload, PayloadAssoc),
@@ -197,6 +198,18 @@ list_uri(Session, MainListAtUri, JSONAssoc, Uri) :-
         get_assoc(followsCount, PayloadAssoc, FollowsCount),
 
         onGetProfile(pg_session(In, Out), props(MainListAtUri, FollowersCount, FollowsCount, ActorParam, Payload)).
+
+%% member_feed(+FetchFeed, +Actor).
+%
+% Fetches a member's recent posts with call(FetchFeed, Actor, Props).
+% Recording the membership does not depend on it (the hourly fetch
+% covers the posts anyway), so a fetch that fails or throws is logged
+% and the import goes on with the next step.
+member_feed(FetchFeed, Actor) :-
+    (   catch(call(FetchFeed, Actor, _Props), E, ( log_error([member_feed_error(Actor, E)]), true ))
+    ->  true
+    ;   log_error([member_feed_failed(Actor)])
+    ).
 
 %% [app.bsky.graph.getList](https://docs.bsky.app/docs/api/app-bsky-graph-get-list)
 %
