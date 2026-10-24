@@ -133,8 +133,23 @@ process_post(pg_session(In, Out), _Cursor, Post) :-
 %% handle_existence(+Exists, +Session, +URI, +Args).
 %
 % Pure two-clause dispatch on the reified existence Truth.
-handle_existence(true, pg_session(C, C), URI, _Args) :-
-    throw(already_indexed_post(uri(URI))).
+%
+% A post already stored is not inserted again, but its current
+% likes/reposts are: each sighting appends a status_popularity row,
+% which is what the daily top 10 ranks on and what lets popularity
+% be followed through the day. The status insert hits ON CONFLICT
+% (ust_hash) and hands back the existing ust_id for that row; the
+% publication insert is skipped since it would be a no-op.
+handle_existence(true, Session, URI,
+                 args(DisplayName, Handle, Text, AuthorAvatar, Payload, CreatedAt,
+                      likes(LikeCount)-reposts(RepostCount))) :-
+    writeln([post_indexed_before|[URI]], true),
+    try_inserting_status_record(
+        Session,
+        DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
+        likes(LikeCount)-reposts(RepostCount),
+        _RecordId
+    ).
 handle_existence(false, Session, URI,
                  args(DisplayName, Handle, Text, AuthorAvatar, Payload, CreatedAt,
                       likes(LikeCount)-reposts(RepostCount))) :-
