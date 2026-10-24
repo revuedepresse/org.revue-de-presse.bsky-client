@@ -175,6 +175,9 @@ test-list-import-handlers-psql: compose-up ### list import handlers under PG_BAC
 test-client-arity: ### Static check: imported predicates exist, and calls to pg/client.pl use exported arities
 	@python3 -I ./tests/client_arity_check.py .
 
+test-feed-since: ### FEED_SINCE=YYYY-MM-DD moves getAuthorFeed's pagination cut-off (backfill); unset keeps two days
+	@mkdir -p var/tmp; TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/feed_since_test.pl -g halt
+
 test-memoize-arity: ### Regression: getAuthorFeed no longer assertz's wide responses (scryer max_arity = 255)
 	@scryer-prolog ./tests/memoize_arity_test.pl -g halt
 
