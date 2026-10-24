@@ -38,9 +38,6 @@ threads it through the repository calls.
     to_json_chars/2
 ]).
 :- use_module('../../../../../stream', [
-    char_code_at/2,
-    pairs_to_assoc/2,
-    to_json_chars/2,
     writeln/1,
     writeln/2
 ]).

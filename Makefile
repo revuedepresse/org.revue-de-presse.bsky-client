@@ -160,6 +160,9 @@ test-segv-replay: ### Replays /tmp/segv-investigation/last-by-indexed-at.pl agai
 test-extract-lookup-ust-id: ### Regression: repository_status:extract_lookup_ust_id/2 rejects malformed lookup replies
 	@scryer-prolog ./tests/pg/extract_lookup_ust_id_test.pl -g 'run_test'
 
+test-client-arity: ### Static check: imported predicates exist, and calls to pg/client.pl use exported arities
+	@python3 -I ./tests/client_arity_check.py .
+
 test-memoize-arity: ### Regression: getAuthorFeed no longer assertz's wide responses (scryer max_arity = 255)
 	@scryer-prolog ./tests/memoize_arity_test.pl -g halt
 
