@@ -23,6 +23,14 @@ function configure() {
     export RUST_BACKTRACE="${RUST_BACKTRACE:-full}"
     export RUST_LIB_BACKTRACE="${RUST_LIB_BACKTRACE:-full}"
 
+    # Scryer's shell/2 runs commands through $SHELL and fails when it
+    # is not in the environment, which is how a systemd unit starts
+    # the worker. Default it to /bin/sh, as cron does. printenv reads
+    # the exported value: bash assigns SHELL when it starts without
+    # one but does not export it, so ${SHELL:-} alone would not do.
+    SHELL="$(printenv SHELL || true)"
+    export SHELL="${SHELL:-/bin/sh}"
+
     # Prefer the in-tree patched scryer-prolog binary if it has been
     # built. deps/scryer-prolog ships ahead of the published release
     # by the commit `b02e0c47 fix: Guard Unifier::unify_constant
