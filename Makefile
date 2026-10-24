@@ -199,6 +199,15 @@ test-already-indexed-by-uri: compose-up ### Regression: onGetAuthorFeed dedup ke
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./tests/pg/already_indexed_by_uri_test.pl -g 'run_test'
 
+test-remeasure-known-post: compose-up ### Regression: a post already stored gets a new status_popularity row each time the feed returns it
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/remeasure_known_post_test.pl -g 'run_test'
+
+test-remeasure-known-post-psql: compose-up ### Known-post re-measurement under PG_BACKEND=psql (status ust_id recovered via the psql lookup)
+	@mkdir -p ./var/tmp
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/pg/remeasure_known_post_test.pl -g 'run_test'
+
 test-repository-inserts-psql: compose-up ### repository_inserts test under PG_BACKEND=psql (shell-out fall-back transport)
 	@set -a; . ./.env.test; set +a; \
 	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_inserts_test.pl -g 'run_test' -g 'halt(1)'
