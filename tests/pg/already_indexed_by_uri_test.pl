@@ -4,14 +4,19 @@
 :- use_module(library(lists)).
 :- use_module(library(os)).
 
-:- use_module('../../src/infrastructure/pg/connection', [pg_query_simple/2]).
-:- use_module('../../src/infrastructure/repository/repository_status', [insert/3]).
+:- use_module('../../src/infrastructure/pg/connection', [
+    open_pg_connection/1,
+    close_pg_connection/1,
+    pg_query/4,
+    pg_query_simple/3
+]).
+:- use_module('../../src/infrastructure/repository/repository_status', [insert/4]).
 :- use_module('../../src/domain/events/app/bsky/feed/event_getAuthorFeed', [
-    onGetAuthorFeed/4
+    onGetAuthorFeed/5
 ]).
 
 /*
-Regression: onGetAuthorFeed/2 must dedup by the post's own URI,
+Regression: onGetAuthorFeed must dedup by the post's own URI,
 not by the page cursor.
 
 The buggy lookup at event_getAuthorFeed.pl:76 was
@@ -33,16 +38,16 @@ throughput collapse.
 Three cases drive the fix:
 
   1. Cursor *collides* with a baseline row's timestamp; the
-     incoming post's URI is *new*. The dedup must NOT fire. This
-     is the bug case -- the one the worker hit in production.
+     incoming post's URI is *new*. The post must be inserted.
+     This is the bug case -- the one the worker hit in production.
 
-  2. Incoming post's URI exactly matches a baseline row. The
-     dedup MUST fire (throw already_indexed_post). Proves the
-     fix didn't disable per-post dedup.
+  2. Incoming post's URI exactly matches a baseline row. Dedup
+     must keep it to one status row; the post is re-measured
+     instead (one more status_popularity row) and the call
+     completes. See tests/pg/remeasure_known_post_test.pl.
 
-  3. Cursor doesn't collide with anything; URI is new. The dedup
-     must NOT fire and the row must land. Proves the happy path
-     still works.
+  3. Cursor doesn't collide with anything; URI is new. The row
+     must land. Proves the happy path still works.
 */
 
 env_or_die(Name) :-
@@ -63,14 +68,15 @@ colliding_cursor("2025-06-15T12:00:00.123Z").
 %% A cursor seconds away from any baseline row, used for case 3.
 pristine_cursor("2025-06-15T23:59:59.000Z").
 
-cleanup_probe_rows :-
-    pg_query_simple("DELETE FROM status_popularity WHERE publication_id LIKE 'at://probe-%'", _),
-    pg_query_simple("DELETE FROM publication       WHERE document_id   LIKE 'at://probe-%'", _),
-    pg_query_simple("DELETE FROM weaving_status    WHERE ust_status_id LIKE 'at://probe-%'", _).
+cleanup_probe_rows(Conn) :-
+    pg_query_simple(Conn, "DELETE FROM status_popularity WHERE publication_id LIKE 'at://probe-%'", _),
+    pg_query_simple(Conn, "DELETE FROM publication       WHERE document_id   LIKE 'at://probe-%'", _),
+    pg_query_simple(Conn, "DELETE FROM weaving_status    WHERE ust_status_id LIKE 'at://probe-%'", _).
 
-seed_baseline :-
+seed_baseline(C0, C) :-
     baseline_handle(H), baseline_uri(U), baseline_cursor_ts(Ts), baseline_text(Txt),
     repository_status:insert(
+        pg_session(C0, C),
         row(_DN, H, Txt, "avatar.png", "{}", U, Ts),
         Result, UstId
     ),
@@ -98,25 +104,33 @@ make_post(URI, CreatedAt, Text, Post) :-
         ])
     ]).
 
-uri_row_count(URI, N) :-
-    append(["SELECT count(*)::int FROM weaving_status WHERE ust_status_id = '", URI, "'"], SQL),
-    pg_query_simple(SQL, Reply),
-    extract_count(Reply, N).
+%% drive(+Conn0, +Cursor, +Post, -Conn, -Caught).
+%
+% Caught stays unbound when onGetAuthorFeed/5 completes.
+drive(Conn0, Cursor, Post, Conn, Caught) :-
+    catch(
+        onGetAuthorFeed(pg_session(Conn0, Conn), Cursor, 1, Post, 1),
+        Err,
+        ( Caught = thrown(Err), Conn = Conn0 )
+    ).
 
-extract_count(data(_, [[NChars]]), N) :- number_chars(N, NChars).
-extract_count(data([[NChars|_]|_]), N) :- number_chars(N, NChars).
+count_rows(Conn, SQL, URI, N) :-
+    pg_query(Conn, SQL, [URI], data([[NChars|_]|_])),
+    number_chars(N, NChars).
+
+uri_row_count(Conn, URI, N) :-
+    count_rows(Conn, "SELECT count(*)::text FROM weaving_status WHERE ust_status_id = $1", URI, N).
+
+measurement_count(Conn, URI, N) :-
+    count_rows(Conn, "SELECT count(*)::text FROM status_popularity WHERE publication_id = $1", URI, N).
 
 %% --- Case 1: cursor collides, new URI -> must insert ---------------
-case_cursor_collides_new_uri_inserts(Result) :-
+case_cursor_collides_new_uri_inserts(C0, C, Result) :-
     colliding_cursor(Cursor),
     make_post("at://probe-new-1", "2025-06-15T13:00:00Z", "new post one", Post),
     format("[..] case1 driving cursor=~s (collides) uri=at://probe-new-1 (new)~n", [Cursor]),
-    catch(
-        onGetAuthorFeed(Cursor, 1, Post, 1),
-        Err,
-        Caught = thrown(Err)
-    ),
-    uri_row_count("at://probe-new-1", N),
+    drive(C0, Cursor, Post, C, Caught),
+    uri_row_count(C, "at://probe-new-1", N),
     (   var(Caught), N =:= 1
     ->  Result = ok,
         format("[ok] case1: new URI inserted, no false throw~n", [])
@@ -130,38 +144,33 @@ case_cursor_collides_new_uri_inserts(Result) :-
         format("[KO] case1: no throw but row count = ~w~n", [N])
     ).
 
-%% --- Case 2: incoming URI matches baseline -> must throw ----------
-case_existing_uri_throws(Result) :-
+%% --- Case 2: incoming URI matches baseline -> deduped, re-measured -
+case_existing_uri_is_deduped_and_remeasured(C0, C, Result) :-
     pristine_cursor(Cursor),
     baseline_uri(URI),
+    measurement_count(C0, URI, Before),
     make_post(URI, "2025-06-15T12:00:00Z", "duplicate post", Post),
     format("[..] case2 driving uri=~s (already exists) cursor=~s~n", [URI, Cursor]),
-    catch(
-        onGetAuthorFeed(Cursor, 1, Post, 1),
-        Err,
-        Caught = thrown(Err)
-    ),
-    (   Caught = thrown(already_indexed_post(uri(_)))
+    drive(C0, Cursor, Post, C, Caught),
+    uri_row_count(C, URI, Statuses),
+    measurement_count(C, URI, After),
+    (   var(Caught), Statuses =:= 1, After =:= Before + 1
     ->  Result = ok,
-        format("[ok] case2: per-URI dedup correctly throws on duplicate~n", [])
-    ;   var(Caught)
-    ->  Result = ko(case2_missing_throw),
-        format("[KO] case2: duplicate URI didn't throw -- dedup disabled~n", [])
-    ;   Result = ko(case2_unexpected(Caught)),
+        format("[ok] case2: duplicate URI kept to one status row and re-measured~n", [])
+    ;   nonvar(Caught)
+    ->  Result = ko(case2_unexpected(Caught)),
         format("[KO] case2: unexpected throw ~q~n", [Caught])
+    ;   Result = ko(case2_rows(statuses(Statuses), measurements(Before, After))),
+        format("[KO] case2: statuses=~w measurements ~w -> ~w~n", [Statuses, Before, After])
     ).
 
 %% --- Case 3: cursor doesn't collide, URI is new -> must insert ----
-case_happy_path_inserts(Result) :-
+case_happy_path_inserts(C0, C, Result) :-
     pristine_cursor(Cursor),
     make_post("at://probe-new-3", "2025-06-15T14:00:00Z", "happy path", Post),
     format("[..] case3 driving cursor=~s (no collision) uri=at://probe-new-3 (new)~n", [Cursor]),
-    catch(
-        onGetAuthorFeed(Cursor, 1, Post, 1),
-        Err,
-        Caught = thrown(Err)
-    ),
-    uri_row_count("at://probe-new-3", N),
+    drive(C0, Cursor, Post, C, Caught),
+    uri_row_count(C, "at://probe-new-3", N),
     (   var(Caught), N =:= 1
     ->  Result = ok,
         format("[ok] case3: happy path inserted cleanly~n", [])
@@ -177,12 +186,14 @@ run_test :-
             ["DATABASE_HOST","DATABASE_PORT","DATABASE_USERNAME",
              "DATABASE_PASSWORD","DATABASE_DB_NAME"]),
 
-    cleanup_probe_rows,
-    seed_baseline,
+    open_pg_connection(C0),
+    cleanup_probe_rows(C0),
+    seed_baseline(C0, C1),
 
-    case_cursor_collides_new_uri_inserts(R1),
-    case_existing_uri_throws(R2),
-    case_happy_path_inserts(R3),
+    case_cursor_collides_new_uri_inserts(C1, C2, R1),
+    case_existing_uri_is_deduped_and_remeasured(C2, C3, R2),
+    case_happy_path_inserts(C3, C4, R3),
+    close_pg_connection(C4),
 
     (   R1 == ok, R2 == ok, R3 == ok
     ->  format("[OK] all 3 dedup-by-URI cases passed~n", []),
