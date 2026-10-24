@@ -1,11 +1,11 @@
 :- module(repository_list, [
-    by_list_uri/2,
-    by_list_uri_or_throw/2,
-    count/1,
-    insert/2,
-    next_event_id/1,
-    next_id/1,
-    query/1
+    by_list_uri/3,
+    by_list_uri_or_throw/3,
+    count/2,
+    insert/3,
+    next_event_id/2,
+    next_id/2,
+    query/2
 ]).
 
 :- use_module(library(assoc)).
@@ -26,13 +26,13 @@
     to_json/3
 ]).
 :- use_module('../pg/client', [
-    execute/2,
+    execute/3,
     matching_criteria/2,
     query_result/2,
     query_result_from_file/3,
-    query_result_from_file/4,
+    query_result_from_file/5,
     read_rows/2,
-    value/3
+    value/4
 ]).
 :- use_module('../../configuration', [pg_backend/1]).
 :- use_module('../../logger', [
@@ -56,10 +56,15 @@ Repository for curated lists of Bluesky authors.
 
 Persists list metadata and the most recent payload event in
 the `publishers_list` and `publishers_list_collected_event`
-tables. All reads go through `value/3` /
-`query_result_from_file/4`; all writes go through `execute/2`
+tables. All reads go through `value/4` /
+`query_result_from_file/5`; all writes go through `execute/3`
 with bind parameters, so no caller-controlled value is ever
 concatenated into SQL.
+
+Every wire-path predicate takes a `pg_session(In, Out)` compound
+as its first argument; psql-path clauses thread the session as a
+passthrough (input = output) since the psql shell-out is
+stateless.
 */
 
 %% table(-Table)
@@ -68,14 +73,14 @@ table("publishers_list").
 %% event_table(-EventTable).
 event_table("publishers_list_collected_event").
 
-%% count(-Count)
+%% count(+Session, -Count)
 %
 % Total number of rows in `publishers_list`. Dispatches on PG_BACKEND.
-count(Count) :-
+count(pg_session(C0, C), Count) :-
     pg_backend("wire"),
     count_sql(SQL),
-    value(SQL, [], Count).
-count(Count) :-
+    value(pg_session(C0, C), SQL, [], Count).
+count(pg_session(C, C), Count) :-
     pg_backend("psql"),
     count_sql(SQL),
     query_result(SQL, Count).
@@ -84,12 +89,12 @@ count_sql(SQL) :-
     table(Table),
     append(["SELECT count(*) AS matching_records_count FROM public.", Table], SQL).
 
-%% query(-HeadersAndRows)
+%% query(+Session, -HeadersAndRows)
 %
 % All `publishers_list` rows as a list of header-keyed assocs.
-query(HeadersAndRows) :-
+query(Session, HeadersAndRows) :-
     headers(Headers),
-    query(Rows, [], "ALL"),
+    query(Session, Rows, [], "ALL"),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
@@ -131,13 +136,13 @@ all_clauses_template(LimitClause, SQL) :-
         SQL
     ).
 
-%% query(-Rows, +Headers, +Limit).
-query(Rows, Headers, Limit) :-
+%% query(+Session, -Rows, +Headers, +Limit). Dispatches on PG_BACKEND.
+query(pg_session(C0, C), Rows, Headers, Limit) :-
     pg_backend("wire"),
     once(all_clauses(SQL, Params, Limit)),
-    once(query_result_from_file(SQL, Params, Headers, TmpFile)),
+    once(query_result_from_file(pg_session(C0, C), SQL, Params, Headers, TmpFile)),
     read_rows(TmpFile, Rows).
-query(Rows, _Headers, Limit) :-
+query(pg_session(C, C), Rows, _Headers, Limit) :-
     pg_backend("psql"),
     psql_all_clauses_sql(SQL, Limit),
     once(query_result_from_file(SQL, true, TmpFile)),
@@ -173,19 +178,19 @@ psql_all_clauses_template(LimitClause, SQL) :-
         SQL
     ).
 
-%% next_id(-NextId)
+%% next_id(+Session, -NextId)
 %
 % Next available primary key for `publishers_list`: the
 % current `MAX(id) + 1`, or `1` if the table is empty.
 % Dispatches on PG_BACKEND.
-next_id(NextId) :-
+next_id(pg_session(C0, C), NextId) :-
     pg_backend("wire"),
     query_max_id_sql(SQL),
-    value(SQL, [], MaxIdValue),
+    value(pg_session(C0, C), SQL, [], MaxIdValue),
     coerce_no_records(MaxIdValue, MaxId),
     NextId #= MaxId + 1,
     validate_id(NextId).
-next_id(NextId) :-
+next_id(pg_session(C, C), NextId) :-
     pg_backend("psql"),
     query_max_id_sql(SQL),
     query_result(SQL, MaxIdValue),
@@ -193,18 +198,18 @@ next_id(NextId) :-
     NextId #= MaxId + 1,
     validate_id(NextId).
 
-%% next_event_id(-NextEventId)
+%% next_event_id(+Session, -NextEventId)
 %
 % Next available `list_id` for
 % `publishers_list_collected_event`. Dispatches on PG_BACKEND.
-next_event_id(NextEventId) :-
+next_event_id(pg_session(C0, C), NextEventId) :-
     pg_backend("wire"),
     query_event_max_id_sql(SQL),
-    value(SQL, [], EventMaxIdValue),
+    value(pg_session(C0, C), SQL, [], EventMaxIdValue),
     coerce_no_records(EventMaxIdValue, EventMaxId),
     NextEventId #= EventMaxId + 1,
     validate_id(NextEventId).
-next_event_id(NextEventId) :-
+next_event_id(pg_session(C, C), NextEventId) :-
     pg_backend("psql"),
     query_event_max_id_sql(SQL),
     query_result(SQL, EventMaxIdValue),
@@ -242,17 +247,21 @@ query_event_max_id_sql(SQL) :-
         SQL
     ).
 
-%% by_list_uri_or_throw(+MainListAtUri, -Assoc)
+%% by_list_uri_or_throw(+Session, +MainListAtUri, -Assoc)
 %
 % Read the first event row for `MainListAtUri`, base64-decode
 % its JSON payload, and merge in the persisted `list_id`.
 % Throws `cannot_find_publishers_list_by_uri` when no row
 % matches.
-by_list_uri_or_throw(list_uri(MainListAtUri), Assoc) :-
-    once(by_list_uri_or_throw_attempt(MainListAtUri, Assoc)).
+by_list_uri_or_throw(Session, list_uri(MainListAtUri), Assoc) :-
+    catch(
+        once(by_list_uri_or_throw_attempt(Session, MainListAtUri, Assoc)),
+        cannot_read_rows_selected_by(list_id),
+        throw(cannot_find_publishers_list_by_uri)
+    ).
 
-by_list_uri_or_throw_attempt(MainListAtUri, Assoc) :-
-    by_list_uri(MainListAtUri, ListURIRows),
+by_list_uri_or_throw_attempt(Session, MainListAtUri, Assoc) :-
+    by_list_uri(Session, MainListAtUri, ListURIRows),
     writeln(rows_selected_by_list_uri(ListURIRows)),
     nth0(0, ListURIRows, FirstListURIRow),
     get_assoc(payload, FirstListURIRow, FirstListURIRowPayload),
@@ -264,34 +273,46 @@ by_list_uri_or_throw_attempt(MainListAtUri, Assoc) :-
     append([['"'], Suffix], Prefix),
     to_json_chars(Suffix, JSONChars),
     phrase(json_chars(pairs(Pairs)), JSONChars, []),
-    log_debug(pairs: Pairs),
+    log_debug([pairs: Pairs]),
     pairs_to_assoc(Pairs, AnonymousAssoc),
     writeln(anonymous_assoc:AnonymousAssoc),
     put_assoc(list_id, AnonymousAssoc, ListId, Assoc).
-by_list_uri_or_throw_attempt(_, _) :-
+by_list_uri_or_throw_attempt(_, _, _) :-
     throw(cannot_find_publishers_list_by_uri).
 
-%% by_list_uri(+ListURI, -HeadersAndRows)
+%% by_list_uri(+Session, +ListURI, -HeadersAndRows)
 %
 % Multi-row read of `publishers_list_collected_event` for the
 % given list AT-URI; each row is returned as a header-keyed
-% assoc. Dispatches on PG_BACKEND.
-by_list_uri(ListURI, HeadersAndRows) :-
+% assoc. Throws `cannot_read_rows_selected_by(list_id)` when no
+% event matches, which `event_getList` turns into an insert.
+% Dispatches on PG_BACKEND.
+by_list_uri(pg_session(C0, C), ListURI, HeadersAndRows) :-
     pg_backend("wire"),
     chars_si(ListURI),
     by_list_uri_headers(Headers),
     by_list_uri_sql(SQL),
     writeln(by_list_URI:SQL),
-    once(query_result_from_file(SQL, [ListURI], [], TmpFile)),
+    once(query_result_from_file(pg_session(C0, C), SQL, [ListURI], [], TmpFile)),
     once(read_rows_or_throw(TmpFile, Rows)),
+    rows_or_throw_on_miss(Rows),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
-by_list_uri(ListURI, HeadersAndRows) :-
+by_list_uri(pg_session(C, C), ListURI, HeadersAndRows) :-
     pg_backend("psql"),
     chars_si(ListURI),
     psql_by_list_uri_sql(ListURI, SQL),
     writeln(by_list_URI:SQL),
-    matching_criteria(SQL, HeadersAndRows).
+    matching_criteria(SQL, HeadersAndRows),
+    rows_or_throw_on_miss(HeadersAndRows).
+
+%% rows_or_throw_on_miss(+Rows)
+%
+% A query that matches nothing yields `[]` on both backends; turn
+% that into the throw callers catch to take their insert path.
+rows_or_throw_on_miss([]) :-
+    throw(cannot_read_rows_selected_by(list_id)).
+rows_or_throw_on_miss([_|_]).
 
 %% psql_by_list_uri_sql(+ListURI, -SQL).
 %
@@ -334,13 +355,13 @@ by_list_uri_sql(SQL) :-
         "OFFSET 0 LIMIT ALL;"
     ], SQL).
 
-%% count_matching_records(+NextId, -Result). Dispatches on PG_BACKEND.
-count_matching_records(NextId, Result) :-
+%% count_matching_records(+Session, +NextId, -Result). Dispatches on PG_BACKEND.
+count_matching_records(pg_session(C0, C), NextId, Result) :-
     pg_backend("wire"),
     count_matching_records_sql(SQL),
     number_chars(NextId, NextIdChars),
-    value(SQL, [NextIdChars], Result).
-count_matching_records(NextId, Result) :-
+    value(pg_session(C0, C), SQL, [NextIdChars], Result).
+count_matching_records(pg_session(C, C), NextId, Result) :-
     pg_backend("psql"),
     number_chars(NextId, NextIdChars),
     psql_count_matching_records_sql(NextIdChars, SQL),
@@ -362,27 +383,27 @@ count_matching_records_sql(SQL) :-
         "WHERE list_id::bigint = $1;"
     ], SQL).
 
-%% insert(+Row, -InsertionResult)
+%% insert(+Session, +Row, -InsertionResult)
 %
 % Insert a new `publishers_list_collected_event` row, or log
 % the existing payload if a row with the matching `list_id`
 % already exists. `InsertionResult` is always `ok`.
-insert(row(ListName, Payload), InsertionResult) :-
-    next_id(NextId),
-    count_matching_records(NextId, TotalMatchingRecords),
+insert(pg_session(C0, C), row(ListName, Payload), InsertionResult) :-
+    next_id(pg_session(C0, C1), NextId),
+    count_matching_records(pg_session(C1, C2), NextId, TotalMatchingRecords),
     if_(
         dif(1, TotalMatchingRecords),
-        insert_new(NextId, ListName, Payload, InsertionResult),
-        report_existing(NextId, InsertionResult)
+        insert_new(pg_session(C2, C), NextId, ListName, Payload, InsertionResult),
+        report_existing(pg_session(C2, C), NextId, InsertionResult)
     ).
 
-insert_new(NextId, ListName, Payload, ok) :-
+insert_new(pg_session(C0, C), NextId, ListName, Payload, ok) :-
     pg_backend("wire"),
     uuidv4_string(NextPrimaryKey),
     number_chars(NextId, NextIdChars),
     insert_event_sql(SQL),
-    execute(SQL, [NextPrimaryKey, NextIdChars, ListName, Payload]).
-insert_new(NextId, ListName, Payload, ok) :-
+    execute(pg_session(C0, C), SQL, [NextPrimaryKey, NextIdChars, ListName, Payload]).
+insert_new(pg_session(C, C), NextId, ListName, Payload, ok) :-
     pg_backend("psql"),
     uuidv4_string(NextPrimaryKey),
     number_chars(NextId, NextIdChars),
@@ -413,13 +434,13 @@ psql_insert_event_sql(NextPrimaryKey, NextIdChars, ListName, Payload, SQL) :-
         SQL
     ).
 
-report_existing(NextId, ok) :-
+report_existing(pg_session(C0, C), NextId, ok) :-
     pg_backend("wire"),
     number_chars(NextId, NextIdChars),
     select_payload_sql(SelectSQL),
-    value(SelectSQL, [NextIdChars], SelectionResult),
+    value(pg_session(C0, C), SelectSQL, [NextIdChars], SelectionResult),
     log_existing_payload(SelectionResult).
-report_existing(NextId, ok) :-
+report_existing(pg_session(C, C), NextId, ok) :-
     pg_backend("psql"),
     number_chars(NextId, NextIdChars),
     psql_select_payload_sql(NextIdChars, SelectSQL),
