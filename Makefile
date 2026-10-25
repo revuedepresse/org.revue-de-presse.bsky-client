@@ -234,6 +234,9 @@ staging-db-truncate: ### Empty the three worker tables in org_revue_de_presse_st
 test-feed-post-shapes: ### Regression: JSON nulls decode, and posts by handles over 32 characters (bridged from Mastodon) are skipped instead of ending the feed
 	@scryer-prolog ./tests/feed_post_shapes_test.pl -g halt
 
+test-stored-payload-line-break: ### Stored payloads: line breaks between JSON tokens are escaped before the literal is read back, other characters kept
+	@scryer-prolog ./tests/stored_payload_line_break_test.pl -g halt
+
 test-feed-capture-replay: ### Hermetic replay of /tmp/segv-investigation/last-feed-pairs.pl through insert_record_args/9
 	@scryer-prolog ./tests/feed_capture_replay_test.pl -g halt
 

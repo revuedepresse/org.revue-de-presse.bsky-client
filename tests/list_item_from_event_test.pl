@@ -67,10 +67,37 @@ test(Spec) :-
     ),
     assert(Spec, true, decoded("did:plc:ittis6mfcchi54qe7m7d5mun", "vert.eco", "Vert, le média 💚"), Outcome).
 
+test(Spec) :-
+    Spec = 'list_item_from_event:a_member_without_a_display_name_takes_its_handle',
+    fixture_items(Items),
+    member(Item, Items),
+    item_payload(Item, "lezephyrmag.bsky.social", Payload),
+    (   from_event(Payload, row(_, _, _, _, DisplayName))
+    ->  Outcome = decoded(DisplayName)
+    ;   Outcome = failed
+    ),
+    assert(Spec, true, decoded("lezephyrmag.bsky.social"), Outcome).
+test(Spec) :-
+    Spec = 'list_item_from_event:a_member_without_an_associated_object_decodes',
+    fixture_items(Items),
+    member(Item, Items),
+    item_payload(Item, "vert.eco", _),
+    Item = pairs(ItemPairs),
+    select(string("subject")-pairs(SubjectPairs), ItemPairs, OtherItemPairs),
+    select(string("associated")-_, SubjectPairs, SubjectPairsWithoutAssociated),
+    item_payload(pairs([string("subject")-pairs(SubjectPairsWithoutAssociated)|OtherItemPairs]), "vert.eco", Payload),
+    (   from_event(Payload, row(_, _, Did, Handle, _))
+    ->  Outcome = decoded(Did, Handle)
+    ;   Outcome = failed
+    ),
+    assert(Spec, true, decoded("did:plc:ittis6mfcchi54qe7m7d5mun", "vert.eco"), Outcome).
+
 main :-
     Specs = [
         'list_item_from_event:every_coop_medias_member_decodes',
-        'list_item_from_event:a_member_without_chat_settings_decodes'
+        'list_item_from_event:a_member_without_chat_settings_decodes',
+        'list_item_from_event:a_member_without_a_display_name_takes_its_handle',
+        'list_item_from_event:a_member_without_an_associated_object_decodes'
     ],
     run_test_suite(list_item_from_event_test, Specs).
 
