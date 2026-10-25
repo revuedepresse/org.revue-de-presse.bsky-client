@@ -41,3 +41,8 @@ CREATE TABLE IF NOT EXISTS member_profile_collected_event (
     started_at   timestamptz NOT NULL,
     ended_at     timestamptz NOT NULL
 );
+
+-- One row per account and handle, as in production: a member that
+-- changed handle gets a row under its current one.
+CREATE UNIQUE INDEX IF NOT EXISTS unique_twitter_id_username
+    ON weaving_user (usr_twitter_id, usr_twitter_username);

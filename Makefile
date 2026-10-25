@@ -172,6 +172,10 @@ test-list-import-handlers-psql: compose-up ### list import handlers under PG_BAC
 	@set -a; . ./.env.test; set +a; \
 	PG_BACKEND=psql scryer-prolog ./tests/pg/list_import_handlers_test.pl -g 'run_test' -g 'halt(1)'
 
+test-member-new-handle: compose-up ### Regression: a member recorded under an old handle gets a weaving_user row under its current one
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/member_new_handle_test.pl -g 'run_test' -g 'halt(1)'
+
 test-list-member-profile: compose-up ### Regression: re-running a list import skips getProfile for members already in publishers_list
 	@mkdir -p ./var/tmp
 	@set -a; . ./.env.test; set +a; \
