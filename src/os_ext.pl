@@ -13,6 +13,7 @@ deletes them. Used wherever the worker has to shell out to
 `date(1)`, `jq`, or similar to capture command output.
 */
 
+:- use_module(library(dif)).
 :- use_module(library(charsio)).
 :- use_module(library(files)).
 :- use_module(library(lists)).
@@ -47,20 +48,32 @@ deletes them. Used wherever the worker has to shell out to
 % PGPASSWORD).
 shell_or_throw(Command, Label, Status) :-
     ensure_shell,
-    (   shell(Command, Status)
-    ->  true
-    ;   throw(shell_unavailable(Label))
-    ).
+    once(shell_or_unavailable(Command, Label, Status)).
+
+shell_or_unavailable(Command, _Label, Status) :-
+    shell(Command, Status).
+shell_or_unavailable(_Command, Label, _Status) :-
+    throw(shell_unavailable(Label)).
 
 %% ensure_shell
 %
 % Sets SHELL to /bin/sh when it is unset or empty.
 ensure_shell :-
-    (   getenv("SHELL", Shell), Shell \== []
-    ->  true
-    ;   setenv("SHELL", "/bin/sh"),
-        log_info([shell_defaulted_to('/bin/sh')])
-    ).
+    once(ensure_shell_env).
+
+ensure_shell_env :-
+    getenv("SHELL", Shell),
+    dif(Shell, []).
+ensure_shell_env :-
+    getenv("SHELL", []),
+    default_shell.
+ensure_shell_env :-
+    \+ getenv("SHELL", _),
+    default_shell.
+
+default_shell :-
+    setenv("SHELL", "/bin/sh"),
+    log_info([shell_defaulted_to('/bin/sh')]).
 
 %% remove_temporary_file(+TempFile)
 %

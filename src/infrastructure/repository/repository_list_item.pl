@@ -846,21 +846,25 @@ from_event(Payload, row(Avatar, Description, DID, Handle, DisplayName)) :-
 
 % A profile may have no display name; its handle stands in for it.
 display_name_or_handle(Subject, DisplayName) :-
-    (   get_assoc(displayName, Subject, DisplayName0)
-    ->  DisplayName = DisplayName0
-    ;   get_assoc(handle, Subject, DisplayName)
-    ).
+    get_assoc(displayName, Subject, DisplayName).
+display_name_or_handle(Subject, Handle) :-
+    \+ get_assoc(displayName, Subject, _),
+    get_assoc(handle, Subject, Handle).
 
 % Chat settings are only logged. Profiles may have no "associated"
 % object, or one without "chat" (e.g. only "activitySubscription"):
 % neither must stop the member from being recorded.
 extract_associated_chat(Subject) :-
-    (   get_assoc(associated, Subject, Associated),
-        get_assoc(chat, Associated, Chat),
-        get_assoc(allowIncoming, Chat, AllowIncomingChat)
-    ->  writeln(associated:AllowIncomingChat)
-    ;   writeln(not_found(associated_chat))
-    ).
+    allow_incoming_chat(Subject, AllowIncomingChat),
+    writeln(associated:AllowIncomingChat).
+extract_associated_chat(Subject) :-
+    \+ allow_incoming_chat(Subject, _),
+    writeln(not_found(associated_chat)).
+
+allow_incoming_chat(Subject, AllowIncomingChat) :-
+    get_assoc(associated, Subject, Associated),
+    get_assoc(chat, Associated, Chat),
+    get_assoc(allowIncoming, Chat, AllowIncomingChat).
 
 extract_or_default_description(Subject, Description) :-
     get_assoc(description, Subject, Description),

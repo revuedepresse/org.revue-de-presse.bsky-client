@@ -266,13 +266,22 @@ follow_or_finalize(pg_session(In, Out), NextCursor, ParamValue, Anchor) :-
 % empty. Any other value throws invalid_feed_since/1 rather than
 % silently paging back two days.
 feed_since(Since) :-
-    (   getenv("FEED_SINCE", Value), Value \== []
-    ->  (   valid_date_chars(Value)
-        ->  Since = since(Value)
-        ;   throw(invalid_feed_since(Value))
-        )
-    ;   Since = no_since
-    ).
+    once(feed_since_env(Since)).
+
+feed_since_env(Since) :-
+    getenv("FEED_SINCE", Value),
+    feed_since_value(Value, Since).
+feed_since_env(no_since) :-
+    \+ getenv("FEED_SINCE", _).
+
+feed_since_value([], no_since).
+feed_since_value(Value, since(Value)) :-
+    dif(Value, []),
+    valid_date_chars(Value).
+feed_since_value(Value, _Since) :-
+    dif(Value, []),
+    \+ valid_date_chars(Value),
+    throw(invalid_feed_since(Value)).
 
 %% feed_start(+Actor, -Params).
 %
@@ -282,14 +291,25 @@ feed_since(Since) :-
 % bare Actor, starting at the newest page, when it is unset or empty.
 % Any other value throws invalid_feed_cursor/1.
 feed_start(Actor, Params) :-
-    (   getenv("FEED_CURSOR", Value), Value \== []
-    ->  (   Value = [Y1,Y2,Y3,Y4,'-',M1,M2,'-',D1,D2,'T'|_],
-            valid_date_chars([Y1,Y2,Y3,Y4,'-',M1,M2,'-',D1,D2])
-        ->  Params = actor(Actor)-cursor(Value)
-        ;   throw(invalid_feed_cursor(Value))
-        )
-    ;   Params = Actor
-    ).
+    once(feed_start_env(Actor, Params)).
+
+feed_start_env(Actor, Params) :-
+    getenv("FEED_CURSOR", Value),
+    feed_start_value(Value, Actor, Params).
+feed_start_env(Actor, Actor) :-
+    \+ getenv("FEED_CURSOR", _).
+
+feed_start_value([], Actor, Actor).
+feed_start_value(Value, Actor, actor(Actor)-cursor(Value)) :-
+    dif(Value, []),
+    valid_cursor_chars(Value).
+feed_start_value(Value, _Actor, _Params) :-
+    dif(Value, []),
+    \+ valid_cursor_chars(Value),
+    throw(invalid_feed_cursor(Value)).
+
+valid_cursor_chars([Y1,Y2,Y3,Y4,'-',M1,M2,'-',D1,D2,'T'|_]) :-
+    valid_date_chars([Y1,Y2,Y3,Y4,'-',M1,M2,'-',D1,D2]).
 
 valid_date_chars([Y1,Y2,Y3,Y4,'-',M1,M2,'-',D1,D2]) :-
     maplist(digit_char, [Y1,Y2,Y3,Y4,M1,M2,D1,D2]).
