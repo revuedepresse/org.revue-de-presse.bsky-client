@@ -48,6 +48,73 @@ function configure() {
     fi
 }
 
+# Runs scryer-prolog with its arguments and stops it when it writes
+# nothing for WORKER_IDLE_TIMEOUT seconds, or after WORKER_TIMEOUT
+# seconds in all. A run blocked on a read writes nothing; a working
+# run logs every request and post. A stopped run returns 124, as
+# timeout(1) does, after logging worker_stalled(idle_timeout(N)) or
+# worker_stalled(timeout(N)).
+function watched_scryer() {
+    local idle="${WORKER_IDLE_TIMEOUT:-300}"
+    local total="${WORKER_TIMEOUT:-2700}"
+
+    local fifo
+    fifo="$(mktemp -u)"
+    mkfifo "${fifo}"
+
+    timeout --kill-after=10 "${total}" scryer-prolog "$@" > "${fifo}" 2>&1 &
+    local pid=$!
+
+    local line
+    local stalled=0
+    local waited_since
+    while true; do
+        waited_since="${SECONDS}"
+        line=''
+        if IFS= read -r -t "${idle}" line; then
+            printf '%s\n' "${line}"
+        # bash 4+ returns more than 128 on a timeout, bash 3.2 returns 1
+        # as at the end of output: the time spent waiting tells them apart.
+        elif [ $? -gt 128 ] || [ $(( SECONDS - waited_since )) -ge "${idle}" ]; then
+            stalled=1
+            stop_stalled_run "${pid}"
+            break
+        else
+            # End of output, possibly after a last line with no newline.
+            [ -n "${line}" ] && printf '%s' "${line}"
+            break
+        fi
+    done < "${fifo}"
+
+    local rc=0
+    wait "${pid}" || rc=$?
+    rm -f "${fifo}"
+
+    if [ "${stalled}" -eq 1 ]; then
+        printf 'worker_stalled(idle_timeout(%s))\n' "${idle}" >&2
+        return 124
+    fi
+    if [ "${rc}" -eq 124 ]; then
+        printf 'worker_stalled(timeout(%s))\n' "${total}" >&2
+    fi
+    return "${rc}"
+}
+
+# Stops a stalled run: TERM to timeout(1), which passes it on to
+# scryer-prolog, then KILL to both after 10 seconds.
+function stop_stalled_run() {
+    local pid="${1}"
+    kill -TERM "${pid}" 2>/dev/null || return 0
+    local _
+    for _ in $(seq 1 20); do
+        kill -0 "${pid}" 2>/dev/null || return 0
+        sleep 0.5
+    done
+    pkill -KILL -P "${pid}" 2>/dev/null
+    kill -KILL "${pid}" 2>/dev/null
+    return 0
+}
+
 function com__atproto__server__createSession() {
     configure
 
@@ -57,7 +124,7 @@ function com__atproto__server__createSession() {
     local refresh_jwt
     refresh_jwt='write('"'refresh jwt: '"'),atom_chars(AtomicRefreshJwt,RefreshJwt),write(AtomicRefreshJwt),nl'
 
-    scryer-prolog -g 'com__atproto__server__createSession(AccessJwt, RefreshJwt),'"${access_jwt},${refresh_jwt}" \
+    watched_scryer -g 'com__atproto__server__createSession(AccessJwt, RefreshJwt),'"${access_jwt},${refresh_jwt}" \
         ./src/com/atproto/server/createSession.pl
 }
 
@@ -75,7 +142,7 @@ function com__atproto__repo__createRecord() {
         return 1
     fi
 
-    scryer-prolog \
+    watched_scryer \
         -g 'com__atproto__repo__createRecord("'"${text}"'", Props)' \
         -g halt \
         ./src/com/atproto/repo/createRecord.pl
@@ -96,7 +163,7 @@ function app__bsky__actor__getProfile() {
         return 1
     fi
 
-    scryer-prolog \
+    watched_scryer \
         -g 'app__bsky__actor__getProfile("'"${actor}"'", Prop)' \
         -g halt \
         ./src/app/bsky/actor/getProfile.pl
@@ -128,7 +195,7 @@ function app__bsky__feed__getAuthorFeed() {
     rm -f ./core 2>/dev/null || true
 
     set +e
-    scryer-prolog \
+    watched_scryer \
         -g 'app__bsky__feed__getAuthorFeed("'"${author}"'", Prop).' \
         -g halt \
         ./src/app/bsky/feed/getAuthorFeed.pl
@@ -220,7 +287,7 @@ function app__bsky__graph__getList() {
         return 1
     fi
 
-    scryer-prolog \
+    watched_scryer \
         -g 'app__bsky__graph__getList("'"${at_uri}"'", Prop).' \
         -g 'halt.' \
         ./src/app/bsky/graph/getList.pl
@@ -229,7 +296,7 @@ function app__bsky__graph__getList() {
 function infrastructure__list__count() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'open_pg_connection(C0), count(pg_session(C0, C), Count), writeq(Count), close_pg_connection(C).' \
         -g 'halt.' \
         ./src/infrastructure/pg/connection.pl \
@@ -239,7 +306,7 @@ function infrastructure__list__count() {
 function infrastructure__list__query() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'open_pg_connection(C0), query(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
         ./src/infrastructure/pg/connection.pl \
@@ -249,7 +316,7 @@ function infrastructure__list__query() {
 function infrastructure__list__next_event_id() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'open_pg_connection(C0), next_event_id(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
         ./src/infrastructure/pg/connection.pl \
@@ -259,7 +326,7 @@ function infrastructure__list__next_event_id() {
 function infrastructure__list__next_id() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'open_pg_connection(C0), next_id(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
         ./src/infrastructure/pg/connection.pl \
@@ -269,7 +336,7 @@ function infrastructure__list__next_id() {
 function infrastructure__list_item__count() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'open_pg_connection(C0), count(pg_session(C0, C), Count), writeq(Count), close_pg_connection(C).' \
         -g 'halt.' \
         ./src/infrastructure/pg/connection.pl \
@@ -279,7 +346,7 @@ function infrastructure__list_item__count() {
 function infrastructure__list_item__query() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'open_pg_connection(C0), query(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
         ./src/infrastructure/pg/connection.pl \
@@ -289,7 +356,7 @@ function infrastructure__list_item__query() {
 function infrastructure__list_item__next_id() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'open_pg_connection(C0), next_id(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
         ./src/infrastructure/pg/connection.pl \
@@ -299,7 +366,7 @@ function infrastructure__list_item__next_id() {
 function infrastructure__publisher__count() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'open_pg_connection(C0), count(pg_session(C0, C), Count), writeq(Count), close_pg_connection(C).' \
         -g 'halt.' \
         ./src/infrastructure/pg/connection.pl \
@@ -309,7 +376,7 @@ function infrastructure__publisher__count() {
 function infrastructure__publisher__query() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'open_pg_connection(C0), query(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
         ./src/infrastructure/pg/connection.pl \
@@ -319,7 +386,7 @@ function infrastructure__publisher__query() {
 function infrastructure__publisher__next_id() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'open_pg_connection(C0), next_id(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
         ./src/infrastructure/pg/connection.pl \
@@ -329,7 +396,7 @@ function infrastructure__publisher__next_id() {
 function infrastructure__status__count() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'open_pg_connection(C0), count(pg_session(C0, C), Count), writeq(Count), close_pg_connection(C).' \
         -g 'halt.' \
         ./src/infrastructure/pg/connection.pl \
@@ -339,7 +406,7 @@ function infrastructure__status__count() {
 function infrastructure__status__query() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'query(Result), write_term(Result, [double_quotes(true)]).' \
         -g 'halt.' \
         ./src/infrastructure/repository/repository_status.pl
@@ -348,7 +415,7 @@ function infrastructure__status__query() {
 function infrastructure__status__next_id() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'open_pg_connection(C0), next_id(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
         ./src/infrastructure/pg/connection.pl \
@@ -358,7 +425,7 @@ function infrastructure__status__next_id() {
 function infrastructure__popularity__count() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'open_pg_connection(C0), count(pg_session(C0, C), Count), writeq(Count), close_pg_connection(C).' \
         -g 'halt.' \
         ./src/infrastructure/pg/connection.pl \
@@ -368,7 +435,7 @@ function infrastructure__popularity__count() {
 function infrastructure__popularity__query() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'query(Result), write_term(Result, [double_quotes(true)]).' \
         -g 'halt.' \
         ./src/infrastructure/repository/repository_popularity.pl
@@ -377,7 +444,7 @@ function infrastructure__popularity__query() {
 function infrastructure__popularity__next_id() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'open_pg_connection(C0), next_id(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
         ./src/infrastructure/pg/connection.pl \
@@ -387,7 +454,7 @@ function infrastructure__popularity__next_id() {
 function infrastructure__publication__count() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'open_pg_connection(C0), count(pg_session(C0, C), Count), writeq(Count), close_pg_connection(C).' \
         -g 'halt.' \
         ./src/infrastructure/pg/connection.pl \
@@ -397,7 +464,7 @@ function infrastructure__publication__count() {
 function infrastructure__publication__query() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'query(Result), write_term(Result, [double_quotes(true)]).' \
         -g 'halt.' \
         ./src/infrastructure/repository/repository_publication.pl
@@ -406,7 +473,7 @@ function infrastructure__publication__query() {
 function infrastructure__publication__next_id() {
     configure
 
-    scryer-prolog \
+    watched_scryer \
         -g 'open_pg_connection(C0), next_id(pg_session(C0, C), Result), writeq(Result), close_pg_connection(C).' \
         -g 'halt.' \
         ./src/infrastructure/pg/connection.pl \
@@ -428,7 +495,7 @@ function app__bsky__graph__getLists() {
         return 1
     fi
 
-    scryer-prolog -g 'app__bsky__graph__getLists("'"${actor}"'", Prop)' \
+    watched_scryer -g 'app__bsky__graph__getLists("'"${actor}"'", Prop)' \
         ./src/app/bsky/graph/getLists.pl -g halt
 }
 
@@ -504,6 +571,9 @@ function test() {
         tee -a ./test.log
     # Every shell-out must go through os_ext:shell_or_throw/3.
     bash ./tests/no_direct_shell_call_test.sh |
+        tee -a ./test.log
+    # A run that writes nothing for WORKER_IDLE_TIMEOUT seconds is stopped.
+    bash ./tests/watched_scryer_test.sh |
         tee -a ./test.log
     # shellcheck disable=SC2046
     if [ $(grep -c '\[KO\]' ./test.log) -gt 0 ]; then
