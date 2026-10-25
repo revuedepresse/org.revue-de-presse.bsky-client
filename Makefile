@@ -204,6 +204,9 @@ test-shell-unavailable: ### Regression: without SHELL (systemd units), shell/2 f
 test-configure-shell: ### Regression: fun.sh configure exports SHELL (default /bin/sh) so scryer's shell/2 runs under systemd units, which have none
 	@bash ./tests/configure_shell_test.sh
 
+test-watched-scryer: ### Regression: a worker run that writes nothing for WORKER_IDLE_TIMEOUT seconds, or runs past WORKER_TIMEOUT, is stopped and labelled worker_stalled
+	@bash ./tests/watched_scryer_test.sh
+
 test-no-direct-shell-call: ### Guard: no shell/2 call in src/ outside os_ext:shell_or_throw/3
 	@bash ./tests/no_direct_shell_call_test.sh
 
