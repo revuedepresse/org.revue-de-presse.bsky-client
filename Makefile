@@ -122,6 +122,10 @@ test-pg-query: compose-up ### Round-trip bind-param INSERT/SELECT through connec
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./tests/pg/pg_query_test.pl -g 'run_test'
 
+test-synchronous-commit: compose-up ### PG_SYNCHRONOUS_COMMIT=off turns synchronous_commit off on each new connection; unset keeps the server's default
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/synchronous_commit_test.pl -g 'run_test'
+
 test-idempotence: compose-up ### Verify ON CONFLICT (hash) DO NOTHING on the publication table
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./tests/pg/idempotence_test.pl -g 'run_test'
