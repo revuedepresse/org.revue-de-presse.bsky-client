@@ -100,6 +100,9 @@ jobs:
       - name: Run pg_query bind-param test
         run: scryer-prolog ./tests/pg/pg_query_test.pl -g 'run_test'
 
+      - name: Run synchronous_commit opt-out test
+        run: scryer-prolog ./tests/pg/synchronous_commit_test.pl -g 'run_test'
+
       - name: Run idempotence test
         run: scryer-prolog ./tests/pg/idempotence_test.pl -g 'run_test'
 
