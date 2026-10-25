@@ -7,6 +7,7 @@
     payload/2
 ]).
 
+:- use_module(library(dif)).
 :- use_module(library(assoc)).
 :- use_module(library(charsio)).
 :- use_module(library(clpz)).
@@ -210,11 +211,12 @@ import_member(Fetchers, MainListAtUri, Assoc, In, Out) :-
     get_assoc(did, Subject, ActorParam),
 
     recorded(pg_session(In, Mid), row(MainListAtUri, ActorParam), Recorded),
-    (   Recorded == true
-    ->  log_info([member_already_recorded(ActorParam)]),
-        Out = Mid
-    ;   import_new_member(Fetchers, MainListAtUri, ActorParam, Mid, Out)
-    ).
+    import_recorded_or_new_member(Recorded, Fetchers, MainListAtUri, ActorParam, Mid, Out).
+
+import_recorded_or_new_member(true, _Fetchers, _MainListAtUri, ActorParam, Mid, Mid) :-
+    log_info([member_already_recorded(ActorParam)]).
+import_recorded_or_new_member(false, Fetchers, MainListAtUri, ActorParam, Mid, Out) :-
+    import_new_member(Fetchers, MainListAtUri, ActorParam, Mid, Out).
 
 %% import_new_member(+Fetchers, +MainListAtUri, +DID, +In, -Out).
 import_new_member(fetchers(FetchProfile, FetchFeed), MainListAtUri, ActorParam, In, Out) :-
@@ -237,18 +239,22 @@ import_new_member(fetchers(FetchProfile, FetchFeed), MainListAtUri, ActorParam, 
 % posts, so a list import only fetches them when asked to. Any other
 % value throws invalid_list_import_member_feeds/1 rather than guessing.
 member_feeds(Option) :-
-    (   getenv("LIST_IMPORT_MEMBER_FEEDS", Value)
-    ->  member_feeds_setting(Value, Option)
-    ;   Option = off
-    ).
+    once(member_feeds_env(Option)).
 
-member_feeds_setting(Value, Option) :-
-    (   Value == "1"
-    ->  Option = on
-    ;   ( Value == [] ; Value == "0" )
-    ->  Option = off
-    ;   throw(invalid_list_import_member_feeds(Value))
-    ).
+member_feeds_env(Option) :-
+    getenv("LIST_IMPORT_MEMBER_FEEDS", Value),
+    member_feeds_setting(Value, Option).
+member_feeds_env(off) :-
+    \+ getenv("LIST_IMPORT_MEMBER_FEEDS", _).
+
+member_feeds_setting("1", on).
+member_feeds_setting("0", off).
+member_feeds_setting([], off).
+member_feeds_setting(Value, _Option) :-
+    dif(Value, "1"),
+    dif(Value, "0"),
+    dif(Value, []),
+    throw(invalid_list_import_member_feeds(Value)).
 
 %% import_member_feed(+FetchFeed, +Actor).
 %
@@ -256,10 +262,12 @@ member_feeds_setting(Value, Option) :-
 % call FetchFeed at all.
 import_member_feed(FetchFeed, Actor) :-
     member_feeds(Option),
-    (   Option == on
-    ->  member_feed(FetchFeed, Actor)
-    ;   log_debug([member_feed_skipped(Actor)])
-    ).
+    import_member_feed_option(Option, FetchFeed, Actor).
+
+import_member_feed_option(on, FetchFeed, Actor) :-
+    member_feed(FetchFeed, Actor).
+import_member_feed_option(off, _FetchFeed, Actor) :-
+    log_debug([member_feed_skipped(Actor)]).
 
 %% member_feed(+FetchFeed, +Actor).
 %
@@ -269,10 +277,21 @@ import_member_feed(FetchFeed, Actor) :-
 % and the import goes on with the next step.
 % Opt-in: see import_member_feed/2.
 member_feed(FetchFeed, Actor) :-
-    (   catch(call(FetchFeed, Actor, _Props), E, ( log_error([member_feed_error(Actor, E)]), true ))
-    ->  true
-    ;   log_error([member_feed_failed(Actor)])
-    ).
+    once(member_feed_attempt(FetchFeed, Actor)).
+
+member_feed_attempt(FetchFeed, Actor) :-
+    catch(call(FetchFeed, Actor, _Props), E, log_error([member_feed_error(Actor, E)])).
+member_feed_attempt(_FetchFeed, Actor) :-
+    log_error([member_feed_failed(Actor)]).
+
+%% send_request_or_throw(+Session, +MainListAtUri, -Pairs, -StatusCode).
+%
+% Called under once/1: the request is sent once, and a request that
+% fails without throwing throws get_list_request_failed/1.
+send_request_or_throw(Session, MainListAtUri, Pairs, StatusCode) :-
+    send_request(Session, MainListAtUri, Pairs, StatusCode).
+send_request_or_throw(_Session, MainListAtUri, _Pairs, _StatusCode) :-
+    throw(get_list_request_failed(MainListAtUri)).
 
 %% [app.bsky.graph.getList](https://docs.bsky.app/docs/api/app-bsky-graph-get-list)
 %
@@ -288,10 +307,7 @@ app__bsky__graph__getList(MainListAtUri, Props) :-
     member_feeds(_),
     open_pg_connection(Conn0),
     catch(
-        ( once((
-              send_request(pg_session(Conn0, ConnFinal), MainListAtUri, Pairs, StatusCode)
-          ;   throw(get_list_request_failed(MainListAtUri))
-          )),
+        ( once(send_request_or_throw(pg_session(Conn0, ConnFinal), MainListAtUri, Pairs, StatusCode)),
           close_session(Conn0, ConnFinal) ),
         E,
         ( best_effort_close_session(Conn0, ConnFinal),

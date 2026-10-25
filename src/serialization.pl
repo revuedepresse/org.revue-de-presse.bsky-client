@@ -21,6 +21,7 @@ few utilities for keyed lookup and shell-based JSON
 pretty-printing through `jq`.
 */
 
+:- use_module(library(dif)).
 :- use_module(library(assoc)).
 :- use_module(library(charsio)).
 :- use_module(library(lists)).
@@ -76,12 +77,13 @@ to_json_chars(Chars, JSONChars) :-
 % back. Reading it undoes every escape and recovers the JSON text
 % exactly.
 stored_payload_json_chars(PayloadChars, JSONChars) :-
-    foldl(escape_line_break, PayloadChars, Escaped, []),
+    once(foldl(escape_line_break, PayloadChars, Escaped, [])),
     append(Escaped, ".", Term),
     read_from_chars(Term, JSONChars).
 
-escape_line_break('\n', ['\\', n|Rest], Rest) :- !.
-escape_line_break(Char, [Char|Rest], Rest).
+escape_line_break('\n', ['\\', n|Rest], Rest).
+escape_line_break(Char, [Char|Rest], Rest) :-
+    dif(Char, '\n').
 
 %% beautify_json(+JsonFile, -JSONChars)
 %

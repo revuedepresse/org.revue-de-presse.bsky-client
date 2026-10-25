@@ -410,10 +410,13 @@ coerce_chars(V, V) :- \+ integer(V), \+ atom(V).
 % count_matching_records/3.
 recorded(Session, row(ListURI, DID), Recorded) :-
     count_matching_records(Session, row(ListURI, DID), Count),
-    (   integer(Count), Count > 0
-    ->  Recorded = true
-    ;   Recorded = false
-    ).
+    once(recorded_count(Count, Recorded)).
+
+recorded_count(Count, true) :-
+    integer(Count),
+    Count > 0.
+recorded_count(Count, false) :-
+    \+ ( integer(Count), Count > 0 ).
 
 %% count_matching_records(+Session, +Row, -Result). Dispatches on PG_BACKEND.
 count_matching_records(pg_session(C0, C), row(ListURI, DID), Result) :-
