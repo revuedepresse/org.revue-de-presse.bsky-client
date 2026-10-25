@@ -26,6 +26,7 @@ Their callers are responsible for threading it.
 */
 
 :- use_module(library(lists)).
+:- use_module(library(os), [getenv/2]).
 
 :- use_module('../../configuration', [
     database_db_name/1,
@@ -53,7 +54,18 @@ open_pg_connection(Conn) :-
     database_port(PortChars),
     number_chars(Port, PortChars),
     database_db_name(DB),
-    connect(User, Pass, Host, Port, DB, Conn).
+    connect(User, Pass, Host, Port, DB, Conn),
+    set_synchronous_commit(Conn).
+
+%% set_synchronous_commit(+Conn)
+%
+% PG_SYNCHRONOUS_COMMIT=off makes the connection's commits return
+% before their flush to disk. Unset keeps the server's default.
+set_synchronous_commit(Conn) :-
+    getenv("PG_SYNCHRONOUS_COMMIT", "off"),
+    query(Conn, "SET synchronous_commit = off", _).
+set_synchronous_commit(_) :-
+    \+ getenv("PG_SYNCHRONOUS_COMMIT", "off").
 
 %% close_pg_connection(+Conn)
 %
