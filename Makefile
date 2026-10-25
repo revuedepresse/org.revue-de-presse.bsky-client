@@ -185,7 +185,7 @@ test-list-member-profile-psql: compose-up ### list member profile skip under PG_
 test-client-arity: ### Static check: imported predicates exist, and calls to pg/client.pl use exported arities
 	@python3 -I ./tests/client_arity_check.py .
 
-test-feed-since: ### FEED_SINCE=YYYY-MM-DD moves getAuthorFeed's pagination cut-off (backfill); unset keeps two days
+test-feed-since: ### FEED_SINCE=YYYY-MM-DD moves getAuthorFeed's pagination cut-off (backfill), FEED_CURSOR resumes it at a page; unset keeps two days from the newest page
 	@mkdir -p var/tmp; TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/feed_since_test.pl -g halt
 
 test-list-item-from-event: ### Regression: every coop-medias.org member decodes into its weaving_user row (profiles without chat settings)

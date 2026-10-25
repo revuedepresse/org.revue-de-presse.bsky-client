@@ -1,6 +1,7 @@
 :- module('getAuthorFeed', [
     app__bsky__feed__getAuthorFeed/2,
     feed_since/1,
+    feed_start/2,
     report_iteration_failure/1,
     resolve_cutoff_date/3
 ]).
@@ -273,6 +274,23 @@ feed_since(Since) :-
     ;   Since = no_since
     ).
 
+%% feed_start(+Actor, -Params).
+%
+% actor(Actor)-cursor(Cursor) when FEED_CURSOR holds a feed cursor (an
+% ISO-8601 timestamp), so a backfill resumes at the page a previous
+% run stopped at instead of fetching again the pages it stored; the
+% bare Actor, starting at the newest page, when it is unset or empty.
+% Any other value throws invalid_feed_cursor/1.
+feed_start(Actor, Params) :-
+    (   getenv("FEED_CURSOR", Value), Value \== []
+    ->  (   Value = [Y1,Y2,Y3,Y4,'-',M1,M2,'-',D1,D2,'T'|_],
+            valid_date_chars([Y1,Y2,Y3,Y4,'-',M1,M2,'-',D1,D2])
+        ->  Params = actor(Actor)-cursor(Value)
+        ;   throw(invalid_feed_cursor(Value))
+        )
+    ;   Params = Actor
+    ).
+
 valid_date_chars([Y1,Y2,Y3,Y4,'-',M1,M2,'-',D1,D2]) :-
     maplist(digit_char, [Y1,Y2,Y3,Y4,M1,M2,D1,D2]).
 
@@ -319,7 +337,8 @@ digit_char(Char) :-
 % memo table also exceeded scryer's 255 max_arity on every real
 % response and crashed the worker. The predicate now delegates
 % straight to the network call.
-app__bsky__feed__getAuthorFeed(Params, Props) :-
+app__bsky__feed__getAuthorFeed(Actor, Props) :-
+    once(feed_start(Actor, Params)),
     open_pg_connection(Conn0),
     catch(
         ( app__bsky__feed__getAuthorFeed_paginate(pg_session(Conn0, ConnFinal), Params, none, _AnchorOut, Props),
