@@ -29,6 +29,7 @@ jobs:
       DATABASE_DB_NAME: revue_de_presse_test
       DATABASE_USERNAME: test
       DATABASE_PASSWORD: test
+      TEMP_DIR: /tmp
 
     steps:
       - uses: actions/checkout@v4
