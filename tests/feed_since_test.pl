@@ -75,6 +75,13 @@ test(Spec) :-
     unsetenv("FEED_CURSOR"),
     assert(Spec, true, refused, Outcome).
 
+test(Spec) :-
+    Spec = 'feed_start:a_date_without_its_time_is_refused',
+    setenv("FEED_CURSOR", "2025-09-30"),
+    catch(( feed_start("probe.bsky.social", _), Outcome = accepted ), invalid_feed_cursor(_), Outcome = refused),
+    unsetenv("FEED_CURSOR"),
+    assert(Spec, true, refused, Outcome).
+
 main :-
     Specs = [
         'feed_since:default_cutoff_is_two_days_before_the_anchor',
@@ -87,7 +94,8 @@ main :-
         'feed_start:unset_starts_at_the_newest_page',
         'feed_start:an_empty_cursor_starts_at_the_newest_page',
         'feed_start:a_cursor_starts_at_its_page',
-        'feed_start:a_malformed_cursor_is_refused'
+        'feed_start:a_malformed_cursor_is_refused',
+        'feed_start:a_date_without_its_time_is_refused'
     ],
     run_test_suite(feed_since_test, Specs).
 

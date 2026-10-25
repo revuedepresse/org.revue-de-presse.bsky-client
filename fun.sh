@@ -562,6 +562,7 @@ function test() {
         ./tests/iterate_or_report_failure_test.pl \
         ./tests/feed_capture_replay_test.pl \
         ./tests/feed_post_shapes_test.pl \
+        ./tests/stored_payload_line_break_test.pl \
         ./tests/clean_text_test.pl \
         -g halt |
         tee ./test.log
