@@ -167,6 +167,9 @@ without_type(string(Key)-number(Value), KeyAtom-Value) :-
 without_type(string(Key)-list(Value), KeyAtom-Value) :-
     log_debug([kv:string(Key)-list(Value)]),
     atom_chars(KeyAtom, Key).
+without_type(string(Key)-null, KeyAtom-null) :-
+    log_debug([kv:string(Key)-null]),
+    atom_chars(KeyAtom, Key).
 without_type(string(Key)-pairs(Value), KeyAtom-ValueAssoc) :-
     atom_chars(KeyAtom, Key),
     pairs_to_assoc(Value, ValueAssoc).

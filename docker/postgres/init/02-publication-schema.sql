@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS publication (
     id            text PRIMARY KEY,
     legacy_id     bigint,
     hash          text NOT NULL,
-    screen_name   text,
+    screen_name   varchar(32),
     text          text,
     avatar_url    text,
     document_id   text,
