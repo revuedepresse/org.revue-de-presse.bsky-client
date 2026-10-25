@@ -1,6 +1,7 @@
 :- module(repository_list_item, [
     event_by_screen_name/3,
     from_event/2,
+    record_by_did/3,
     record_by_screen_name/3,
     count/2,
     insert/3,
@@ -64,7 +65,7 @@ that downstream callers select by handle) and
 `member_profile_collected_event` (the append-only log of every
 profile snapshot we've collected). The public surface mirrors
 the rest of the repository layer: `count/2`, `query/2`,
-`insert/3`, `next_id/2`, plus screen-name lookups.
+`insert/3`, `next_id/2`, plus screen-name and DID lookups.
 
 Every wire-path predicate takes a `pg_session(In, Out)` compound
 as its first argument; psql-path clauses thread the session as a
@@ -237,8 +238,8 @@ event_by_screen_name(pg_session(C0, C), ScreenName, HeadersAndRows) :-
     event_by_screen_name_sql(SQL),
     log_debug([SQL]),
     once(query_result_from_file(pg_session(C0, C), SQL, [ScreenName], [], TmpFile)),
-    once(read_rows_or_throw_screen_name(TmpFile, Rows)),
-    rows_or_throw_on_miss(Rows),
+    once(read_rows_or_throw(TmpFile, screen_name, Rows)),
+    rows_or_throw_on_miss(Rows, screen_name),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 event_by_screen_name(pg_session(C, C), ScreenName, HeadersAndRows) :-
@@ -248,8 +249,8 @@ event_by_screen_name(pg_session(C, C), ScreenName, HeadersAndRows) :-
     psql_event_by_screen_name_sql(ScreenName, SQL),
     log_debug([SQL]),
     once(query_result_from_file(SQL, true, TmpFile)),
-    once(read_rows_or_throw_screen_name(TmpFile, Rows)),
-    rows_or_throw_on_miss(Rows),
+    once(read_rows_or_throw(TmpFile, screen_name, Rows)),
+    rows_or_throw_on_miss(Rows, screen_name),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
@@ -268,16 +269,20 @@ psql_event_by_screen_name_sql(ScreenName, SQL) :-
         "OFFSET 0 LIMIT ALL;"
     ], SQL).
 
-read_rows_or_throw_screen_name(TmpFile, Rows) :- read_rows(TmpFile, Rows).
-read_rows_or_throw_screen_name(_, _) :- throw(cannot_read_rows_selected_by(screen_name)).
+%% read_rows_or_throw(+TmpFile, +Selector, -Rows)
+%
+% `Selector` (`screen_name` or `did`) labels the throw, so callers
+% can tell which lookup came back empty.
+read_rows_or_throw(TmpFile, _, Rows) :- read_rows(TmpFile, Rows).
+read_rows_or_throw(_, Selector, _) :- throw(cannot_read_rows_selected_by(Selector)).
 
-%% rows_or_throw_on_miss(+Rows)
+%% rows_or_throw_on_miss(+Rows, +Selector)
 %
 % A query that matches nothing yields `[]` on both backends; turn
 % that into the throw callers catch to take their insert path.
-rows_or_throw_on_miss([]) :-
-    throw(cannot_read_rows_selected_by(screen_name)).
-rows_or_throw_on_miss([_|_]).
+rows_or_throw_on_miss([], Selector) :-
+    throw(cannot_read_rows_selected_by(Selector)).
+rows_or_throw_on_miss([_|_], _).
 
 event_by_screen_name_headers([
     "string__payload",
@@ -307,8 +312,8 @@ record_by_screen_name(pg_session(C0, C), ScreenName, HeadersAndRows) :-
     record_by_screen_name_sql(SQL),
     log_debug([SQL]),
     once(query_result_from_file(pg_session(C0, C), SQL, [ScreenName], [], TmpFile)),
-    once(read_rows_or_throw_screen_name(TmpFile, Rows)),
-    rows_or_throw_on_miss(Rows),
+    once(read_rows_or_throw(TmpFile, screen_name, Rows)),
+    rows_or_throw_on_miss(Rows, screen_name),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 record_by_screen_name(pg_session(C, C), ScreenName, HeadersAndRows) :-
@@ -318,8 +323,8 @@ record_by_screen_name(pg_session(C, C), ScreenName, HeadersAndRows) :-
     psql_record_by_screen_name_sql(ScreenName, SQL),
     log_debug([SQL]),
     once(query_result_from_file(SQL, true, TmpFile)),
-    once(read_rows_or_throw_screen_name(TmpFile, Rows)),
-    rows_or_throw_on_miss(Rows),
+    once(read_rows_or_throw(TmpFile, screen_name, Rows)),
+    rows_or_throw_on_miss(Rows, screen_name),
     maplist(to_json(Headers), Rows, Pairs),
     maplist(pairs_to_assoc, Pairs, HeadersAndRows).
 
@@ -429,6 +434,146 @@ record_by_screen_name_sql(SQL) :-
         "FROM public.", Table, " r ",
         "WHERE r.usr_twitter_username = $1 ",
         "OFFSET 0 LIMIT ALL;"
+    ], SQL).
+
+%% record_by_did(+Session, +Did, -HeadersAndRows)
+%
+% Id and handle of the `weaving_user` rows recorded for the given
+% DID (`usr_twitter_id`), most recent first. A handle can change on
+% Bluesky, a DID cannot, so the DID identifies the member. Throws
+% `cannot_read_rows_selected_by(did)` when no record matches.
+% Several rows come back only for a DID recorded twice before the
+% unique index on `usr_twitter_id`.
+record_by_did(pg_session(C0, C), Did, HeadersAndRows) :-
+    pg_backend("wire"),
+    chars_si(Did),
+    record_by_did_headers(Headers),
+    record_by_did_sql(SQL),
+    log_debug([SQL]),
+    once(query_result_from_file(pg_session(C0, C), SQL, [Did], [], TmpFile)),
+    once(read_rows_or_throw(TmpFile, did, Rows)),
+    rows_or_throw_on_miss(Rows, did),
+    maplist(to_json(Headers), Rows, Pairs),
+    maplist(pairs_to_assoc, Pairs, HeadersAndRows).
+record_by_did(pg_session(C, C), Did, HeadersAndRows) :-
+    pg_backend("psql"),
+    chars_si(Did),
+    record_by_did_headers(Headers),
+    psql_record_by_did_sql(Did, SQL),
+    log_debug([SQL]),
+    once(query_result_from_file(SQL, true, TmpFile)),
+    once(read_rows_or_throw(TmpFile, did, Rows)),
+    rows_or_throw_on_miss(Rows, did),
+    maplist(to_json(Headers), Rows, Pairs),
+    maplist(pairs_to_assoc, Pairs, HeadersAndRows).
+
+% The id is read as text: it goes back as the UPDATE's bind
+% parameter (or psql literal) unchanged.
+record_by_did_headers([
+    "string__id",
+    "string__twitter_username"
+]).
+
+record_by_did_sql(SQL) :-
+    table(Table),
+    append([
+        "SELECT ",
+        "r.usr_id::text AS string__id, ",
+        "COALESCE(NULLIF(r.usr_twitter_username::text, ''), ' ') AS string__twitter_username ",
+        "FROM public.", Table, " r ",
+        "WHERE r.usr_twitter_id = $1 ",
+        "ORDER BY r.usr_id DESC ",
+        "OFFSET 0 LIMIT ALL;"
+    ], SQL).
+
+%% psql_record_by_did_sql(+Did, -SQL).
+%
+% Concat form of the record_by_did SELECT for the psql backend. Did
+% is inlined as a single-quoted SQL literal (controlled identifier,
+% same convention as the pre-69f3f97 client).
+psql_record_by_did_sql(Did, SQL) :-
+    table(Table),
+    append([
+        "SELECT ",
+        "r.usr_id::text AS string__id, ",
+        "COALESCE(NULLIF(r.usr_twitter_username::text, ''), ' ') AS string__twitter_username ",
+        "FROM public.", Table, " r ",
+        "WHERE r.usr_twitter_id = '", Did, "' ",
+        "ORDER BY r.usr_id DESC ",
+        "OFFSET 0 LIMIT ALL;"
+    ], SQL).
+
+%% update_handle_if_renamed(+Session, +Did, +Handle, +HeadersAndRows)
+%
+% A member whose rows (from `record_by_did/3`) all carry another
+% handle has changed it on Bluesky: its most recent row takes the
+% current one, and the rename is logged. A row already carrying the
+% handle leaves the records as they are.
+update_handle_if_renamed(Session, Did, Handle, HeadersAndRows) :-
+    maplist(get_assoc(twitter_username), HeadersAndRows, RecordedHandles),
+    if_(
+        memberd_t(Handle, RecordedHandles),
+        keep_session(Session),
+        rename_record(Session, Did, Handle, HeadersAndRows)
+    ).
+
+keep_session(pg_session(C, C)).
+
+rename_record(Session, Did, Handle, [MostRecentRow|_]) :-
+    get_assoc(id, MostRecentRow, Id),
+    get_assoc(twitter_username, MostRecentRow, PreviousHandle),
+    update_record_handle(Session, Id, Handle),
+    maplist(atom_chars, [DidAtom, PreviousHandleAtom, HandleAtom], [Did, PreviousHandle, Handle]),
+    log_info([member_handle_renamed(did(DidAtom), from(PreviousHandleAtom), to(HandleAtom))]).
+
+%% update_record_handle(+Session, +Id, +Handle). Dispatches on PG_BACKEND.
+%
+% Moves the `weaving_user` row `Id` to `Handle`: `usr_twitter_username`
+% always, and the columns `insert_record/3` fills with the handle
+% (`usr_user_name`, `usr_username_canonical`, `url`) when they still
+% hold the previous one.
+update_record_handle(pg_session(C0, C), Id, Handle) :-
+    pg_backend("wire"),
+    update_record_handle_sql(SQL),
+    execute(pg_session(C0, C), SQL, [Handle, Id]).
+update_record_handle(pg_session(C, C), Id, Handle) :-
+    pg_backend("psql"),
+    psql_update_record_handle_sql(Id, Handle, SQL),
+    query_result(SQL, _Result).
+
+% SET expressions read the row as it was before the UPDATE, so each
+% CASE compares against the previous handle.
+update_record_handle_sql(SQL) :-
+    table(Table),
+    append([
+        "UPDATE public.", Table, " SET ",
+        "usr_twitter_username = $1::text, ",
+        "usr_user_name = CASE WHEN usr_user_name = usr_twitter_username ",
+        "THEN $1::text ELSE usr_user_name END, ",
+        "usr_username_canonical = CASE WHEN usr_username_canonical = usr_twitter_username ",
+        "THEN $1::text ELSE usr_username_canonical END, ",
+        "url = CASE WHEN url = usr_twitter_username ",
+        "THEN $1::text ELSE url END ",
+        "WHERE usr_id = $2::bigint"
+    ], SQL).
+
+%% psql_update_record_handle_sql(+Id, +Handle, -SQL).
+%
+% Concat form of the handle UPDATE for the psql backend. Id and
+% Handle are inlined as single-quoted SQL literals (controlled
+% identifiers, same convention as the pre-69f3f97 client).
+psql_update_record_handle_sql(Id, Handle, SQL) :-
+    table(Table),
+    append([
+        "UPDATE public.", Table, " SET ",
+        "usr_twitter_username = '", Handle, "', ",
+        "usr_user_name = CASE WHEN usr_user_name = usr_twitter_username ",
+        "THEN '", Handle, "' ELSE usr_user_name END, ",
+        "usr_username_canonical = CASE WHEN usr_username_canonical = usr_twitter_username ",
+        "THEN '", Handle, "' ELSE usr_username_canonical END, ",
+        "url = CASE WHEN url = usr_twitter_username ",
+        "THEN '", Handle, "' ELSE url END ",
+        "WHERE usr_id = '", Id, "'::bigint;"
     ], SQL).
 
 %% insert(+Session, +Row, -InsertionResult)
@@ -566,8 +711,10 @@ encode_field_value(FieldValue, EncodedFieldValue) :-
 
 %% insert_record(+Session, +Row, -InsertionResult)
 %
-% Insert a new `weaving_user` row for the given handle, or log
-% the existing record's id if one already exists.
+% Insert a new `weaving_user` row for the given DID, or log the
+% existing record's id if one already exists. Keyed by DID, not
+% handle: a member that renamed itself, or took a handle another
+% member dropped, must not get a second row for its DID.
 insert_record(
     pg_session(C0, C),
     row(
@@ -579,12 +726,12 @@ insert_record(
     ),
     InsertionResult
 ) :-
-    count_matching_records(pg_session(C0, C1), Handle, TotalMatchingRecords),
+    count_matching_records(pg_session(C0, C1), Did, TotalMatchingRecords),
     write_term(total: TotalMatchingRecords, [double_quotes(true)]), nl,
     if_(
-        dif(1, TotalMatchingRecords),
+        TotalMatchingRecords = 0,
         insert_new_record(pg_session(C1, C), Avatar, Description, Did, Handle, DisplayName, InsertionResult),
-        report_existing_record(pg_session(C1, C), Handle, InsertionResult)
+        report_existing_record(pg_session(C1, C), Did, InsertionResult)
     ).
 
 insert_new_record(pg_session(C0, C), Avatar, Description, Did, Handle, DisplayName, ok) :-
@@ -686,24 +833,25 @@ psql_insert_record_sql(
         SQL
     ).
 
-report_existing_record(pg_session(C0, C), Handle, ok) :-
+report_existing_record(pg_session(C0, C), Did, ok) :-
     pg_backend("wire"),
     select_record_id_sql(SelectSQL),
-    value(pg_session(C0, C), SelectSQL, [Handle], SelectionResult),
+    value(pg_session(C0, C), SelectSQL, [Did], SelectionResult),
     write_term(selection:SelectionResult, [double_quotes(true)]).
-report_existing_record(pg_session(C, C), Handle, ok) :-
+report_existing_record(pg_session(C, C), Did, ok) :-
     pg_backend("psql"),
-    psql_select_record_id_sql(Handle, SelectSQL),
+    psql_select_record_id_sql(Did, SelectSQL),
     query_result(SelectSQL, SelectionResult),
     write_term(selection:SelectionResult, [double_quotes(true)]).
 
-psql_select_record_id_sql(Handle, SQL) :-
+psql_select_record_id_sql(Did, SQL) :-
     table(Table),
     append(
         [
             "SELECT r.usr_id AS identifier ",
             "FROM public.", Table, " r ",
-            "WHERE r.usr_twitter_username::text = '", Handle, "';"
+            "WHERE r.usr_twitter_id::text = '", Did, "' ",
+            "ORDER BY r.usr_id DESC LIMIT 1;"
         ],
         SQL
     ).
@@ -741,27 +889,28 @@ select_record_id_sql(SQL) :-
         [
             "SELECT r.usr_id AS identifier ",
             "FROM public.", Table, " r ",
-            "WHERE r.usr_twitter_username::text = $1;"
+            "WHERE r.usr_twitter_id::text = $1 ",
+            "ORDER BY r.usr_id DESC LIMIT 1;"
         ],
         SQL
     ).
 
-%% count_matching_records(+Session, +Handle, -Result). Dispatches on PG_BACKEND.
-count_matching_records(pg_session(C0, C), Handle, Result) :-
+%% count_matching_records(+Session, +Did, -Result). Dispatches on PG_BACKEND.
+count_matching_records(pg_session(C0, C), Did, Result) :-
     pg_backend("wire"),
     count_matching_records_sql(SQL),
-    value(pg_session(C0, C), SQL, [Handle], Result).
-count_matching_records(pg_session(C, C), Handle, Result) :-
+    value(pg_session(C0, C), SQL, [Did], Result).
+count_matching_records(pg_session(C, C), Did, Result) :-
     pg_backend("psql"),
-    psql_count_matching_records_sql(Handle, SQL),
+    psql_count_matching_records_sql(Did, SQL),
     query_result(SQL, Result).
 
-psql_count_matching_records_sql(Handle, SQL) :-
+psql_count_matching_records_sql(Did, SQL) :-
     table(Table),
     append([
         "SELECT count(*) how_many_records ",
         "FROM public.", Table, " r ",
-        "WHERE r.usr_user_name::text = '", Handle, "';"
+        "WHERE r.usr_twitter_id::text = '", Did, "';"
     ], SQL).
 
 count_matching_records_sql(SQL) :-
@@ -769,16 +918,18 @@ count_matching_records_sql(SQL) :-
     append([
         "SELECT count(*) how_many_records ",
         "FROM public.", Table, " r ",
-        "WHERE r.usr_user_name::text = $1;"
+        "WHERE r.usr_twitter_id::text = $1;"
     ], SQL).
 
-%% insert_list_items_if_not_exists(+Session, +Row, -HeadersAndRowsSelectedByHandle)
+%% insert_list_items_if_not_exists(+Session, +Row, -HeadersAndRowsSelectedByDid)
 %
-% Composite of `record_by_screen_name/3` and
-% `insert_record/3`: try to read the existing record first;
-% on a miss, fall through to insert and log the outcome. A
-% failed insert is logged and leaves the session on its input
-% connection, so the caller can carry on with the next item.
+% Composite of `record_by_did/3`, `update_handle_if_renamed/4` and
+% `insert_record/3`: read the member's record by DID first; when
+% found under another handle, move it to the current one; on a
+% miss, fall through to insert and log the outcome. Any other
+% error (a failed lookup, update or insert) is logged and leaves
+% the session on its input connection, so the caller can carry on
+% with the next item without inserting a second row for the DID.
 insert_list_items_if_not_exists(
     pg_session(C0, C),
     row(
@@ -788,28 +939,42 @@ insert_list_items_if_not_exists(
         Handle,
         DisplayName
     ),
-    HeadersAndRowsSelectedByHandle
+    HeadersAndRowsSelectedByDid
 ) :-
     catch(
-        record_by_screen_name(pg_session(C0, C), Handle, HeadersAndRowsSelectedByHandle),
+        ensure_current_handle(pg_session(C0, C), Did, Handle, HeadersAndRowsSelectedByDid),
         E,
-        (log_info([E]),
-        catch(
-            (once(insert_record(
-                pg_session(C0, C),
-                row(
-                    Avatar,
-                    Description,
-                    Did,
-                    Handle,
-                    DisplayName
-                ),
-                InsertionResult
-            )),
-            writeln(member_record_insertion_result(InsertionResult), true)),
-            Err,
-            (log_error([error_on_record_insertion(Err)]), C = C0)
-        ))
+        on_record_lookup_error(
+            pg_session(C0, C),
+            row(
+                Avatar,
+                Description,
+                Did,
+                Handle,
+                DisplayName
+            ),
+            E
+        )
+    ).
+
+ensure_current_handle(pg_session(C0, C), Did, Handle, HeadersAndRowsSelectedByDid) :-
+    record_by_did(pg_session(C0, C1), Did, HeadersAndRowsSelectedByDid),
+    update_handle_if_renamed(pg_session(C1, C), Did, Handle, HeadersAndRowsSelectedByDid).
+
+on_record_lookup_error(pg_session(C0, C), Row, E) :-
+    if_(
+        E = cannot_read_rows_selected_by(did),
+        insert_missing_record(pg_session(C0, C), Row, E),
+        ( log_error([error_on_record_lookup_or_update(E)]), C = C0 )
+    ).
+
+insert_missing_record(pg_session(C0, C), Row, Miss) :-
+    log_info([Miss]),
+    catch(
+        ( once(insert_record(pg_session(C0, C), Row, InsertionResult)),
+          writeln(member_record_insertion_result(InsertionResult), true) ),
+        Err,
+        ( log_error([error_on_record_insertion(Err)]), C = C0 )
     ).
 
 %% from_event(+Payload, -Row)
