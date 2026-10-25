@@ -181,6 +181,7 @@ insert_record_args(
     assoc_required(author, FeedPost, Author),
     assoc_optional(displayName, Author, DisplayName, []),
     assoc_required(handle, Author, Handle),
+    handle_fits_columns(Handle),
     assoc_optional(avatar, Author, AuthorAvatar, []),
 
     assoc_optional(likeCount, FeedPost, LikeCount, 0),
@@ -193,7 +194,26 @@ insert_record_args(
     assoc_required(uri, FeedPost, URI),
     Payload = FeedPost.
 
+%% handle_fits_columns(+Handle).
+%
+% publication.screen_name and weaving_status.ust_full_name hold at
+% most 32 characters. Longer handles (those bridged from Mastodon,
+% <user>.<instance>.ap.brid.gy, which accounts repost) cannot be
+% stored, so the post is labelled malformed for the per-post catch
+% to skip, instead of the insert's pg_error ending the whole feed.
+handle_fits_columns(Handle) :-
+    length(Handle, Length),
+    handle_length_fits(Length, Handle).
+
+handle_length_fits(Length, _Handle) :- Length =< 32.
+handle_length_fits(Length, Handle) :-
+    Length > 32,
+    throw(malformed_post(handle_too_long(Handle))).
+
 %% assoc_lookup_t(+Key, +Assoc, -Found).
+%
+% A JSON null counts as absent: required fields then label the post
+% malformed and optional ones take their default.
 assoc_lookup_t(Key, Assoc, Found) :-
     assoc_to_list(Assoc, KVs),
     pairs_lookup_t(Key, KVs, Found).
@@ -202,9 +222,12 @@ pairs_lookup_t(_Key, [], absent).
 pairs_lookup_t(Key, [K-V|KVs], Found) :-
     if_(
         Key = K,
-        Found = present(V),
+        value_found(V, Found),
         pairs_lookup_t(Key, KVs, Found)
     ).
+
+value_found(null, absent).
+value_found(V, present(V)) :- dif(V, null).
 
 assoc_required(Key, Assoc, Value) :-
     assoc_lookup_t(Key, Assoc, Found),

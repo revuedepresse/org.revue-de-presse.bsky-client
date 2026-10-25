@@ -224,6 +224,9 @@ staging-db-drop: ### Drop org_revue_de_presse_staging entirely (irreversible -- 
 staging-db-truncate: ### Empty the three worker tables in org_revue_de_presse_staging (faster than drop+recreate when you just need a clean run)
 	@/bin/bash -c '. fun.sh && staging_db_truncate'
 
+test-feed-post-shapes: ### Regression: JSON nulls decode, and posts by handles over 32 characters (bridged from Mastodon) are skipped instead of ending the feed
+	@scryer-prolog ./tests/feed_post_shapes_test.pl -g halt
+
 test-feed-capture-replay: ### Hermetic replay of /tmp/segv-investigation/last-feed-pairs.pl through insert_record_args/9
 	@scryer-prolog ./tests/feed_capture_replay_test.pl -g halt
 
