@@ -4,6 +4,7 @@
     char_code_at/2,
     keys/3,
     pairs_to_assoc/2,
+    stored_payload_json_chars/2,
     unwrap_pairs/2,
     to_json_chars/2,
     wrapped_pairs_to_assoc/2
@@ -20,7 +21,9 @@ few utilities for keyed lookup and shell-based JSON
 pretty-printing through `jq`.
 */
 
+:- use_module(library(dif)).
 :- use_module(library(assoc)).
+:- use_module(library(charsio)).
 :- use_module(library(lists)).
 :- use_module(library(os)).
 :- use_module(library(pairs)).
@@ -33,6 +36,7 @@ pretty-printing through `jq`.
 ]).
 :- use_module(os_ext, [
     remove_temporary_file/1,
+    shell_or_throw/3,
     temporary_file/2,
     temporary_file/3
 ]).
@@ -62,6 +66,25 @@ to_json_chars(Chars, JSONChars) :-
     once(beautify_json(JsonFile, JSONChars)),
     log_debug([JSONChars]).
 
+%% stored_payload_json_chars(+PayloadChars, -JSONChars)
+%
+% Payloads are stored as the Prolog string literal of their JSON text
+% (see getList.pl's payload/2): double quotes, backslashes and
+% characters such as the no-break space come out escaped (\", \\,
+% \xa0\), but jq's line breaks are written as they are. Those can
+% only be layout between JSON tokens (a line break inside a JSON string
+% is the escape \n), so they are escaped before the literal is read
+% back. Reading it undoes every escape and recovers the JSON text
+% exactly.
+stored_payload_json_chars(PayloadChars, JSONChars) :-
+    once(foldl(escape_line_break, PayloadChars, Escaped, [])),
+    append(Escaped, ".", Term),
+    read_from_chars(Term, JSONChars).
+
+escape_line_break('\n', ['\\', n|Rest], Rest).
+escape_line_break(Char, [Char|Rest], Rest) :-
+    dif(Char, '\n').
+
 %% beautify_json(+JsonFile, -JSONChars)
 %
 % Run `cat | sed | jq` against `JsonFile`, read the formatted
@@ -80,7 +103,7 @@ beautify_json(TempFile, JSONChars) :-
     char_code(Eol, 10),
     log_debug(['Command: ', Eol, Cmd]),
 
-    shell(Cmd, CmdExecutionStatus),
+    shell_or_throw(Cmd, 'Failed to beautify JSON', CmdExecutionStatus),
     if_(
         dif(CmdExecutionStatus, 0),
         throw(unexpected_command_exit_code('Failed to beautify JSON')),
@@ -145,6 +168,9 @@ without_type(string(Key)-number(Value), KeyAtom-Value) :-
     atom_chars(KeyAtom, Key).
 without_type(string(Key)-list(Value), KeyAtom-Value) :-
     log_debug([kv:string(Key)-list(Value)]),
+    atom_chars(KeyAtom, Key).
+without_type(string(Key)-null, KeyAtom-null) :-
+    log_debug([kv:string(Key)-null]),
     atom_chars(KeyAtom, Key).
 without_type(string(Key)-pairs(Value), KeyAtom-ValueAssoc) :-
     atom_chars(KeyAtom, Key),

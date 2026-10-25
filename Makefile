@@ -126,17 +126,25 @@ test-idempotence: compose-up ### Verify ON CONFLICT (hash) DO NOTHING on the pub
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./tests/pg/idempotence_test.pl -g 'run_test'
 
-test-repository-inserts: compose-up ### Exercise repository_status:insert/3 and repository_popularity:do_insert_without_unicity_check/2 end-to-end
+test-repository-inserts: compose-up ### Exercise repository_status:insert/4 and repository_popularity:insert_without_unicity_check/3 end-to-end
 	@set -a; . ./.env.test; set +a; \
-	scryer-prolog ./tests/pg/repository_inserts_test.pl -g 'run_test'
+	scryer-prolog ./tests/pg/repository_inserts_test.pl -g 'run_test' -g 'halt(1)'
 
-test-repository-publisher: compose-up ### Exercise repository_publisher:insert/2 (new + duplicate paths) and the $$1::bigint / $$2::bigint bind casts
+test-repository-publisher: compose-up ### Exercise repository_publisher:insert/3 (new + duplicate paths), by_criteria/4 (hit + miss) and the $$1::bigint / $$2::bigint bind casts
 	@set -a; . ./.env.test; set +a; \
-	scryer-prolog ./tests/pg/repository_publisher_test.pl -g 'run_test'
+	scryer-prolog ./tests/pg/repository_publisher_test.pl -g 'run_test' -g 'halt(1)'
 
-test-repository-list: compose-up ### Exercise repository_list:insert/2 (new path) and the $$2::bigint bind cast on list_id
+test-repository-list: compose-up ### Exercise repository_list:insert/3, by_list_uri/3 (hit + miss) and the $$2::bigint bind cast on list_id
 	@set -a; . ./.env.test; set +a; \
-	scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test'
+	scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test' -g 'halt(1)'
+
+test-stored-payload: compose-up ### Regression: stored list payloads decode back to JSON (no-break spaces, escaped quotes)
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/stored_payload_test.pl -g 'run_test' -g 'halt(1)'
+
+test-repository-list-item: compose-up ### Exercise repository_list_item:insert/3, the by-screen-name lookups (hit + miss) and insert_list_items_if_not_exists/3
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/repository_list_item_test.pl -g 'run_test' -g 'halt(1)'
 
 test-by-indexed-at: compose-up ### Reproducer for the by_indexed_at/2 SIGSEGV under the SELECT/INSERT/SELECT cycle
 	@set -a; . ./.env.test; set +a; \
@@ -155,6 +163,52 @@ test-segv-replay: ### Replays /tmp/segv-investigation/last-by-indexed-at.pl agai
 
 test-extract-lookup-ust-id: ### Regression: repository_status:extract_lookup_ust_id/2 rejects malformed lookup replies
 	@scryer-prolog ./tests/pg/extract_lookup_ust_id_test.pl -g 'run_test'
+
+test-list-import-handlers: compose-up ### Drive onGetList / onGetProfile / onGetListItem on one session and check the list's rows and relationships
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/list_import_handlers_test.pl -g 'run_test' -g 'halt(1)'
+
+test-list-import-handlers-psql: compose-up ### list import handlers under PG_BACKEND=psql
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql scryer-prolog ./tests/pg/list_import_handlers_test.pl -g 'run_test' -g 'halt(1)'
+
+test-member-new-handle: compose-up ### Regression: a member recorded under an old handle gets a weaving_user row under its current one
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/member_new_handle_test.pl -g 'run_test' -g 'halt(1)'
+
+test-list-member-profile: compose-up ### Regression: re-running a list import skips getProfile for members already in publishers_list
+	@mkdir -p ./var/tmp
+	@set -a; . ./.env.test; set +a; \
+	TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/pg/list_member_profile_test.pl -g 'run_test' -g 'halt(1)'
+
+test-list-member-profile-psql: compose-up ### list member profile skip under PG_BACKEND=psql
+	@mkdir -p ./var/tmp
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/pg/list_member_profile_test.pl -g 'run_test' -g 'halt(1)'
+
+test-client-arity: ### Static check: imported predicates exist, and calls to pg/client.pl use exported arities
+	@python3 -I ./tests/client_arity_check.py .
+
+test-feed-since: ### FEED_SINCE=YYYY-MM-DD moves getAuthorFeed's pagination cut-off (backfill), FEED_CURSOR resumes it at a page; unset keeps two days from the newest page
+	@mkdir -p var/tmp; TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/feed_since_test.pl -g halt
+
+test-list-item-from-event: ### Regression: every coop-medias.org member decodes into its weaving_user row (profiles without chat settings)
+	@mkdir -p var/tmp; TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/list_item_from_event_test.pl -g halt
+
+test-list-member-feed: ### Regression: a member's feed failing during a list import does not abort the import
+	@mkdir -p var/tmp; TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/list_member_feed_test.pl -g halt
+
+test-shell-unavailable: ### Regression: without SHELL (systemd units), shell/2 fails silently; shell_or_throw/3 must run commands under /bin/sh then, and throw shell_unavailable/1 when the shell cannot run
+	@mkdir -p var/tmp; env -u SHELL TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/shell_unavailable_test.pl -g halt
+
+test-configure-shell: ### Regression: fun.sh configure exports SHELL (default /bin/sh) so scryer's shell/2 runs under systemd units, which have none
+	@bash ./tests/configure_shell_test.sh
+
+test-watched-scryer: ### Regression: a worker run that writes nothing for WORKER_IDLE_TIMEOUT seconds, or runs past WORKER_TIMEOUT, is stopped and labelled worker_stalled
+	@bash ./tests/watched_scryer_test.sh
+
+test-no-direct-shell-call: ### Guard: no shell/2 call in src/ outside os_ext:shell_or_throw/3
+	@bash ./tests/no_direct_shell_call_test.sh
 
 test-memoize-arity: ### Regression: getAuthorFeed no longer assertz's wide responses (scryer max_arity = 255)
 	@scryer-prolog ./tests/memoize_arity_test.pl -g halt
@@ -177,6 +231,12 @@ staging-db-drop: ### Drop org_revue_de_presse_staging entirely (irreversible -- 
 staging-db-truncate: ### Empty the three worker tables in org_revue_de_presse_staging (faster than drop+recreate when you just need a clean run)
 	@/bin/bash -c '. fun.sh && staging_db_truncate'
 
+test-feed-post-shapes: ### Regression: JSON nulls decode, and posts by handles over 32 characters (bridged from Mastodon) are skipped instead of ending the feed
+	@scryer-prolog ./tests/feed_post_shapes_test.pl -g halt
+
+test-stored-payload-line-break: ### Stored payloads: line breaks between JSON tokens are escaped before the literal is read back, other characters kept
+	@scryer-prolog ./tests/stored_payload_line_break_test.pl -g halt
+
 test-feed-capture-replay: ### Hermetic replay of /tmp/segv-investigation/last-feed-pairs.pl through insert_record_args/9
 	@scryer-prolog ./tests/feed_capture_replay_test.pl -g halt
 
@@ -184,17 +244,30 @@ test-already-indexed-by-uri: compose-up ### Regression: onGetAuthorFeed dedup ke
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./tests/pg/already_indexed_by_uri_test.pl -g 'run_test'
 
+test-remeasure-known-post: compose-up ### Regression: a post already stored gets a new status_popularity row each time the feed returns it
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/remeasure_known_post_test.pl -g 'run_test'
+
+test-remeasure-known-post-psql: compose-up ### Known-post re-measurement under PG_BACKEND=psql (status ust_id recovered via the psql lookup)
+	@mkdir -p ./var/tmp
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql TEMP_DIR=$(CURDIR)/var/tmp scryer-prolog ./tests/pg/remeasure_known_post_test.pl -g 'run_test'
+
 test-repository-inserts-psql: compose-up ### repository_inserts test under PG_BACKEND=psql (shell-out fall-back transport)
 	@set -a; . ./.env.test; set +a; \
-	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_inserts_test.pl -g 'run_test'
+	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_inserts_test.pl -g 'run_test' -g 'halt(1)'
 
 test-repository-publisher-psql: compose-up ### repository_publisher test under PG_BACKEND=psql
 	@set -a; . ./.env.test; set +a; \
-	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_publisher_test.pl -g 'run_test'
+	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_publisher_test.pl -g 'run_test' -g 'halt(1)'
 
 test-repository-list-psql: compose-up ### repository_list test under PG_BACKEND=psql
 	@set -a; . ./.env.test; set +a; \
-	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test'
+	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test' -g 'halt(1)'
+
+test-repository-list-item-psql: compose-up ### repository_list_item test under PG_BACKEND=psql
+	@set -a; . ./.env.test; set +a; \
+	PG_BACKEND=psql scryer-prolog ./tests/pg/repository_list_item_test.pl -g 'run_test' -g 'halt(1)'
 
 test-already-indexed-by-uri-psql: compose-up ### Dedup-by-URI regression under PG_BACKEND=psql (verifies count_matching_records/2 seam)
 	@set -a; . ./.env.test; set +a; \
