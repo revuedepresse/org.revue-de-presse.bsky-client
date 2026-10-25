@@ -1,5 +1,6 @@
 :- module(os_ext, [
     remove_temporary_file/1,
+    shell_or_throw/3,
     temporary_file/2,
     temporary_file/3
 ]).
@@ -12,6 +13,7 @@ deletes them. Used wherever the worker has to shell out to
 `date(1)`, `jq`, or similar to capture command output.
 */
 
+:- use_module(library(dif)).
 :- use_module(library(charsio)).
 :- use_module(library(files)).
 :- use_module(library(lists)).
@@ -30,6 +32,48 @@ deletes them. Used wherever the worker has to shell out to
     writeln/1,
     writeln/2
 ]).
+
+%% shell_or_throw(+Command, +Label, -Status)
+%
+% Run `Command` with shell/2 and unify `Status` with its exit status.
+% This is the only shell/2 call in src/ (tests/no_direct_shell_call_test.sh
+% checks it). Scryer's shell/2 runs the command through `$SHELL` and
+% fails, without raising anything, when SHELL is unset or empty (a
+% systemd unit has none), so SHELL is first set to /bin/sh for the
+% process in that case, as cron does. If shell/2 still cannot run the
+% command (a SHELL that does not exist), it throws
+% `shell_unavailable(Label)` so callers' catch and log paths see it.
+% `Label` says what the command was for; the command itself is not part
+% of the error, as it can hold credentials (the psql client's
+% PGPASSWORD).
+shell_or_throw(Command, Label, Status) :-
+    ensure_shell,
+    once(shell_or_unavailable(Command, Label, Status)).
+
+shell_or_unavailable(Command, _Label, Status) :-
+    shell(Command, Status).
+shell_or_unavailable(_Command, Label, _Status) :-
+    throw(shell_unavailable(Label)).
+
+%% ensure_shell
+%
+% Sets SHELL to /bin/sh when it is unset or empty.
+ensure_shell :-
+    once(ensure_shell_env).
+
+ensure_shell_env :-
+    getenv("SHELL", Shell),
+    dif(Shell, []).
+ensure_shell_env :-
+    getenv("SHELL", []),
+    default_shell.
+ensure_shell_env :-
+    \+ getenv("SHELL", _),
+    default_shell.
+
+default_shell :-
+    setenv("SHELL", "/bin/sh"),
+    log_info([shell_defaulted_to('/bin/sh')]).
 
 %% remove_temporary_file(+TempFile)
 %

@@ -63,6 +63,7 @@ gating their clauses with `configuration:pg_backend/1`. See
 ]).
 :- use_module('../../os_ext', [
     remove_temporary_file/1,
+    shell_or_throw/3,
     temporary_file/2
 ]).
 :- use_module('../../serialization', [
@@ -363,7 +364,7 @@ query_psql(Query, RemoveResultFile, TuplesOnly, TempFile, Result) :-
     ->  true
     ;   throw(cannot_execute_sql_query) ),
 
-    shell(QueryCommand, QueryExecutionStatus),
+    shell_or_throw(QueryCommand, 'Failed to execute query', QueryExecutionStatus),
 
     (   QueryExecutionStatus \= 0
     ->  write_term(cmd:CommandSuffix, [quoted(false),double_quotes(true)]),

@@ -133,8 +133,23 @@ process_post(pg_session(In, Out), _Cursor, Post) :-
 %% handle_existence(+Exists, +Session, +URI, +Args).
 %
 % Pure two-clause dispatch on the reified existence Truth.
-handle_existence(true, pg_session(C, C), URI, _Args) :-
-    throw(already_indexed_post(uri(URI))).
+%
+% A post already stored is not inserted again, but its current
+% likes/reposts are: each sighting appends a status_popularity row,
+% which is what the daily top 10 ranks on and what lets popularity
+% be followed through the day. The status insert hits ON CONFLICT
+% (ust_hash) and hands back the existing ust_id for that row; the
+% publication insert is skipped since it would be a no-op.
+handle_existence(true, Session, URI,
+                 args(DisplayName, Handle, Text, AuthorAvatar, Payload, CreatedAt,
+                      likes(LikeCount)-reposts(RepostCount))) :-
+    writeln([post_indexed_before|[URI]], true),
+    try_inserting_status_record(
+        Session,
+        DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
+        likes(LikeCount)-reposts(RepostCount),
+        _RecordId
+    ).
 handle_existence(false, Session, URI,
                  args(DisplayName, Handle, Text, AuthorAvatar, Payload, CreatedAt,
                       likes(LikeCount)-reposts(RepostCount))) :-
@@ -166,6 +181,7 @@ insert_record_args(
     assoc_required(author, FeedPost, Author),
     assoc_optional(displayName, Author, DisplayName, []),
     assoc_required(handle, Author, Handle),
+    handle_fits_columns(Handle),
     assoc_optional(avatar, Author, AuthorAvatar, []),
 
     assoc_optional(likeCount, FeedPost, LikeCount, 0),
@@ -178,7 +194,26 @@ insert_record_args(
     assoc_required(uri, FeedPost, URI),
     Payload = FeedPost.
 
+%% handle_fits_columns(+Handle).
+%
+% publication.screen_name and weaving_status.ust_full_name hold at
+% most 32 characters. Longer handles (those bridged from Mastodon,
+% <user>.<instance>.ap.brid.gy, which accounts repost) cannot be
+% stored, so the post is labelled malformed for the per-post catch
+% to skip, instead of the insert's pg_error ending the whole feed.
+handle_fits_columns(Handle) :-
+    length(Handle, Length),
+    handle_length_fits(Length, Handle).
+
+handle_length_fits(Length, _Handle) :- Length =< 32.
+handle_length_fits(Length, Handle) :-
+    Length > 32,
+    throw(malformed_post(handle_too_long(Handle))).
+
 %% assoc_lookup_t(+Key, +Assoc, -Found).
+%
+% A JSON null counts as absent: required fields then label the post
+% malformed and optional ones take their default.
 assoc_lookup_t(Key, Assoc, Found) :-
     assoc_to_list(Assoc, KVs),
     pairs_lookup_t(Key, KVs, Found).
@@ -187,9 +222,12 @@ pairs_lookup_t(_Key, [], absent).
 pairs_lookup_t(Key, [K-V|KVs], Found) :-
     if_(
         Key = K,
-        Found = present(V),
+        value_found(V, Found),
         pairs_lookup_t(Key, KVs, Found)
     ).
+
+value_found(null, absent).
+value_found(V, present(V)) :- dif(V, null).
 
 assoc_required(Key, Assoc, Value) :-
     assoc_lookup_t(Key, Assoc, Found),

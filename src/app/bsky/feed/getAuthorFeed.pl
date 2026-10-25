@@ -1,6 +1,9 @@
 :- module('getAuthorFeed', [
     app__bsky__feed__getAuthorFeed/2,
-    report_iteration_failure/1
+    feed_since/1,
+    feed_start/2,
+    report_iteration_failure/1,
+    resolve_cutoff_date/3
 ]).
 
 :- use_module(library(assoc)).
@@ -11,6 +14,7 @@
 :- use_module(library(http/http_open)).
 :- use_module(library(iso_ext)).
 :- use_module(library(lists)).
+:- use_module(library(os)).
 :- use_module(library(pairs)).
 :- use_module(library(reif)).
 :- use_module(library(si)).
@@ -250,19 +254,80 @@ follow_or_finalize(pg_session(C, C), 'none', _ParamValue, _Anchor) :-
     writeln('fetched all available feed posts', true).
 follow_or_finalize(pg_session(In, Out), NextCursor, ParamValue, Anchor) :-
     dif(NextCursor, 'none'),
-    once(resolve_cutoff_date(Anchor, CutoffDate)),
+    once(feed_since(Since)),
+    once(resolve_cutoff_date(Since, Anchor, CutoffDate)),
     cursor_date_prefix(NextCursor, CursorDate),
     once(continue_or_stop_at_cutoff(pg_session(In, Out), CursorDate, CutoffDate, NextCursor, ParamValue, Anchor)).
 
-    % resolve_cutoff_date(+Anchor, -CutoffDate).
+%% feed_since(-Since).
+%
+% since(Date) when FEED_SINCE holds a YYYY-MM-DD date, to backfill an
+% account's posts down to that day; no_since when it is unset or
+% empty. Any other value throws invalid_feed_since/1 rather than
+% silently paging back two days.
+feed_since(Since) :-
+    once(feed_since_env(Since)).
+
+feed_since_env(Since) :-
+    getenv("FEED_SINCE", Value),
+    feed_since_value(Value, Since).
+feed_since_env(no_since) :-
+    \+ getenv("FEED_SINCE", _).
+
+feed_since_value([], no_since).
+feed_since_value(Value, since(Value)) :-
+    dif(Value, []),
+    valid_date_chars(Value).
+feed_since_value(Value, _Since) :-
+    dif(Value, []),
+    \+ valid_date_chars(Value),
+    throw(invalid_feed_since(Value)).
+
+%% feed_start(+Actor, -Params).
+%
+% actor(Actor)-cursor(Cursor) when FEED_CURSOR holds a feed cursor (an
+% ISO-8601 timestamp), so a backfill resumes at the page a previous
+% run stopped at instead of fetching again the pages it stored; the
+% bare Actor, starting at the newest page, when it is unset or empty.
+% Any other value throws invalid_feed_cursor/1.
+feed_start(Actor, Params) :-
+    once(feed_start_env(Actor, Params)).
+
+feed_start_env(Actor, Params) :-
+    getenv("FEED_CURSOR", Value),
+    feed_start_value(Value, Actor, Params).
+feed_start_env(Actor, Actor) :-
+    \+ getenv("FEED_CURSOR", _).
+
+feed_start_value([], Actor, Actor).
+feed_start_value(Value, Actor, actor(Actor)-cursor(Value)) :-
+    dif(Value, []),
+    valid_cursor_chars(Value).
+feed_start_value(Value, _Actor, _Params) :-
+    dif(Value, []),
+    \+ valid_cursor_chars(Value),
+    throw(invalid_feed_cursor(Value)).
+
+valid_cursor_chars([Y1,Y2,Y3,Y4,'-',M1,M2,'-',D1,D2,'T'|_]) :-
+    valid_date_chars([Y1,Y2,Y3,Y4,'-',M1,M2,'-',D1,D2]).
+
+valid_date_chars([Y1,Y2,Y3,Y4,'-',M1,M2,'-',D1,D2]) :-
+    maplist(digit_char, [Y1,Y2,Y3,Y4,M1,M2,D1,D2]).
+
+digit_char(Char) :-
+    member(Char, "0123456789").
+
+    % resolve_cutoff_date(+Since, +Anchor, -CutoffDate).
     %
-    % Cutoff = (anchor - 2 days) when an anchor was captured on a
-    % prior page (anchor = first page's most-recent indexedAt).
-    % Falls back to (now - 2 days) when no anchor is available.
-    resolve_cutoff_date(none, CutoffDate) :-
+    % With since(Date), pagination continues down to Date (backfill).
+    % Otherwise Cutoff = (anchor - 2 days) when an anchor was captured
+    % on a prior page (anchor = first page's most-recent indexedAt),
+    % falling back to (now - 2 days) when no anchor is available.
+    resolve_cutoff_date(since(Date), _Anchor, Date).
+    resolve_cutoff_date(no_since, none, CutoffDate) :-
         date_iso8601_days_ago(2, CutoffIso),
         cursor_date_prefix(CutoffIso, CutoffDate).
-    resolve_cutoff_date(AnchorIso, CutoffDate) :-
+    resolve_cutoff_date(no_since, AnchorIso, CutoffDate) :-
         dif(AnchorIso, none),
         date_iso8601_days_before(2, AnchorIso, CutoffDate).
 
@@ -292,7 +357,8 @@ follow_or_finalize(pg_session(In, Out), NextCursor, ParamValue, Anchor) :-
 % memo table also exceeded scryer's 255 max_arity on every real
 % response and crashed the worker. The predicate now delegates
 % straight to the network call.
-app__bsky__feed__getAuthorFeed(Params, Props) :-
+app__bsky__feed__getAuthorFeed(Actor, Props) :-
+    once(feed_start(Actor, Params)),
     open_pg_connection(Conn0),
     catch(
         ( app__bsky__feed__getAuthorFeed_paginate(pg_session(Conn0, ConnFinal), Params, none, _AnchorOut, Props),
