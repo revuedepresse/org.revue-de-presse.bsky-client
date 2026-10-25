@@ -127,6 +127,14 @@ run_test :-
     expect(C5, "SELECT count(*)::text FROM weaving_user WHERE usr_twitter_username = $1 AND usr_twitter_id = $2",
         ["member-probe.bsky.social", "did:plc:member-probe"], "1", "weaving_user records for the member"),
 
-    close_pg_connection(C5),
+    % An import stopped between the profile event and the weaving_user
+    % insert left the event without its record; the next import must
+    % still record the member.
+    pg_query(C5, "DELETE FROM weaving_user WHERE usr_twitter_username = $1", ["member-probe.bsky.social"], _),
+    onGetListItem(pg_session(C5, C6), ItemAssoc, Item),
+    expect(C6, "SELECT count(*)::text FROM weaving_user WHERE usr_twitter_username = $1 AND usr_twitter_id = $2",
+        ["member-probe.bsky.social", "did:plc:member-probe"], "1", "weaving_user record restored for a member with an event"),
+
+    close_pg_connection(C6),
     format("[OK] list_import_handlers_test passed~n", []),
     halt(0).

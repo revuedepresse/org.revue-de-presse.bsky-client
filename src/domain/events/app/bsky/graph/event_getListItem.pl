@@ -71,9 +71,16 @@ onGetListItem(pg_session(C0, C), ItemAssoc, pairs(UnwrappedPairs)) :-
         )
     ).
 
-on_get_list_item_log_existing(Session, ScreenName, Payload) :-
-    once(repository_list_item:event_by_screen_name(Session, ScreenName, Rows)),
-    once(log_existing_list_item_payload(Rows, Payload)).
+%% on_get_list_item_log_existing(+Session, +ScreenName, +Payload).
+%
+% The member's weaving_user record is ensured even when its event
+% exists: an import stopped between the two inserts left events
+% without records, and their members out of the nightly top 10.
+on_get_list_item_log_existing(pg_session(C0, C), ScreenName, Payload) :-
+    once(repository_list_item:event_by_screen_name(pg_session(C0, C1), ScreenName, Rows)),
+    once(log_existing_list_item_payload(Rows, Payload)),
+    from_event(Payload, RowFromPayload),
+    once(insert_list_items_if_not_exists(pg_session(C1, C), RowFromPayload, _)).
 
 log_existing_list_item_payload(Rows, Payload) :-
     nth0(0, Rows, FirstRow),
