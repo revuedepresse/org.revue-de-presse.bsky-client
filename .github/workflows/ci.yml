@@ -115,6 +115,9 @@ jobs:
       - name: Run repository list test
         run: scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test'
 
+      - name: Run member handle rename test
+        run: scryer-prolog ./tests/pg/member_new_handle_test.pl -g 'run_test' -g 'halt(1)'
+
       - name: Assert PG_BACKEND default (unset) is wire
         run: scryer-prolog ./tests/pg/backend_default_test.pl -g 'run_test'
 
@@ -132,6 +135,11 @@ jobs:
         env:
           PG_BACKEND: psql
         run: scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test'
+
+      - name: Run member handle rename test (psql backend)
+        env:
+          PG_BACKEND: psql
+        run: scryer-prolog ./tests/pg/member_new_handle_test.pl -g 'run_test' -g 'halt(1)'
 
       - name: Run dedup-by-URI test (psql backend)
         env:
