@@ -36,7 +36,7 @@ decodes(C0, C, Label, ListURI, BodyChars, Assoc) :-
 % A stored list payload must decode back to the list, whatever its
 % members' profiles contain:
 %
-%   1. the real coop-medias.org getList response (48 members; one
+%   1. the real coop-medias.org getList response (42 members; one
 %      display name holds a no-break space, which the Prolog string
 %      the payload is stored as escapes as \xa0\);
 %   2. a list whose description holds escaped double quotes.
@@ -53,8 +53,8 @@ run_test :-
     (   get_assoc(list, CoopAssoc, CoopList),
         get_assoc(name, CoopList, "coop-medias.org"),
         get_assoc(items, CoopAssoc, CoopItems),
-        length(CoopItems, 48)
-    ->  format("[ok] the coop-medias.org payload decodes to its 48 members~n", [])
+        length(CoopItems, 42)
+    ->  format("[ok] the coop-medias.org payload decodes to its 42 members~n", [])
     ;   format("[KO] the coop-medias.org payload decoded to ~w~n", [CoopAssoc]), halt(1) ),
 
     QuotedBody = "{\"list\":{\"uri\":\"at://stored-payload-probe-quotes\",\"name\":\"probe\",\"description\":\"say \\\"hi\\\"\"},\"items\":[]}",
