@@ -5,7 +5,7 @@
 [submodule "deps/postgresql-prolog"]
 	path = deps/postgresql-prolog
 	url = https://github.com/thierrymarianne/postgresql-prolog.git
-	branch = main
+	branch = fix/query-redo-determinism
 [submodule "deps/doclog"]
 	path = deps/doclog
 	url = https://github.com/thierrymarianne/contrib-doclog.git
