@@ -1,5 +1,6 @@
 :- module(unfurl, [
-    expand_text/3
+    expand_text/3,
+    resolve_remote/2
 ]).
 
 :- use_module(library(dif)).
@@ -20,7 +21,10 @@
     rewrite_urls/3,
     shortened_urls_in_text/2
 ]).
-:- use_module('../../configuration', [link_expansion/1]).
+:- use_module('../../configuration', [
+    link_expander_user_agent/1,
+    link_expansion/1
+]).
 :- use_module('../../stream', [
     read_stream/2,
     writeln/2
@@ -235,4 +239,5 @@ resolved_or_same(Expanded, Url, Outcome) :-
 % Named, with an address to complain to: a service that would rather not
 % be read by a program can say so, and that refusal is recorded rather
 % than worked around.
-user_agent('user-agent'("revue-de-presse-link-expander (+https://revue-de-presse.org)")).
+user_agent('user-agent'(UserAgent)) :-
+    link_expander_user_agent(UserAgent).

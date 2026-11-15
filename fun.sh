@@ -293,6 +293,19 @@ function app__bsky__graph__getList() {
         ./src/app/bsky/graph/getList.pl
 }
 
+function links__expand_day() {
+    configure
+
+    local day
+    day="${1:-$(date -I -d yesterday 2>/dev/null || date -v-1d +%F)}"
+
+    watched_scryer \
+        -g 'expand_day_links("'"${day}"'").' \
+        -g 'halt.' \
+        ./src/infrastructure/link/expand_day.pl
+}
+alias links-expand-day='links__expand_day'
+
 function infrastructure__list__count() {
     configure
 

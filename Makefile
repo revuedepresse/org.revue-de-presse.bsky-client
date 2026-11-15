@@ -146,6 +146,13 @@ import-link-expansions: ### Turn a resolver's findings into publication_link ups
 	@test -n "$(MAP)" || { echo 'Set MAP to the resolver output, e.g. MAP=findings.jsonl' >&2; exit 1; }
 	@python3 -I ./var/import-link-expansions.py "$(MAP)"
 
+links-expand-day: ### Expand the shortened links of a day before it is ranked (DAY=YYYY-MM-DD, default yesterday)
+	@/bin/bash -c '. fun.sh && links__expand_day "$(DAY)"'
+
+test-expand-day: compose-up ### The day pass, without the network: links read from the rows, addresses written back into them
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/expand_day_test.pl -g 'run_test'
+
 test-ingest-resolution: compose-up ### Reaches the network: a live shortened link is resolved by the worker itself at ingestion
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./tests/pg/ingest_resolution_test.pl -g 'run_test'

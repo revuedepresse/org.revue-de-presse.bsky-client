@@ -10,7 +10,10 @@
     database_username/1,
     environment/1,
     log_level/1,
+    link_expander_pace/1,
+    link_expander_user_agent/1,
     link_expansion/1,
+    link_expansion_batch/1,
     list_at_uri/1,
     personal_data_server_host/1,
     pg_backend/1,
@@ -183,6 +186,45 @@ link_expansion(Setting) :-
     getenv("LINK_EXPANSION", Setting).
 link_expansion("on") :-
     \+ getenv("LINK_EXPANSION", _).
+
+%% link_expander_user_agent(-UserAgent)
+%
+% What the link expander calls itself, from `LINK_EXPANDER_USER_AGENT`.
+%
+% It is a setting and not a constant because the redirectors most French
+% publishers share answer differently depending on who asks: a plain client
+% is served an interstitial carrying the destination, and the same client was
+% refused outright once it had asked too often. Being able to say who we are,
+% and to change it without a deploy, is what lets a run be corrected rather
+% than redeployed.
+%
+% Whatever it says, it says it honestly: a name and an address to complain to.
+link_expander_user_agent(UserAgent) :-
+    getenv("LINK_EXPANDER_USER_AGENT", UserAgent).
+link_expander_user_agent("revue-de-presse-link-expander/1.0 (+https://revue-de-presse.org)") :-
+    \+ getenv("LINK_EXPANDER_USER_AGENT", _).
+
+%% link_expander_pace(-Seconds)
+%
+% Seconds between two requests in a batch run, from `LINK_EXPANDER_PACE`.
+% Five by default: a reader opening articles, not a crawler. On 2026-11-15 a
+% run with no pace at all asked eight hundred times in a row and was shut out.
+link_expander_pace(Seconds) :-
+    getenv("LINK_EXPANDER_PACE", Chars),
+    number_chars(Seconds, Chars).
+link_expander_pace(5) :-
+    \+ getenv("LINK_EXPANDER_PACE", _).
+
+%% link_expansion_batch(-Links)
+%
+% How many links one batch run may ask about, from `LINK_EXPANSION_BATCH`.
+% Sixty at five seconds apart is five minutes of asking, which is what a day
+% of new links needs and no more.
+link_expansion_batch(Links) :-
+    getenv("LINK_EXPANSION_BATCH", Chars),
+    number_chars(Links, Chars).
+link_expansion_batch(60) :-
+    \+ getenv("LINK_EXPANSION_BATCH", _).
 
 %% pg_backend(-Backend)
 %
