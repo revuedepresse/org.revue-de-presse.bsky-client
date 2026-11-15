@@ -11,6 +11,7 @@
 :- use_module('../../src/infrastructure/link/unfurl', [expand_text/3]).
 :- use_module('../../src/infrastructure/repository/repository_publication_link', [
     expansion_of/3,
+    attempts_since/3,
     record_expansion/4,
     record_pending/3,
     record_refusal/4
@@ -67,12 +68,26 @@ run_test :-
     record_refusal(pg_session(C4, C5), short_url(Refused), http_status(403), _),
     append(["Voir ", Refused], RefusedText),
     expand_text(pg_session(C5, C6), RefusedText, StillShort),
-    expect("a refused link stays short rather than breaking", StillShort, RefusedText),
+    expect("a link the service would not serve stays short rather than breaking",
+           StillShort, RefusedText),
     expansion_of(pg_session(C6, C7), short_url(Refused), RefusedRow),
-    expect("and the refusal is remembered, so it is not asked again", RefusedRow, present("refused")),
+    % A 403 says something about the asker, not about the link: it is kept
+    % for a resolver asking from elsewhere, never written off.
+    expect("a 403 is remembered as blocked, not as a verdict on the link",
+           RefusedRow, present("blocked")),
+
+    record_refusal(pg_session(C7, C7b), short_url("https://l.probe-gone.test/Ww1"),
+                   http_status(404), _),
+    expansion_of(pg_session(C7b, C7c), short_url("https://l.probe-gone.test/Ww1"), GoneRow),
+    expect("a 404 is the one answer that is about the link", GoneRow, present("dead")),
+
+    attempts_since(pg_session(C7c, C7d), minutes(60), Recent),
+    (   Recent >= 3
+    ->  format("[ok] every link asked about in the last hour is counted (~d), for the budget~n", [Recent])
+    ;   format("[KO] the budget counter saw ~d attempts, expected at least 3~n", [Recent]), halt(1) ),
 
     % A post without any shortened link costs no query at all.
-    expand_text(pg_session(C7, C8), "rien à étendre ici", Plain),
+    expand_text(pg_session(C7d, C8), "rien à étendre ici", Plain),
     expect("a post with no shortened link comes back unchanged", Plain, "rien à étendre ici"),
 
     close_pg_connection(C8),

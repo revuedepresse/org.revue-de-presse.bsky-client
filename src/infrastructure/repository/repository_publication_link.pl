@@ -1,10 +1,12 @@
 :- module(repository_publication_link, [
+    attempts_since/3,
     expansion_of/3,
     record_pending/3,
     record_expansion/4,
     record_refusal/4
 ]).
 
+:- use_module(library(dif)).
 :- use_module(library(lists)).
 
 :- use_module('../pg/client', [
@@ -134,9 +136,16 @@ record_refusal(pg_session(C0, C), short_url(Url), http_status(Code), ok) :-
 record_refusal(pg_session(C, C), short_url(_), http_status(_), skipped) :-
     pg_backend("psql").
 
-refusal_status(404, "dead") :- !.
-refusal_status(410, "dead") :- !.
-refusal_status(_, "refused").
+% Only the two answers that are about the link itself are final. A 403 or a
+% 429 is about the asker — this address, this rate, this client — and on
+% 2026-11-15 one run's burst turned 812 live links into permanent refusals
+% that way. Those are `blocked`: left for a resolver asking from somewhere
+% else, and never counted as a verdict on the link.
+refusal_status(404, "dead").
+refusal_status(410, "dead").
+refusal_status(Code, "blocked") :-
+    dif(Code, 404),
+    dif(Code, 410).
 
 refusal_sql(SQL) :-
     table(Table),
@@ -153,3 +162,36 @@ refusal_sql(SQL) :-
         ],
         SQL
     ).
+
+%% attempts_since(+Session, +minutes(Minutes), -Count)
+%
+% How many links have been asked about in the last Minutes. The ledger is
+% the rate limiter: it is shared by every run and survives restarts, which a
+% counter inside one run is not. Ingestion asks it before reaching for a
+% service it has never asked about.
+attempts_since(pg_session(C0, C), minutes(Minutes), Count) :-
+    pg_backend("wire"),
+    number_chars(Minutes, MinuteChars),
+    attempts_sql(SQL),
+    pg_query_or_throw(pg_session(C0, C), SQL, [MinuteChars], Reply),
+    interpret_count(Reply, Count).
+attempts_since(pg_session(C, C), minutes(_), 0) :-
+    pg_backend("psql").
+
+attempts_sql(SQL) :-
+    table(Table),
+    append(
+        [
+            "SELECT count(*)::text ",
+            "FROM public.", Table, " ",
+            "WHERE last_attempt_at IS NOT NULL ",
+            "AND last_attempt_at::timestamptz > now() - ($1 || ' minutes')::interval"
+        ],
+        SQL
+    ).
+
+interpret_count(data([[Chars|_]|_]), Count) :-
+    number_chars(Count, Chars).
+interpret_count(data([]), 0).
+interpret_count(error(Err), _) :-
+    throw(pg_error(Err)).
