@@ -312,7 +312,7 @@ page_destination(Html, Result) :-
     tag_attribute("<meta", "refresh", "content", Html, Refresh),
     refresh_destination(Refresh, Html, Result).
 
-refresh_destination(value(Content), Html, Result) :-
+refresh_destination(attribute(Content), Html, Result) :-
     search("url=", Content, AfterMarker),
     refresh_url(AfterMarker, Html, Result).
 refresh_destination(none, Html, Result) :-
@@ -331,18 +331,18 @@ claimed_destination(Html, Result) :-
     tag_attribute("<link", "canonical", "href", Html, Canonical),
     canonical_destination(Canonical, Html, Result).
 
-canonical_destination(value(Url), _, destination(Url)).
+canonical_destination(attribute(Url), _, destination(Url)).
 canonical_destination(none, Html, Result) :-
     tag_attribute("<meta", "og:url", "content", Html, OgUrl),
     og_destination(OgUrl, Result).
 
-og_destination(value(Url), destination(Url)).
+og_destination(attribute(Url), destination(Url)).
 og_destination(none, none).
 
 %% tag_attribute(+Open, +Mark, +Attribute, +Html, -Result)
 %
 % The attribute of the first tag opening with `Open` that mentions
-% `Mark`; `value(V)` or `none`. Attribute order inside the tag does not
+% `Mark`; `attribute(V)` or `none`. Attribute order inside the tag does not
 % matter: whole tags are read, then searched.
 tag_attribute(Open, Mark, Attribute, Html, Result) :-
     search(Open, Html, Found),
@@ -356,7 +356,7 @@ tag_attribute_(found(After), Open, Mark, Attribute, Result) :-
           attribute_or_next(Inner, Open, Mark, Attribute, Rest, Result) ),
         tag_attribute(Open, Mark, Attribute, Rest, Result)).
 
-attribute_or_next(value(Value), _, _, _, _, value(Value)).
+attribute_or_next(attribute(Value), _, _, _, _, attribute(Value)).
 attribute_or_next(none, Open, Mark, Attribute, Rest, Result) :-
     tag_attribute(Open, Mark, Attribute, Rest, Result).
 
@@ -368,7 +368,7 @@ attribute_value(Name, Tag, Result) :-
     attribute_value_(Found, Result).
 
 attribute_value_(not_found, none).
-attribute_value_(found(After), value(Value)) :-
+attribute_value_(found(After), attribute(Value)) :-
     take_while_not(quote_t, After, Value, _).
 
 quote_t(Char, Truth) :- code_t(0x22, Char, Truth).          % "
@@ -384,7 +384,7 @@ canonical_url(Html, Url) :-
     claimed_destination(Html, destination(Url)).
 
 meta_refresh_url(Html, Url) :-
-    tag_attribute("<meta", "refresh", "content", Html, value(Content)),
+    tag_attribute("<meta", "refresh", "content", Html, attribute(Content)),
     search("url=", Content, found(After)),
     take_while_not(url_end_t, After, Url, _).
 
