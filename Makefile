@@ -142,6 +142,25 @@ test-repository-list: compose-up ### Exercise repository_list:insert/3, by_list_
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./tests/pg/repository_list_test.pl -g 'run_test' -g 'halt(1)'
 
+import-link-expansions: ### Turn a resolver's findings into publication_link upserts (MAP=path/to/findings.jsonl)
+	@test -n "$(MAP)" || { echo 'Set MAP to the resolver output, e.g. MAP=findings.jsonl' >&2; exit 1; }
+	@python3 -I ./var/import-link-expansions.py "$(MAP)"
+
+test-ingest-resolution: compose-up ### Reaches the network: a live shortened link is resolved by the worker itself at ingestion
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/ingest_resolution_test.pl -g 'run_test'
+
+test-ingest-expansion: compose-up ### End-to-end: a collected post is stored with the address its shortened link leads to, on both ingest branches
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/ingest_expansion_test.pl -g 'run_test'
+
+test-link-shortener: ### Pure: which addresses in a post are shortened, and how they are replaced
+	@scryer-prolog ./tests/link_shortener_test.pl -g 'run_test'
+
+test-link-expansion: compose-up ### Ingest: an unresolved link is noted, a resolved one is stored expanded, a refused one is left alone
+	@set -a; . ./.env.test; set +a; \
+	scryer-prolog ./tests/pg/link_expansion_test.pl -g 'run_test'
+
 test-stored-payload: compose-up ### Regression: stored list payloads decode back to JSON (no-break spaces, escaped quotes)
 	@set -a; . ./.env.test; set +a; \
 	scryer-prolog ./tests/pg/stored_payload_test.pl -g 'run_test' -g 'halt(1)'

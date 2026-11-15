@@ -10,6 +10,7 @@
     database_username/1,
     environment/1,
     log_level/1,
+    link_expansion/1,
     list_at_uri/1,
     personal_data_server_host/1,
     pg_backend/1,
@@ -164,6 +165,24 @@ database_username(DatabaseUsername) :-
 database_db_name(DatabaseDbName) :-
     assert_env_var_is_declared("DATABASE_DB_NAME", DatabaseDbName, missing_database_parameter('Please export DATABASE_DB_NAME environment variable.')),
     assert_env_var_non_empty("DATABASE_DB_NAME", DatabaseDbName).
+
+%% link_expansion(-Setting)
+%
+% Whether ingestion resolves the shortened links a post carries, from
+% `LINK_EXPANSION`. Two values:
+%
+%   - "on"  — resolve and store the article's address (default);
+%   - "off" — store the post exactly as written.
+%
+% Unset means "on". The switch exists so a redirector that starts
+% hanging, or a ledger that needs taking down, can be answered by
+% restarting the worker with one variable rather than by deploying.
+%
+% Two clauses, no cut, same shape as pg_backend/1 above.
+link_expansion(Setting) :-
+    getenv("LINK_EXPANSION", Setting).
+link_expansion("on") :-
+    \+ getenv("LINK_EXPANSION", _).
 
 %% pg_backend(-Backend)
 %

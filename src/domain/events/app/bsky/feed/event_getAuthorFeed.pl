@@ -34,6 +34,9 @@ state by the underlying client.pl handlers.
 :- use_module('../../../../../infrastructure/repository/repository_popularity', [
     insert_without_unicity_check/3
 ]).
+:- use_module('../../../../../infrastructure/link/unfurl', [
+    expand_text/3
+]).
 :- use_module('../../../../../infrastructure/repository/repository_publication', [
     insert/3
 ]).
@@ -118,10 +121,14 @@ on_post_exception(Other, _Index, _Total, _Post) :-
 process_post(pg_session(In, Out), _Cursor, Post) :-
     insert_record_args(
         Post,
-        DisplayName, Handle, Text, AuthorAvatar, Payload, URI, CreatedAt,
+        DisplayName, Handle, RawText, AuthorAvatar, Payload, URI, CreatedAt,
         likes(LikeCount)-reposts(RepostCount)
     ),
-    exists_by_uri_t(pg_session(In, C1), Handle, URI, Exists),
+    % Shortened links become the address they lead to here, before the
+    % existence dispatch, so that a post stored for the first time and the
+    % same post seen again an hour later carry identical text.
+    unfurl:expand_text(pg_session(In, C0), RawText, Text),
+    exists_by_uri_t(pg_session(C0, C1), Handle, URI, Exists),
     handle_existence(
         Exists,
         pg_session(C1, Out),
