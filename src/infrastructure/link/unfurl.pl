@@ -1,5 +1,6 @@
 :- module(unfurl, [
-    expand_text/3
+    expand_text/3,
+    resolve_remote/2
 ]).
 
 :- use_module(library(dif)).
@@ -8,6 +9,7 @@
 :- use_module(library(lists)).
 
 :- use_module('../repository/repository_publication_link', [
+    attempts_since/3,
     expansion_of/3,
     record_expansion/4,
     record_pending/3,
@@ -19,7 +21,10 @@
     rewrite_urls/3,
     shortened_urls_in_text/2
 ]).
-:- use_module('../../configuration', [link_expansion/1]).
+:- use_module('../../configuration', [
+    link_expander_user_agent/1,
+    link_expansion/1
+]).
 :- use_module('../../stream', [
     read_stream/2,
     writeln/2
@@ -51,9 +56,12 @@ A service that does refuse is recorded `refused` on that single attempt
 and never asked again; a resolver driving a real browser can answer those
 out of band and write back to this same table.
 
-One request per distinct link, ever: a link already resolved, refused,
-dead or pending is never fetched again, whatever number of posts carry
-it.
+One request per distinct link, ever — and no more than a handful per hour
+across the whole deployment. On 2026-11-15 a first run met some eight
+hundred links it had never seen and asked for all of them back to back; the
+service stopped answering and 812 live links were written off. A link is
+asked about once, and a run spends at most what budget/1 allows; the rest
+stay pending for the resolver that works from elsewhere.
 
 A link the ledger has refused or declared dead is left exactly as the post
 wrote it: a reader still gets a working link, and no service is asked twice.
@@ -98,14 +106,34 @@ ensure_bound(pg_session(_, Out)) :-
 
 expand_known(pg_session(C0, C), Text, Expanded) :-
     shortened_urls_in_text(Text, Shortened),
-    expansion_pairs(pg_session(C0, C), Shortened, Pairs),
+    budget(Budget),
+    window_minutes(Minutes),
+    attempts_since(pg_session(C0, C1), minutes(Minutes), Spent),
+    remaining(Budget, Spent, Remaining),
+    expansion_pairs(pg_session(C1, C), Shortened, Remaining, Pairs),
     rewrite_urls(Text, Pairs, Expanded).
 
-expansion_pairs(pg_session(C, C), [], []).
-expansion_pairs(pg_session(C0, C), [Url|Urls], Pairs) :-
+%% budget(-Links) and window_minutes(-Minutes)
+%
+% At most this many links asked about per window, counted across every run
+% from the ledger. Twelve an hour is a reader's pace, not a crawler's, and
+% it is what a service refusing datacenter addresses will tolerate while the
+% out-of-band resolver does the bulk.
+budget(12).
+window_minutes(60).
+
+remaining(Budget, Spent, Remaining) :-
+    Left is Budget - Spent,
+    max_zero(Left, Remaining).
+
+max_zero(Left, 0) :- Left =< 0.
+max_zero(Left, Left) :- Left > 0.
+
+expansion_pairs(pg_session(C, C), [], _, []).
+expansion_pairs(pg_session(C0, C), [Url|Urls], Remaining, Pairs) :-
     expansion_of(pg_session(C0, C1), short_url(Url), Found),
-    pairs_for(Found, pg_session(C1, C2), Url, Pairs, Rest),
-    expansion_pairs(pg_session(C2, C), Urls, Rest).
+    pairs_for(Found, pg_session(C1, C2), Url, Remaining, Left, Pairs, Rest),
+    expansion_pairs(pg_session(C2, C), Urls, Left, Rest).
 
 %% pairs_for(+Found, +Session, +Url, -Pairs, -Rest)
 %
@@ -113,18 +141,36 @@ expansion_pairs(pg_session(C0, C), [Url|Urls], Pairs) :-
 % contribute. Known but unresolved, or refused, or dead: nothing to
 % substitute. Never seen: noted for the resolver, and nothing to
 % substitute yet.
-pairs_for(present(expanded(Expanded)), pg_session(C, C), Url, [Url-Expanded|Rest], Rest).
-pairs_for(present(Status), pg_session(C, C), _, Rest, Rest) :-
+pairs_for(present(expanded(Expanded)), pg_session(C, C), Url, Remaining, Remaining, [Url-Expanded|Rest], Rest).
+pairs_for(present(Status), pg_session(C, C), _, Remaining, Remaining, Rest, Rest) :-
     dif(Status, expanded(_)).
-pairs_for(absent, pg_session(C0, C), Url, Pairs, Rest) :-
-    resolve_remote(Url, Outcome),
-    remember(Outcome, pg_session(C0, C), Url),
+pairs_for(absent, pg_session(C0, C), Url, Remaining, Left, Pairs, Rest) :-
+    ask_or_note(Remaining, pg_session(C0, C), Url, Outcome),
+    spent(Remaining, Left),
     substitution(Outcome, Url, Pairs, Rest).
+
+%% ask_or_note(+Remaining, +Session, +Url, -Outcome)
+%
+% With budget left, the service is asked and the answer recorded. Without,
+% the link is noted as pending and nobody is disturbed: a run that meets
+% eight hundred new links must not ask eight hundred times.
+ask_or_note(0, pg_session(C0, C), Url, over_budget) :-
+    record_pending(pg_session(C0, C), short_url(Url), _).
+ask_or_note(Remaining, pg_session(C0, C), Url, Outcome) :-
+    Remaining > 0,
+    resolve_remote(Url, Outcome),
+    remember(Outcome, pg_session(C0, C), Url).
+
+spent(0, 0).
+spent(Remaining, Left) :-
+    Remaining > 0,
+    Left is Remaining - 1.
 
 %% substitution(+Outcome, +Url, -Pairs, -Rest)
 substitution(resolved(Expanded), Url, [Url-Expanded|Rest], Rest).
 substitution(refused(_), _, Rest, Rest).
 substitution(unavailable(_), _, Rest, Rest).
+substitution(over_budget, _, Rest, Rest).
 
 %% remember(+Outcome, +Session, +Url)
 %
@@ -193,4 +239,5 @@ resolved_or_same(Expanded, Url, Outcome) :-
 % Named, with an address to complain to: a service that would rather not
 % be read by a program can say so, and that refusal is recorded rather
 % than worked around.
-user_agent('user-agent'("revue-de-presse-link-expander (+https://revue-de-presse.org)")).
+user_agent('user-agent'(UserAgent)) :-
+    link_expander_user_agent(UserAgent).
