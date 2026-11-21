@@ -71,7 +71,14 @@ file means a law with a checked proof attached, so anything short of that has
 to be written where no tool can read it as a guarantee.
 
 - **`shortened_url_t/2` is total** — that every address gets a verdict rather
-  than a failure. A condition that fails instead of answering false makes the
+  than a failure. The bridge found a live instance the first time it ran over
+  the collected corpus: given `chrome-error://chromewebdata/`, which the
+  browser resolver had left among its results, the predicate fails instead of
+  answering false, because `url_after_scheme/2` has no clause for an address
+  that is neither http nor https. Nothing reaches it that way today —
+  `shortened_urls_in_text/2` only ever passes it what `urls_in_text/2` found,
+  and that is always http(s) — but `tfilter/3` over a failing condition fails
+  the whole scan, and a post would then be stored with no expansion at all. A condition that fails instead of answering false makes the
   whole scan fail, and the post is then stored with no expansion at all. What
   is proven today is that there is at most one verdict and that it is true or
   false; that there is always one needs groundness reasoning these proofs do

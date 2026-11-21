@@ -4,7 +4,9 @@
 :- use_module(library(lists)).
 
 :- use_module('../src/link_expansion', [
+    answer_of_outcome/2,
     expansion_decisions/4,
+    outcome_of/4,
     plan_of/2,
     refusal_status/2
 ]).
@@ -197,10 +199,120 @@ corpus_code(410).
 corpus_code(429).
 corpus_code(503).
 
+
+%% The planner's mirror encodes two more things than the recogniser's, and
+%% both are places a restatement can quietly stop meaning the same thing:
+%%
+%%   * a budget is a Peano numeral there (0, s(0), s(s(0))) where the shipped
+%%     planner holds an integer and compares it with zcompare/3. "Never asks
+%%     more than the budget allows" is proven about successor arithmetic, so
+%%     the translation is checked here on every scenario;
+%%   * an answer's status is an atom there and a char list in the ledger's
+%%     vocabulary, the same translation the verdicts already use.
+peano(0, 0).
+peano(N, s(P)) :-
+    N > 0,
+    M is N - 1,
+    peano(M, P).
+
+known_codes([], []).
+known_codes([Url-Answer|Rest], [Codes-MirrorAnswer|MirrorRest]) :-
+    codes_of(Url, Codes),
+    mirror_answer(Answer, MirrorAnswer),
+    known_codes(Rest, MirrorRest).
+
+mirror_answer(expanded(Url), expanded(Codes)) :-
+    codes_of(Url, Codes).
+mirror_answer(blocked, blocked).
+mirror_answer(pending, pending).
+mirror_answer(dead, dead).
+
+mirror_decision(substitute(Url, Expanded), substitute(UrlCodes, ExpandedCodes)) :-
+    codes_of(Url, UrlCodes),
+    codes_of(Expanded, ExpandedCodes).
+mirror_decision(leave(Url, Answer), leave(Codes, MirrorAnswer)) :-
+    codes_of(Url, Codes),
+    mirror_answer(Answer, MirrorAnswer).
+mirror_decision(ask(Url), ask(Codes)) :-
+    codes_of(Url, Codes).
+mirror_decision(note(Url), note(Codes)) :-
+    codes_of(Url, Codes).
+
+check_decisions([]).
+check_decisions([scenario(Urls, Known, Budget)|Rest]) :-
+    expansion_decisions(Urls, Known, Budget, Shipped),
+    maplist(codes_of, Urls, UrlCodes),
+    known_codes(Known, KnownCodes),
+    peano(Budget, Peano),
+    (   user:k_decisions(UrlCodes, KnownCodes, Peano, Mirror)
+    ->  true
+    ;   format("[KO] k_decisions/4 found no answer for a budget of ~d~n", [Budget]), halt(1) ),
+    maplist(mirror_decision, Shipped, ShippedMirrored),
+    (   ShippedMirrored == Mirror
+    ->  true
+    ;   format("[KO] expansion_decisions/4 disagrees with its mirror~n  shipped ~q~n  mirror  ~q~n", [ShippedMirrored, Mirror]), halt(1) ),
+    plan_of(Shipped, ShippedPlan),
+    (   user:k_plan_of(Mirror, MirrorPlan)
+    ->  true
+    ;   format("[KO] k_plan_of/2 found no answer~n", []), halt(1) ),
+    mirror_plan(ShippedPlan, ShippedPlanMirrored),
+    (   ShippedPlanMirrored == MirrorPlan
+    ->  true
+    ;   format("[KO] plan_of/2 disagrees with its mirror~n  shipped ~q~n  mirror  ~q~n", [ShippedPlanMirrored, MirrorPlan]), halt(1) ),
+    check_decisions(Rest).
+
+mirror_plan(plan(substitutions(Pairs), ask(Ask), note(Note)),
+            plan(substitutions(MirrorPairs), ask(MirrorAsk), note(MirrorNote))) :-
+    maplist(pair_codes, Pairs, MirrorPairs),
+    maplist(codes_of, Ask, MirrorAsk),
+    maplist(codes_of, Note, MirrorNote).
+
+check_answers([]).
+check_answers([Outcome|Rest]) :-
+    answer_of_outcome(Outcome, Shipped),
+    mirror_outcome(Outcome, MirrorOutcome),
+    (   user:k_answer_of_outcome(MirrorOutcome, Mirror)
+    ->  true
+    ;   format("[KO] k_answer_of_outcome/2 found no answer for ~q~n", [Outcome]), halt(1) ),
+    mirror_answer(Shipped, ShippedMirrored),
+    (   ShippedMirrored == Mirror
+    ->  true
+    ;   format("[KO] answer_of_outcome/2 disagrees for ~q: shipped ~q, mirror ~q~n", [Outcome, ShippedMirrored, Mirror]), halt(1) ),
+    check_answers(Rest).
+
+mirror_outcome(resolved(Url), resolved(Codes)) :-
+    codes_of(Url, Codes).
+mirror_outcome(refused(Code), refused(Code)).
+mirror_outcome(unavailable(Reason), unavailable(Reason)).
+
+corpus_scenario([
+    scenario(["https://l.vert.eco/2V"], ["https://l.vert.eco/2V"-expanded("https://vert.eco/le-sujet")], 0),
+    scenario(["https://l.vert.eco/2V", "https://l.marsactu.fr/ly8"], [], 1),
+    scenario(["https://l.vert.eco/2V", "https://l.humanite.fr/AXQ", "https://bit.ly/4iLEDhE"],
+             ["https://l.humanite.fr/AXQ"-blocked, "https://bit.ly/4iLEDhE"-dead], 2),
+    scenario(["https://l.vert.eco/2V"], ["https://l.vert.eco/2V"-pending], 3),
+    scenario([], [], 0)
+]).
+
+corpus_outcome([
+    resolved("https://vert.eco/le-sujet"),
+    refused(403),
+    refused(404),
+    refused(410),
+    refused(503),
+    unavailable(no_destination_in_page)
+]).
+
 run_test :-
     consult('proofs/kernel/recogniser'),
     consult('proofs/kernel/planner'),
-    findall(Url, corpus_url(Url), Urls),
+    % The hand-written shapes, then every redirector host production uses and
+    % the destinations the services handed back — generated from the collected
+    % links rather than imagined.
+    consult('tests/fixtures/link_corpus'),
+    findall(Url, corpus_url(Url), Written),
+    findall(Collected, user:corpus_link(Collected), Collected0),
+    append(Written, Collected0, Urls),
     length(Urls, UrlCount),
     check_permalink(Urls),
     format("[ok] permalink/2 agrees with its mirror on ~d addresses~n", [UrlCount]),
@@ -231,6 +343,16 @@ run_test :-
     length(Codes, CodeCount),
     check_verdicts(Codes),
     format("[ok] refusal_status/2 agrees with its mirror on ~d status codes~n", [CodeCount]),
+
+    corpus_scenario(Scenarios),
+    length(Scenarios, ScenarioCount),
+    check_decisions(Scenarios),
+    format("[ok] expansion_decisions/4 and plan_of/2 agree with their mirror on ~d scenarios, budget included~n", [ScenarioCount]),
+
+    corpus_outcome(Outcomes),
+    length(Outcomes, OutcomeCount),
+    check_answers(Outcomes),
+    format("[ok] answer_of_outcome/2 agrees with its mirror on ~d outcomes~n", [OutcomeCount]),
 
     format("[OK] proofs_bridge_test passed~n", []),
     halt(0).
