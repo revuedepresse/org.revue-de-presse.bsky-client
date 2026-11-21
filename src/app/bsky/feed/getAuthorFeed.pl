@@ -357,9 +357,30 @@ digit_char(Char) :-
 % memo table also exceeded scryer's 255 max_arity on every real
 % response and crashed the worker. The predicate now delegates
 % straight to the network call.
+%
+% The three lines this writes are not decoration. watched_scryer in
+% fun.sh decides the run has stalled when nothing arrives on the pipe
+% for WORKER_IDLE_TIMEOUT (300s) and kills it with 124, so a step that
+% says nothing while it works is indistinguishable from a hang. Until
+% this, the first line a run printed was the endpoint, inside
+% send_request: resolving the window and opening the database
+% connection happened in silence, and a run slow enough there -- a
+% loaded host, a database handshake behind other work -- was killed
+% before it had spoken once. One was, and the next
+% attempt at the same actor returned 200 immediately.
+%
+% Announcing each step both restarts that clock at every boundary and
+% names the step a future stall died in. It does not bound any single
+% step: connect/6 in the vendored postgresql-prolog takes no timeout
+% and scryer's socket open offers none, so a handshake that hangs past
+% the idle limit still loses the run -- with a log line saying so,
+% which is the whole of what this buys.
 app__bsky__feed__getAuthorFeed(Actor, Props) :-
+    writeln([feed_requested|[Actor]], true),
     once(feed_start(Actor, Params)),
+    writeln([feed_window_resolved], true),
     open_pg_connection(Conn0),
+    writeln([database_connection_opened], true),
     catch(
         ( app__bsky__feed__getAuthorFeed_paginate(pg_session(Conn0, ConnFinal), Params, none, _AnchorOut, Props),
           close_pg_connection(ConnFinal) ),
