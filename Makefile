@@ -1,6 +1,6 @@
 SHELL:=/bin/bash
 
-.PHONY: configure create_session create_poste doc doc-setup doc-clean doc-serve scryer-prolog-build
+.PHONY: configure create_session create_poste doc doc-setup doc-clean doc-serve scryer-prolog-build proofs-setup check-proofs check-proof-obligations
 
 COMPOSE_PROJECT_NAME ?= 'org_example_bsky'
 WORKER ?= 'org.example.bsky'
@@ -148,6 +148,9 @@ import-link-expansions: ### Turn a resolver's findings into publication_link ups
 
 links-expand-day: ### Expand the shortened links of a day before it is ranked (DAY=YYYY-MM-DD, default yesterday)
 	@/bin/bash -c '. fun.sh && links__expand_day "$(DAY)"'
+
+test-proofs-bridge: ### The obligation the proofs rest on: the LPTP mirrors answer what the shipped modules answer
+	@scryer-prolog ./tests/proofs_bridge_test.pl -g 'run_test'
 
 test-expand-day: compose-up ### The day pass, without the network: links read from the rows, addresses written back into them
 	@set -a; . ./.env.test; set +a; \
@@ -361,3 +364,44 @@ DOC_PORT ?= 8000
 doc-serve: doc ### Rebuild then serve doc/html on http://localhost:$(DOC_PORT)
 	@echo "Serving doc/html on http://localhost:$(DOC_PORT)"
 	@python3 -m http.server $(DOC_PORT) --directory doc/html
+
+# ── LPTP machine-checked proofs ──────────────────────────────────────────────
+# The Makefile owns every path this toolchain touches. proofs-setup bootstraps
+# the LPTP checkout (Stärk's prover, ported to Scryer) idempotently; check-proofs
+# exports the only two absolute paths involved — LPTP_ROOT_DIR, which LPTP's own
+# $(lib)/$(tmp) aliases resolve against, and PROOFS_DIR, which proofs/check.pl
+# binds to its $(proofs) alias. Nothing below may assume a working directory:
+# LPTP resolves a relative path against the directory of the file that loaded it,
+# not against the directory the command was run from, so a proof file referred to
+# relatively is read from somewhere else or not at all.
+LPTP_DIR ?= tmp/lptp
+LPTP_REPO ?= https://github.com/thierrymarianne/contrib-lptp
+LPTP_BRANCH ?= lptp_and_scryer-prolog
+SCRYER ?= scryer-prolog
+
+proofs-setup: ### Clone and build the LPTP proof checker into tmp/lptp (does nothing if already there)
+	@[ -d $(LPTP_DIR) ] || git clone -b $(LPTP_BRANCH) $(LPTP_REPO) $(LPTP_DIR)
+	@[ -f $(LPTP_DIR)/src/lptp.pl ] || $(MAKE) -C $(LPTP_DIR) lptp
+
+# Every gate below reads the log rather than the exit status, because LPTP
+# reports a rejected proof as a message and leaves Prolog's exit code at 0: a
+# run whose every lemma failed looks exactly like a clean one from the shell.
+# The last gate counts: a .pr file missing its `:- bye(<name>).` terminator is
+# never finalised, so its lemmas are not checked at all and nothing is reported
+# about them -- silence from a file that was never opened is indistinguishable
+# from silence from a file that passed, unless the o.k. lines are counted.
+check-proofs: proofs-setup ### Machine-check every proof file listed in proofs/check.pl (log in proofs/check.log)
+	@mkdir -p proofs/latex
+	@export LPTP_ROOT_DIR=$$(cd $(LPTP_DIR) && pwd) && \
+	  export PROOFS_DIR=$$(pwd)/proofs && \
+	  $(SCRYER) -g "consult('$(LPTP_DIR)/src/lptp.pl'),consult('proofs/check.pl')" -g halt 2>&1 | tee proofs/check.log
+	@! grep -qE 'tried_to_consult|existence_error|syntax_error\(' proofs/check.log || { echo "check-proofs: a proof file FAILED TO LOAD (consult or syntax error -- see proofs/check.log). A load error means that file's proofs were never checked." >&2; exit 1; }
+	@! grep -qE '! LPTP-(Error|Syntax):' proofs/check.log || { echo "check-proofs: LPTP reported errors (see proofs/check.log)" >&2; exit 1; }
+	@! grep -qE '! LPTP-Warning:' proofs/check.log || { echo "check-proofs: LPTP reported warnings (see proofs/check.log)" >&2; exit 1; }
+	@exp=$$(grep -cE '^[[:space:]]*check\(' proofs/check.pl); \
+	  got=$$(grep -cE '! LPTP-Message: .* o\.k\.' proofs/check.log); \
+	  [ "$$got" -eq "$$exp" ] || { echo "check-proofs: only $$got of $$exp proof files reported o.k. -- compare the o.k. lines in proofs/check.log against the check(...) entries in proofs/check.pl." >&2; exit 1; }
+	@echo "check-proofs: all LPTP proofs check (warning-free)."
+
+check-proof-obligations: ### Report how many stated laws are proven, per stage, from proofs/obligations.tsv
+	@awk -F'\t' '/^#/ || NF < 6 { next } { total++; if ($$6 == "proven") proven++ } END { printf "obligations: %d proven of %d stated\n", proven, total }' proofs/obligations.tsv

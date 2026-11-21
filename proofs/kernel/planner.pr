@@ -1,0 +1,892 @@
+/* Machine-checked laws of the expansion planner, src/link_expansion.pl,
+   stated over the mirror in planner.pl and checked by LPTP:
+
+       make check-proofs
+
+   Every law here was meant to hold already. Nothing said so, and
+   the day a run met some eight hundred links it had never seen, three of
+   them turned out to be false of the code that was running: the budget was
+   not threaded, a 403 was read as a verdict on the link, and 812 live
+   addresses were written off as dead. A test could not have said otherwise
+   either, because each of these is a claim about EVERY input and a test
+   covers the one input written in it.
+
+   What transfers from here to src/ is settled in planner.pl's header: the
+   encodings, and the one relation the mirror narrows (an answer outside the
+   module's vocabulary). The agreement between the mirror and src/ itself is
+   not mechanical and is an open row in proofs/obligations.tsv. */
+
+:- initialize.
+:- thm_file($(proofs)/kernel/planner).
+:- tex_file($(proofs)/latex/kernel_planner).
+
+:- needs_gr($(proofs)/kernel/planner).
+
+/* ════ P1. The planner never asks more questions than the budget allows ════ */
+
+/* An answer the ledger already holds never produces a question, whatever the
+   answer is: the dispatch in known_decision/3 reaches `substitute` or
+   `leave` and has no third way out. This is the half of the budget law that
+   has nothing to do with counting -- a run that re-reads a thousand links it
+   has seen before spends none of its allowance on them, which is why the
+   allowance can be as small as it is. */
+
+:- lemma(planner:known_decision:ask_free,
+all [a,u,d]: succeeds k_known_decision(?a,?u,?d) => succeeds k_ask_free(?d),
+assume(succeeds k_known_decision(?a,?u,?d),
+ [def succeeds k_known_decision(?a,?u,?d) by completion,
+  exist(b,
+   succeeds k_expanded(?a,?b) & succeeds k_known_decision_(?b,?a,?u,?d),
+   [def succeeds k_known_decision_(?b,?a,?u,?d) by completion,
+    cases([
+      case(ex e: ?b = true & ?a = expanded(?e) & ?d = substitute(?u,?e),
+       [exist(e,
+         ?b = true & ?a = expanded(?e) & ?d = substitute(?u,?e),
+         [succeeds k_ask_free(substitute(?u,?e)),
+          succeeds k_ask_free(?d)],
+         succeeds k_ask_free(?d))]),
+      case(?b = false & ?d = leave(?u,?a),
+       [succeeds k_ask_free(leave(?u,?a)),
+        succeeds k_ask_free(?d)])],
+     succeeds k_ask_free(?d))],
+   succeeds k_ask_free(?d))],
+ succeeds k_ask_free(?d))
+).
+
+/* The exact accounting for one address: either the decision costs nothing
+   and the allowance comes back untouched, or it is a question and the
+   allowance comes back one smaller. There is no third case, and no case in
+   which the allowance grows -- the property the hand-threaded counter in
+   expansion_decisions/4 can only have by construction, and the one nothing
+   checked before this file existed.
+
+   Note where `note` falls: ask-free AND leaving the budget equal, because a
+   spent budget is 0 and what spend/4 hands back is 0 again. That is what
+   makes the induction below go through without a separate case for a run
+   that has already spent everything. */
+
+:- lemma(planner:decision:cost,
+all [r,u,b,d,left]: succeeds k_decision(?r,?u,?b,?d,?left) =>
+ succeeds k_ask_free(?d) & ?left = ?b \/ ?d = ask(?u) & ?b = s(?left),
+assume(succeeds k_decision(?r,?u,?b,?d,?left),
+ [def succeeds k_decision(?r,?u,?b,?d,?left) by completion,
+  cases([
+    case(ex a: ?r = answer(?a) & ?left = ?b & succeeds k_known_decision(?a,?u,?d),
+     [exist(a,
+       ?r = answer(?a) & ?left = ?b & succeeds k_known_decision(?a,?u,?d),
+       [succeeds k_ask_free(?d) by lemma(planner:known_decision:ask_free),
+        succeeds k_ask_free(?d) & ?left = ?b,
+        succeeds k_ask_free(?d) & ?left = ?b \/ ?d = ask(?u) & ?b = s(?left)],
+       succeeds k_ask_free(?d) & ?left = ?b \/ ?d = ask(?u) & ?b = s(?left))]),
+    case(?r = unknown & succeeds k_spend(?b,?u,?d,?left),
+     [def succeeds k_spend(?b,?u,?d,?left) by completion,
+      cases([
+        case(?b = 0 & ?d = note(?u) & ?left = 0,
+         [succeeds k_ask_free(note(?u)),
+          succeeds k_ask_free(?d),
+          succeeds k_ask_free(?d) & ?left = ?b,
+          succeeds k_ask_free(?d) & ?left = ?b \/ ?d = ask(?u) & ?b = s(?left)]),
+        case(?b = s(?left) & ?d = ask(?u),
+         [?d = ask(?u) & ?b = s(?left),
+          succeeds k_ask_free(?d) & ?left = ?b \/ ?d = ask(?u) & ?b = s(?left)])],
+       succeeds k_ask_free(?d) & ?left = ?b \/ ?d = ask(?u) & ?b = s(?left))])],
+   succeeds k_ask_free(?d) & ?left = ?b \/ ?d = ask(?u) & ?b = s(?left))],
+ succeeds k_ask_free(?d) & ?left = ?b \/ ?d = ask(?u) & ?b = s(?left))
+).
+
+/* A decision that costs nothing does not change the count: whatever number
+   of questions a list of decisions carries, putting an ask-free decision in
+   front of it carries the same number. Stated as one step on the count
+   rather than as three repetitions inside the induction. */
+
+:- lemma(planner:asks:ask_free,
+all [d,ds,n]: succeeds k_ask_free(?d) & succeeds k_asks([?d|?ds],?n) =>
+ succeeds k_asks(?ds,?n),
+assume(succeeds k_ask_free(?d) & succeeds k_asks([?d|?ds],?n),
+ [def succeeds k_ask_free(?d) by completion,
+  cases([
+    case(ex [u,e]: ?d = substitute(?u,?e),
+     [exist([u,e],
+       ?d = substitute(?u,?e),
+       [succeeds k_asks([substitute(?u,?e)|?ds],?n),
+        def succeeds k_asks([substitute(?u,?e)|?ds],?n) by completion,
+        succeeds k_asks(?ds,?n)],
+       succeeds k_asks(?ds,?n))]),
+    case(ex [u,a]: ?d = leave(?u,?a),
+     [exist([u,a],
+       ?d = leave(?u,?a),
+       [succeeds k_asks([leave(?u,?a)|?ds],?n),
+        def succeeds k_asks([leave(?u,?a)|?ds],?n) by completion,
+        succeeds k_asks(?ds,?n)],
+       succeeds k_asks(?ds,?n))]),
+    case(ex u: ?d = note(?u),
+     [exist(u,
+       ?d = note(?u),
+       [succeeds k_asks([note(?u)|?ds],?n),
+        def succeeds k_asks([note(?u)|?ds],?n) by completion,
+        succeeds k_asks(?ds,?n)],
+       succeeds k_asks(?ds,?n))])],
+   succeeds k_asks(?ds,?n))],
+ succeeds k_asks(?ds,?n))
+).
+
+/* P1 itself, by induction on the planning of a list of addresses. The
+   induction is over the recursion that threads the budget, which is the
+   point: the statement is proved for a day's worth of links by being proved
+   for one more link given any remainder, so there is no path through the
+   list on which the thread can be dropped. */
+
+:- lemma(planner:budget,
+all [urls,known,b,ds,n]: succeeds k_decisions(?urls,?known,?b,?ds) &
+ succeeds k_asks(?ds,?n) => succeeds k_leq(?n,?b),
+[induction(
+  [all [urls,known,b,ds]: succeeds k_decisions(?urls,?known,?b,?ds) =>
+    (all m: succeeds k_asks(?ds,?m) => succeeds k_leq(?m,?b))],
+  [step([known,b],
+    [],
+    [assume(succeeds k_asks([],?m),
+      [def succeeds k_asks([],?m) by completion,
+       succeeds k_leq(0,?b),
+       succeeds k_leq(?m,?b)],
+      succeeds k_leq(?m,?b)),
+     all m: succeeds k_asks([],?m) => succeeds k_leq(?m,?b)],
+    all m: succeeds k_asks([],?m) => succeeds k_leq(?m,?b)),
+   step([u,us,known,b,d,ds,r,left],
+    [all m: succeeds k_asks(?ds,?m) => succeeds k_leq(?m,?left),
+     succeeds k_known_answer(?u,?known,?r),
+     succeeds k_decision(?r,?u,?b,?d,?left),
+     succeeds k_decisions(?us,?known,?left,?ds)],
+    [assume(succeeds k_asks([?d|?ds],?m),
+      [succeeds k_ask_free(?d) & ?left = ?b \/ ?d = ask(?u) & ?b = s(?left) by
+        lemma(planner:decision:cost),
+       cases([
+         case(succeeds k_ask_free(?d) & ?left = ?b,
+          [succeeds k_asks(?ds,?m) by lemma(planner:asks:ask_free),
+           succeeds k_asks(?ds,?m) => succeeds k_leq(?m,?left),
+           succeeds k_leq(?m,?left),
+           succeeds k_leq(?m,?b)]),
+         case(?d = ask(?u) & ?b = s(?left),
+          [succeeds k_asks([ask(?u)|?ds],?m),
+           def succeeds k_asks([ask(?u)|?ds],?m) by completion,
+           exist(k,
+            ?m = s(?k) & succeeds k_asks(?ds,?k),
+            [succeeds k_asks(?ds,?k) => succeeds k_leq(?k,?left),
+             succeeds k_leq(?k,?left),
+             succeeds k_leq(s(?k),s(?left)),
+             succeeds k_leq(?m,?b)],
+            succeeds k_leq(?m,?b))])],
+        succeeds k_leq(?m,?b))],
+      succeeds k_leq(?m,?b)),
+     all m: succeeds k_asks([?d|?ds],?m) => succeeds k_leq(?m,?b)],
+    all m: succeeds k_asks([?d|?ds],?m) => succeeds k_leq(?m,?b))]),
+ assume(succeeds k_decisions(?urls,?known,?b,?ds) & succeeds k_asks(?ds,?n),
+  [all m: succeeds k_asks(?ds,?m) => succeeds k_leq(?m,?b),
+   succeeds k_asks(?ds,?n) => succeeds k_leq(?n,?b),
+   succeeds k_leq(?n,?b)],
+  succeeds k_leq(?n,?b))]
+).
+
+/* ════ P2. Every substitution comes from the Known list it was given ═══════ */
+
+/* A found answer is an answer that was in the list. Proved simultaneously
+   over known_answer/3 and the clause dispatch it hands off to, because the
+   recursion goes through that helper rather than back into known_answer/3
+   directly: the second formula is the loop invariant -- either this pair is
+   the one that matched, or the answer came from further down the list. */
+
+:- lemma(planner:known_answer:member:sim,
+ (all [u,known,r]: succeeds k_known_answer(?u,?known,?r) =>
+   (all w: ?r = answer(?w) => succeeds k_member(?u - ?w,?known))) &
+ (all [b,u,a,ps,r]: succeeds k_known_answer_(?b,?u,?a,?ps,?r) =>
+   (all w: ?r = answer(?w) =>
+     ?b = true & ?w = ?a \/ succeeds k_member(?u - ?w,?ps))),
+induction(
+ [all [u,known,r]: succeeds k_known_answer(?u,?known,?r) =>
+   (all w: ?r = answer(?w) => succeeds k_member(?u - ?w,?known)),
+  all [b,u,a,ps,r]: succeeds k_known_answer_(?b,?u,?a,?ps,?r) =>
+   (all w: ?r = answer(?w) =>
+     ?b = true & ?w = ?a \/ succeeds k_member(?u - ?w,?ps))],
+ [step([u],
+   [],
+   [assume(unknown = answer(?w), [], succeeds k_member(?u - ?w,[])),
+    all w: unknown = answer(?w) => succeeds k_member(?u - ?w,[])],
+   all w: unknown = answer(?w) => succeeds k_member(?u - ?w,[])),
+  step([u,k,a,ps,r,b],
+   [all w: ?r = answer(?w) =>
+     ?b = true & ?w = ?a \/ succeeds k_member(?u - ?w,?ps),
+    succeeds k_eq(?u,?k,?b),
+    succeeds k_known_answer_(?b,?u,?a,?ps,?r)],
+   [assume(?r = answer(?w),
+     [?b = true & ?w = ?a \/ succeeds k_member(?u - ?w,?ps),
+      cases([
+        case(?b = true & ?w = ?a,
+         [succeeds k_eq(?u,?k,true),
+          def succeeds k_eq(?u,?k,true) by completion,
+          ?u = ?k,
+          succeeds k_member(?u - ?a,[?u - ?a|?ps]),
+          succeeds k_member(?u - ?w,[?k - ?a|?ps])]),
+        case(succeeds k_member(?u - ?w,?ps),
+         [succeeds k_member(?u - ?w,[?k - ?a|?ps])])],
+       succeeds k_member(?u - ?w,[?k - ?a|?ps]))],
+     succeeds k_member(?u - ?w,[?k - ?a|?ps])),
+    all w: ?r = answer(?w) => succeeds k_member(?u - ?w,[?k - ?a|?ps])],
+   all w: ?r = answer(?w) => succeeds k_member(?u - ?w,[?k - ?a|?ps])),
+  step([u,a,ps],
+   [],
+   [assume(answer(?a) = answer(?w),
+     [?w = ?a,
+      true = true & ?w = ?a,
+      true = true & ?w = ?a \/ succeeds k_member(?u - ?w,?ps)],
+     true = true & ?w = ?a \/ succeeds k_member(?u - ?w,?ps)),
+    all w: answer(?a) = answer(?w) =>
+     true = true & ?w = ?a \/ succeeds k_member(?u - ?w,?ps)],
+   all w: answer(?a) = answer(?w) =>
+    true = true & ?w = ?a \/ succeeds k_member(?u - ?w,?ps)),
+  step([u,a,ps,r],
+   [all w: ?r = answer(?w) => succeeds k_member(?u - ?w,?ps),
+    succeeds k_known_answer(?u,?ps,?r)],
+   [assume(?r = answer(?w),
+     [succeeds k_member(?u - ?w,?ps),
+      false = true & ?w = ?a \/ succeeds k_member(?u - ?w,?ps)],
+     false = true & ?w = ?a \/ succeeds k_member(?u - ?w,?ps)),
+    all w: ?r = answer(?w) =>
+     false = true & ?w = ?a \/ succeeds k_member(?u - ?w,?ps)],
+   all w: ?r = answer(?w) =>
+    false = true & ?w = ?a \/ succeeds k_member(?u - ?w,?ps))])
+).
+
+:- corollary(planner:known_answer:member,
+all [u,known,a]: succeeds k_known_answer(?u,?known,answer(?a)) =>
+ succeeds k_member(?u - ?a,?known),
+assume(succeeds k_known_answer(?u,?known,answer(?a)),
+ [all [u,known,r]: succeeds k_known_answer(?u,?known,?r) =>
+   (all w: ?r = answer(?w) => succeeds k_member(?u - ?w,?known)) by
+   lemma(planner:known_answer:member:sim),
+  all w: answer(?a) = answer(?w) => succeeds k_member(?u - ?w,?known),
+  answer(?a) = answer(?a) => succeeds k_member(?u - ?a,?known),
+  succeeds k_member(?u - ?a,?known)],
+ succeeds k_member(?u - ?a,?known))
+).
+
+/* A substitution names the address it was decided for and the expansion the
+   ledger gave for it -- not a neighbouring link's answer, and not a variable
+   left over from an earlier decision. That is the failure this law exists to
+   rule out: a pair whose expansion came from elsewhere stores one article's
+   address under another's post, and once the day is ranked the rewrite is
+   irreversible. */
+
+:- lemma(planner:known_decision:substitute,
+all [a,u,d,v,w]: succeeds k_known_decision(?a,?u,?d) & ?d = substitute(?v,?w)
+ => ?v = ?u & ?a = expanded(?w),
+assume(succeeds k_known_decision(?a,?u,?d) & ?d = substitute(?v,?w),
+ [def succeeds k_known_decision(?a,?u,?d) by completion,
+  exist(b,
+   succeeds k_expanded(?a,?b) & succeeds k_known_decision_(?b,?a,?u,?d),
+   [def succeeds k_known_decision_(?b,?a,?u,?d) by completion,
+    cases([
+      case(ex e: ?b = true & ?a = expanded(?e) & ?d = substitute(?u,?e),
+       [exist(e,
+         ?b = true & ?a = expanded(?e) & ?d = substitute(?u,?e),
+         [substitute(?u,?e) = substitute(?v,?w),
+          ?v = ?u,
+          ?e = ?w,
+          ?a = expanded(?w),
+          ?v = ?u & ?a = expanded(?w)],
+         ?v = ?u & ?a = expanded(?w))]),
+      case(?b = false & ?d = leave(?u,?a),
+       [leave(?u,?a) = substitute(?v,?w),
+        ?v = ?u & ?a = expanded(?w)])],
+     ?v = ?u & ?a = expanded(?w))],
+   ?v = ?u & ?a = expanded(?w))],
+ ?v = ?u & ?a = expanded(?w))
+).
+
+:- lemma(planner:decision:substitute,
+all [r,u,b,d,left,v,w]: succeeds k_decision(?r,?u,?b,?d,?left) &
+ ?d = substitute(?v,?w) => ?v = ?u & ?r = answer(expanded(?w)),
+assume(succeeds k_decision(?r,?u,?b,?d,?left) & ?d = substitute(?v,?w),
+ [def succeeds k_decision(?r,?u,?b,?d,?left) by completion,
+  cases([
+    case(ex a: ?r = answer(?a) & ?left = ?b & succeeds k_known_decision(?a,?u,?d),
+     [exist(a,
+       ?r = answer(?a) & ?left = ?b & succeeds k_known_decision(?a,?u,?d),
+       [?v = ?u & ?a = expanded(?w) by lemma(planner:known_decision:substitute),
+        ?v = ?u,
+        ?a = expanded(?w),
+        ?r = answer(expanded(?w)),
+        ?v = ?u & ?r = answer(expanded(?w))],
+       ?v = ?u & ?r = answer(expanded(?w)))]),
+    case(?r = unknown & succeeds k_spend(?b,?u,?d,?left),
+     [def succeeds k_spend(?b,?u,?d,?left) by completion,
+      cases([
+        case(?b = 0 & ?d = note(?u) & ?left = 0,
+         [note(?u) = substitute(?v,?w),
+          ?v = ?u & ?r = answer(expanded(?w))]),
+        case(?b = s(?left) & ?d = ask(?u),
+         [ask(?u) = substitute(?v,?w),
+          ?v = ?u & ?r = answer(expanded(?w))])],
+       ?v = ?u & ?r = answer(expanded(?w)))])],
+   ?v = ?u & ?r = answer(expanded(?w)))],
+ ?v = ?u & ?r = answer(expanded(?w)))
+).
+
+/* Every substitution in a decision list came from the Known list, as an
+   `expanded` answer for that exact address. By induction over the same
+   recursion as P1. */
+
+:- lemma(planner:decisions:substitute:known,
+all [urls,known,b,ds,v,w]: succeeds k_decisions(?urls,?known,?b,?ds) &
+ succeeds k_member(substitute(?v,?w),?ds) =>
+ succeeds k_member(?v - expanded(?w),?known),
+[induction(
+  [all [urls,known,b,ds]: succeeds k_decisions(?urls,?known,?b,?ds) =>
+    (all [x,y]: succeeds k_member(substitute(?x,?y),?ds) =>
+      succeeds k_member(?x - expanded(?y),?known))],
+  [step([known,b],
+    [],
+    [assume(succeeds k_member(substitute(?x,?y),[]),
+      [def succeeds k_member(substitute(?x,?y),[]) by completion,
+       succeeds k_member(?x - expanded(?y),?known)],
+      succeeds k_member(?x - expanded(?y),?known)),
+     all [x,y]: succeeds k_member(substitute(?x,?y),[]) =>
+      succeeds k_member(?x - expanded(?y),?known)],
+    all [x,y]: succeeds k_member(substitute(?x,?y),[]) =>
+     succeeds k_member(?x - expanded(?y),?known)),
+   step([u,us,known,b,d,ds,r,left],
+    [all [x,y]: succeeds k_member(substitute(?x,?y),?ds) =>
+      succeeds k_member(?x - expanded(?y),?known),
+     succeeds k_known_answer(?u,?known,?r),
+     succeeds k_decision(?r,?u,?b,?d,?left),
+     succeeds k_decisions(?us,?known,?left,?ds)],
+    [assume(succeeds k_member(substitute(?x,?y),[?d|?ds]),
+      [def succeeds k_member(substitute(?x,?y),[?d|?ds]) by completion,
+       cases([
+         case(?d = substitute(?x,?y),
+          [?x = ?u & ?r = answer(expanded(?y)) by lemma(planner:decision:substitute),
+           ?x = ?u,
+           ?r = answer(expanded(?y)),
+           succeeds k_known_answer(?u,?known,answer(expanded(?y))),
+           succeeds k_member(?u - expanded(?y),?known) by
+             corollary(planner:known_answer:member),
+           succeeds k_member(?x - expanded(?y),?known)]),
+         case(succeeds k_member(substitute(?x,?y),?ds),
+          [succeeds k_member(substitute(?x,?y),?ds) =>
+            succeeds k_member(?x - expanded(?y),?known),
+           succeeds k_member(?x - expanded(?y),?known)])],
+        succeeds k_member(?x - expanded(?y),?known))],
+      succeeds k_member(?x - expanded(?y),?known)),
+     all [x,y]: succeeds k_member(substitute(?x,?y),[?d|?ds]) =>
+      succeeds k_member(?x - expanded(?y),?known)],
+    all [x,y]: succeeds k_member(substitute(?x,?y),[?d|?ds]) =>
+     succeeds k_member(?x - expanded(?y),?known))]),
+ assume(succeeds k_decisions(?urls,?known,?b,?ds) &
+  succeeds k_member(substitute(?v,?w),?ds),
+  [all [x,y]: succeeds k_member(substitute(?x,?y),?ds) =>
+    succeeds k_member(?x - expanded(?y),?known),
+   succeeds k_member(substitute(?v,?w),?ds) =>
+    succeeds k_member(?v - expanded(?w),?known),
+   succeeds k_member(?v - expanded(?w),?known)],
+  succeeds k_member(?v - expanded(?w),?known))]
+).
+
+/* Sorting the decisions into the plan invents nothing: every pair in the
+   plan's substitutions list was a `substitute` decision. Without this the
+   previous lemma would only be about an intermediate list, and the caller
+   acts on the plan. */
+
+:- lemma(planner:plan:substitution:decision,
+all [ds,ps,ask,note,v,w]:
+ succeeds k_plan_of(?ds,plan(substitutions(?ps),?ask,?note)) &
+ succeeds k_member(?v - ?w,?ps) => succeeds k_member(substitute(?v,?w),?ds),
+[induction(
+  [all [ds,p]: succeeds k_plan_of(?ds,?p) =>
+    (all [qs,as,ns,x,y]: ?p = plan(substitutions(?qs),?as,?ns) &
+      succeeds k_member(?x - ?y,?qs) => succeeds k_member(substitute(?x,?y),?ds))],
+  [step([],
+    [],
+    [assume(plan(substitutions([]),ask([]),note([])) =
+      plan(substitutions(?qs),?as,?ns) & succeeds k_member(?x - ?y,?qs),
+      [?qs = [],
+       succeeds k_member(?x - ?y,[]),
+       def succeeds k_member(?x - ?y,[]) by completion,
+       succeeds k_member(substitute(?x,?y),[])],
+      succeeds k_member(substitute(?x,?y),[])),
+     all [qs,as,ns,x,y]: plan(substitutions([]),ask([]),note([])) =
+      plan(substitutions(?qs),?as,?ns) & succeeds k_member(?x - ?y,?qs) =>
+      succeeds k_member(substitute(?x,?y),[])],
+    all [qs,as,ns,x,y]: plan(substitutions([]),ask([]),note([])) =
+     plan(substitutions(?qs),?as,?ns) & succeeds k_member(?x - ?y,?qs) =>
+     succeeds k_member(substitute(?x,?y),[])),
+   step([d,ds,p,rest],
+    [all [qs,as,ns,x,y]: ?rest = plan(substitutions(?qs),?as,?ns) &
+      succeeds k_member(?x - ?y,?qs) => succeeds k_member(substitute(?x,?y),?ds),
+     succeeds k_plan_of(?ds,?rest),
+     succeeds k_plan_with(?d,?rest,?p)],
+    [assume(?p = plan(substitutions(?qs),?as,?ns) & succeeds k_member(?x - ?y,?qs),
+      [succeeds k_plan_with(?d,?rest,plan(substitutions(?qs),?as,?ns)),
+       def succeeds k_plan_with(?d,?rest,plan(substitutions(?qs),?as,?ns)) by
+         completion,
+       cases([
+         case(ex [u,e,qs1]: ?d = substitute(?u,?e) &
+           ?rest = plan(substitutions(?qs1),?as,?ns) & ?qs = [?u - ?e|?qs1],
+          [exist([u,e,qs1],
+            ?d = substitute(?u,?e) &
+             ?rest = plan(substitutions(?qs1),?as,?ns) & ?qs = [?u - ?e|?qs1],
+            [succeeds k_member(?x - ?y,[?u - ?e|?qs1]),
+             def succeeds k_member(?x - ?y,[?u - ?e|?qs1]) by completion,
+             cases([
+               case(?x = ?u & ?y = ?e,
+                [?d = substitute(?x,?y),
+                 succeeds k_member(substitute(?x,?y),[?d|?ds])]),
+               case(succeeds k_member(?x - ?y,?qs1),
+                [?rest = plan(substitutions(?qs1),?as,?ns) &
+                  succeeds k_member(?x - ?y,?qs1) =>
+                  succeeds k_member(substitute(?x,?y),?ds),
+                 ?rest = plan(substitutions(?qs1),?as,?ns) &
+                  succeeds k_member(?x - ?y,?qs1),
+                 succeeds k_member(substitute(?x,?y),?ds),
+                 succeeds k_member(substitute(?x,?y),[?d|?ds])])],
+              succeeds k_member(substitute(?x,?y),[?d|?ds]))],
+            succeeds k_member(substitute(?x,?y),[?d|?ds]))]),
+         case(ex [u,a]: ?d = leave(?u,?a) &
+           ?rest = plan(substitutions(?qs),?as,?ns),
+          [exist([u,a],
+            ?d = leave(?u,?a) & ?rest = plan(substitutions(?qs),?as,?ns),
+            [?rest = plan(substitutions(?qs),?as,?ns) &
+              succeeds k_member(?x - ?y,?qs) =>
+              succeeds k_member(substitute(?x,?y),?ds),
+             ?rest = plan(substitutions(?qs),?as,?ns) &
+              succeeds k_member(?x - ?y,?qs),
+             succeeds k_member(substitute(?x,?y),?ds),
+             succeeds k_member(substitute(?x,?y),[?d|?ds])],
+            succeeds k_member(substitute(?x,?y),[?d|?ds]))]),
+         case(ex [u,bs]: ?d = ask(?u) &
+           ?rest = plan(substitutions(?qs),ask(?bs),?ns) & ?as = ask([?u|?bs]),
+          [exist([u,bs],
+            ?d = ask(?u) & ?rest = plan(substitutions(?qs),ask(?bs),?ns) &
+             ?as = ask([?u|?bs]),
+            [?rest = plan(substitutions(?qs),ask(?bs),?ns) &
+              succeeds k_member(?x - ?y,?qs) =>
+              succeeds k_member(substitute(?x,?y),?ds),
+             ?rest = plan(substitutions(?qs),ask(?bs),?ns) &
+              succeeds k_member(?x - ?y,?qs),
+             succeeds k_member(substitute(?x,?y),?ds),
+             succeeds k_member(substitute(?x,?y),[?d|?ds])],
+            succeeds k_member(substitute(?x,?y),[?d|?ds]))]),
+         case(ex [u,ms]: ?d = note(?u) &
+           ?rest = plan(substitutions(?qs),?as,note(?ms)) & ?ns = note([?u|?ms]),
+          [exist([u,ms],
+            ?d = note(?u) & ?rest = plan(substitutions(?qs),?as,note(?ms)) &
+             ?ns = note([?u|?ms]),
+            [?rest = plan(substitutions(?qs),?as,note(?ms)) &
+              succeeds k_member(?x - ?y,?qs) =>
+              succeeds k_member(substitute(?x,?y),?ds),
+             ?rest = plan(substitutions(?qs),?as,note(?ms)) &
+              succeeds k_member(?x - ?y,?qs),
+             succeeds k_member(substitute(?x,?y),?ds),
+             succeeds k_member(substitute(?x,?y),[?d|?ds])],
+            succeeds k_member(substitute(?x,?y),[?d|?ds]))])],
+        succeeds k_member(substitute(?x,?y),[?d|?ds]))],
+      succeeds k_member(substitute(?x,?y),[?d|?ds])),
+     all [qs,as,ns,x,y]: ?p = plan(substitutions(?qs),?as,?ns) &
+      succeeds k_member(?x - ?y,?qs) =>
+      succeeds k_member(substitute(?x,?y),[?d|?ds])],
+    all [qs,as,ns,x,y]: ?p = plan(substitutions(?qs),?as,?ns) &
+     succeeds k_member(?x - ?y,?qs) =>
+     succeeds k_member(substitute(?x,?y),[?d|?ds]))]),
+ assume(succeeds k_plan_of(?ds,plan(substitutions(?ps),?ask,?note)) &
+  succeeds k_member(?v - ?w,?ps),
+  [all [qs,as,ns,x,y]: plan(substitutions(?ps),?ask,?note) =
+    plan(substitutions(?qs),?as,?ns) & succeeds k_member(?x - ?y,?qs) =>
+    succeeds k_member(substitute(?x,?y),?ds),
+   plan(substitutions(?ps),?ask,?note) =
+    plan(substitutions(?ps),?ask,?note) & succeeds k_member(?v - ?w,?ps) =>
+    succeeds k_member(substitute(?v,?w),?ds),
+   plan(substitutions(?ps),?ask,?note) = plan(substitutions(?ps),?ask,?note),
+   plan(substitutions(?ps),?ask,?note) =
+    plan(substitutions(?ps),?ask,?note) & succeeds k_member(?v - ?w,?ps),
+   succeeds k_member(substitute(?v,?w),?ds)],
+  succeeds k_member(substitute(?v,?w),?ds))]
+).
+
+/* P2. Every pair in the plan the caller acts on is a pair the ledger already
+   held, as an `expanded` answer for that address. */
+
+:- corollary(planner:substitutions:known,
+all [urls,known,b,ds,ps,ask,note,v,w]:
+ succeeds k_decisions(?urls,?known,?b,?ds) &
+ succeeds k_plan_of(?ds,plan(substitutions(?ps),?ask,?note)) &
+ succeeds k_member(?v - ?w,?ps) => succeeds k_member(?v - expanded(?w),?known),
+assume(succeeds k_decisions(?urls,?known,?b,?ds) &
+ succeeds k_plan_of(?ds,plan(substitutions(?ps),?ask,?note)) &
+ succeeds k_member(?v - ?w,?ps),
+ [succeeds k_member(substitute(?v,?w),?ds) by
+   lemma(planner:plan:substitution:decision),
+  succeeds k_member(?v - expanded(?w),?known) by
+   lemma(planner:decisions:substitute:known)],
+ succeeds k_member(?v - expanded(?w),?known))
+).
+
+/* ════ P3. A blocked, pending or dead link is never substituted ════════════ */
+
+/* Each of the three is proved on its own answer rather than through a shared
+   "not expanded" test, because that is how the dispatch reads it: the answer
+   is matched, the reified test comes back false, and the clause for false
+   leaves the link as the post wrote it. */
+
+:- lemma(planner:blocked:leave,
+all [u,d]: succeeds k_known_decision(blocked,?u,?d) => ?d = leave(?u,blocked),
+assume(succeeds k_known_decision(blocked,?u,?d),
+ [def succeeds k_known_decision(blocked,?u,?d) by completion,
+  exist(b,
+   succeeds k_expanded(blocked,?b) & succeeds k_known_decision_(?b,blocked,?u,?d),
+   [def succeeds k_expanded(blocked,?b) by completion,
+    succeeds k_known_decision_(false,blocked,?u,?d),
+    def succeeds k_known_decision_(false,blocked,?u,?d) by completion,
+    ?d = leave(?u,blocked)],
+   ?d = leave(?u,blocked))],
+ ?d = leave(?u,blocked))
+).
+
+:- lemma(planner:pending:leave,
+all [u,d]: succeeds k_known_decision(pending,?u,?d) => ?d = leave(?u,pending),
+assume(succeeds k_known_decision(pending,?u,?d),
+ [def succeeds k_known_decision(pending,?u,?d) by completion,
+  exist(b,
+   succeeds k_expanded(pending,?b) & succeeds k_known_decision_(?b,pending,?u,?d),
+   [def succeeds k_expanded(pending,?b) by completion,
+    succeeds k_known_decision_(false,pending,?u,?d),
+    def succeeds k_known_decision_(false,pending,?u,?d) by completion,
+    ?d = leave(?u,pending)],
+   ?d = leave(?u,pending))],
+ ?d = leave(?u,pending))
+).
+
+:- lemma(planner:dead:leave,
+all [u,d]: succeeds k_known_decision(dead,?u,?d) => ?d = leave(?u,dead),
+assume(succeeds k_known_decision(dead,?u,?d),
+ [def succeeds k_known_decision(dead,?u,?d) by completion,
+  exist(b,
+   succeeds k_expanded(dead,?b) & succeeds k_known_decision_(?b,dead,?u,?d),
+   [def succeeds k_expanded(dead,?b) by completion,
+    succeeds k_known_decision_(false,dead,?u,?d),
+    def succeeds k_known_decision_(false,dead,?u,?d) by completion,
+    ?d = leave(?u,dead)],
+   ?d = leave(?u,dead))],
+ ?d = leave(?u,dead))
+).
+
+:- corollary(planner:answered:left,
+all [a,u,b,d,left]: (?a = blocked \/ ?a = pending \/ ?a = dead) &
+ succeeds k_decision(answer(?a),?u,?b,?d,?left) => ?d = leave(?u,?a),
+assume((?a = blocked \/ ?a = pending \/ ?a = dead) &
+ succeeds k_decision(answer(?a),?u,?b,?d,?left),
+ [def succeeds k_decision(answer(?a),?u,?b,?d,?left) by completion,
+  succeeds k_known_decision(?a,?u,?d),
+  cases([
+    case(?a = blocked,
+     [succeeds k_known_decision(blocked,?u,?d),
+      ?d = leave(?u,blocked) by lemma(planner:blocked:leave),
+      ?d = leave(?u,?a)]),
+    case(?a = pending,
+     [succeeds k_known_decision(pending,?u,?d),
+      ?d = leave(?u,pending) by lemma(planner:pending:leave),
+      ?d = leave(?u,?a)]),
+    case(?a = dead,
+     [succeeds k_known_decision(dead,?u,?d),
+      ?d = leave(?u,dead) by lemma(planner:dead:leave),
+      ?d = leave(?u,?a)])],
+   ?d = leave(?u,?a))],
+ ?d = leave(?u,?a))
+).
+
+/* The same law in the form the obligation is written in. */
+
+:- corollary(planner:answered:never:substituted,
+all [a,u,b,d,left,v,w]: (?a = blocked \/ ?a = pending \/ ?a = dead) &
+ succeeds k_decision(answer(?a),?u,?b,?d,?left) => ?d <> substitute(?v,?w),
+assume((?a = blocked \/ ?a = pending \/ ?a = dead) &
+ succeeds k_decision(answer(?a),?u,?b,?d,?left),
+ [?d = leave(?u,?a) by corollary(planner:answered:left),
+  leave(?u,?a) <> substitute(?v,?w),
+  ?d <> substitute(?v,?w)],
+ ?d <> substitute(?v,?w))
+).
+
+/* ════ L1. Only 404 and 410 are verdicts on the link ══════════════════════ */
+
+/* `dead` is final: a link marked dead is never asked about again. A
+   redirector's 403 block pages were once read as dead and 812 live
+   addresses were written off. This is the law that says a status code is a
+   verdict on the link only when it is about the link. */
+
+:- lemma(verdict:dead:only:404:410,
+all c: succeeds k_refusal_status(?c,dead) => ?c = 404 \/ ?c = 410,
+assume(succeeds k_refusal_status(?c,dead),
+ [def succeeds k_refusal_status(?c,dead) by completion,
+  exist(b,
+   succeeds k_memberd(?c,[404,410],?b) & succeeds k_refusal_status_(?b,dead),
+   [def succeeds k_refusal_status_(?b,dead) by completion,
+    succeeds k_memberd(?c,[404,410],true),
+    def succeeds k_memberd(?c,[404,410],true) by completion,
+    exist(e,
+     succeeds k_eq(?c,404,?e) & succeeds k_memberd_(?e,?c,[410],true),
+     [def succeeds k_memberd_(?e,?c,[410],true) by completion,
+      cases([
+        case(?e = true,
+         [succeeds k_eq(?c,404,true),
+          def succeeds k_eq(?c,404,true) by completion,
+          ?c = 404,
+          ?c = 404 \/ ?c = 410]),
+        case(?e = false & succeeds k_memberd(?c,[410],true),
+         [def succeeds k_memberd(?c,[410],true) by completion,
+          exist(f,
+           succeeds k_eq(?c,410,?f) & succeeds k_memberd_(?f,?c,[],true),
+           [def succeeds k_memberd_(?f,?c,[],true) by completion,
+            cases([
+              case(?f = true,
+               [succeeds k_eq(?c,410,true),
+                def succeeds k_eq(?c,410,true) by completion,
+                ?c = 410,
+                ?c = 404 \/ ?c = 410]),
+              case(?f = false & succeeds k_memberd(?c,[],true),
+               [def succeeds k_memberd(?c,[],true) by completion,
+                ?c = 404 \/ ?c = 410])],
+             ?c = 404 \/ ?c = 410)],
+           ?c = 404 \/ ?c = 410)])],
+       ?c = 404 \/ ?c = 410)],
+     ?c = 404 \/ ?c = 410)],
+   ?c = 404 \/ ?c = 410)],
+ ?c = 404 \/ ?c = 410)
+).
+
+/* The two that are, so that the law above is not vacuously satisfied by a
+   relation that calls nothing dead. */
+
+:- lemma(verdict:404:dead,
+succeeds k_refusal_status(404,dead),
+[succeeds k_eq(404,404,true),
+ succeeds k_memberd_(true,404,[410],true),
+ succeeds k_memberd(404,[404,410],true),
+ succeeds k_refusal_status_(true,dead),
+ succeeds k_refusal_status(404,dead)]
+).
+
+:- lemma(verdict:410:dead,
+succeeds k_refusal_status(410,dead),
+[succeeds k_eq(410,404,false),
+ succeeds k_eq(410,410,true),
+ succeeds k_memberd_(true,410,[],true),
+ succeeds k_memberd(410,[410],true),
+ succeeds k_memberd_(false,410,[410],true),
+ succeeds k_memberd(410,[404,410],true),
+ succeeds k_refusal_status_(true,dead),
+ succeeds k_refusal_status(410,dead)]
+).
+
+/* And everything else is blocked -- left for a resolver asking from
+   somewhere else, never counted as a verdict. */
+
+:- lemma(verdict:other:blocked,
+all c: ?c <> 404 & ?c <> 410 => succeeds k_refusal_status(?c,blocked),
+assume(?c <> 404 & ?c <> 410,
+ [succeeds k_eq(?c,404,false),
+  succeeds k_eq(?c,410,false),
+  succeeds k_memberd(?c,[],false),
+  succeeds k_memberd_(false,?c,[],false),
+  succeeds k_memberd(?c,[410],false),
+  succeeds k_memberd_(false,?c,[410],false),
+  succeeds k_memberd(?c,[404,410],false),
+  succeeds k_refusal_status_(false,blocked),
+  succeeds k_refusal_status(?c,blocked)],
+ succeeds k_refusal_status(?c,blocked))
+).
+
+/* The ledger's text and the planner's marker agree on which row means dead,
+   so the law above survives the crossing between the two vocabularies. */
+
+:- lemma(verdict:status:dead,
+all s: succeeds k_answer_of_status(?s,dead) => ?s = dead,
+assume(succeeds k_answer_of_status(?s,dead),
+ [def succeeds k_answer_of_status(?s,dead) by completion,
+  exist(ss,
+   succeeds k_known_statuses(?ss) & succeeds k_answer_of_status_(?ss,?s,dead),
+   [def succeeds k_known_statuses(?ss) by completion,
+    succeeds k_answer_of_status_([dead - dead,blocked - blocked,
+      pending - pending],?s,dead),
+    def succeeds k_answer_of_status_([dead - dead,blocked - blocked,
+      pending - pending],?s,dead) by completion,
+    exist(b,
+     succeeds k_eq(dead,?s,?b) &
+      succeeds k_answer_of_status__(?b,dead,[blocked - blocked,
+        pending - pending],?s,dead),
+     [def succeeds k_answer_of_status__(?b,dead,[blocked - blocked,
+        pending - pending],?s,dead) by completion,
+      cases([
+        case(?b = true,
+         [succeeds k_eq(dead,?s,true),
+          def succeeds k_eq(dead,?s,true) by completion,
+          ?s = dead]),
+        case(?b = false & succeeds k_answer_of_status_([blocked - blocked,
+          pending - pending],?s,dead),
+         [def succeeds k_answer_of_status_([blocked - blocked,
+            pending - pending],?s,dead) by completion,
+          exist(f,
+           succeeds k_eq(blocked,?s,?f) &
+            succeeds k_answer_of_status__(?f,blocked,[pending - pending],?s,dead),
+           [def succeeds k_answer_of_status__(?f,blocked,[pending - pending],
+              ?s,dead) by completion,
+            succeeds k_answer_of_status_([pending - pending],?s,dead),
+            def succeeds k_answer_of_status_([pending - pending],?s,dead) by
+              completion,
+            exist(g,
+             succeeds k_eq(pending,?s,?g) &
+              succeeds k_answer_of_status__(?g,pending,[],?s,dead),
+             [def succeeds k_answer_of_status__(?g,pending,[],?s,dead) by
+                completion,
+              succeeds k_answer_of_status_([],?s,dead),
+              def succeeds k_answer_of_status_([],?s,dead) by completion,
+              ?s = dead],
+             ?s = dead)],
+           ?s = dead)])],
+       ?s = dead)],
+     ?s = dead)],
+   ?s = dead)],
+ ?s = dead)
+).
+
+:- corollary(verdict:answer:dead:only:404:410,
+all c: succeeds k_answer_of_outcome(refused(?c),dead) => ?c = 404 \/ ?c = 410,
+assume(succeeds k_answer_of_outcome(refused(?c),dead),
+ [def succeeds k_answer_of_outcome(refused(?c),dead) by completion,
+  exist(s,
+   succeeds k_refusal_status(?c,?s) & succeeds k_answer_of_status(?s,dead),
+   [?s = dead by lemma(verdict:status:dead),
+    succeeds k_refusal_status(?c,dead),
+    ?c = 404 \/ ?c = 410 by lemma(verdict:dead:only:404:410)],
+   ?c = 404 \/ ?c = 410)],
+ ?c = 404 \/ ?c = 410)
+).
+
+/* The other half of L1: a reply that arrived but claims no address of its
+   own resolves nothing. An interstitial answering 200 with a block page is
+   exactly that reply, and reading it as a resolution is how a redirector's
+   own address would be stored as the article's. */
+
+:- lemma(verdict:no_destination:never:resolved,
+all [u,o]: succeeds k_destination_outcome(none,?u,?o) =>
+ ?o = unavailable(no_destination_in_page),
+assume(succeeds k_destination_outcome(none,?u,?o),
+ [def succeeds k_destination_outcome(none,?u,?o) by completion],
+ ?o = unavailable(no_destination_in_page))
+).
+
+/* The 200 branch reads the reply through the recogniser and through nothing
+   else: whatever address the page is found to claim, that finding is what
+   decides the outcome. With the lemma above it this is the second half of L1 --
+   a 200 whose page claims no address of its own yields `unavailable`, and so
+   can never put an address in a post. Stated as a separate step because the
+   recogniser is read here as an arbitrary relation (planner.pl, encoding 5),
+   which rules out naming its answer in a hypothesis but not naming the seam
+   it is consumed at. */
+
+:- lemma(verdict:200:through:destination,
+all [u,body,o]: succeeds k_outcome_of(200,?u,?body,?o) =>
+ (ex f: succeeds k_page_destination(?body,?f) &
+   succeeds k_destination_outcome(?f,?u,?o)),
+assume(succeeds k_outcome_of(200,?u,?body,?o),
+ [def succeeds k_outcome_of(200,?u,?body,?o) by completion,
+  exist(b,
+   succeeds k_eq(200,200,?b) & succeeds k_outcome_of_(?b,200,?u,?body,?o),
+   [def succeeds k_outcome_of_(?b,200,?u,?body,?o) by completion,
+    cases([
+      case(ex f: ?b = true & succeeds k_page_destination(?body,?f) &
+        succeeds k_destination_outcome(?f,?u,?o),
+       [exist(f,
+         ?b = true & succeeds k_page_destination(?body,?f) &
+          succeeds k_destination_outcome(?f,?u,?o),
+         [succeeds k_page_destination(?body,?f) &
+           succeeds k_destination_outcome(?f,?u,?o),
+          ex f: succeeds k_page_destination(?body,?f) &
+           succeeds k_destination_outcome(?f,?u,?o)],
+         ex f: succeeds k_page_destination(?body,?f) &
+          succeeds k_destination_outcome(?f,?u,?o))]),
+      case(?b = false & ?o = refused(200),
+       [succeeds k_eq(200,200,false),
+        def succeeds k_eq(200,200,false) by completion,
+        ex f: succeeds k_page_destination(?body,?f) &
+         succeeds k_destination_outcome(?f,?u,?o)])],
+     ex f: succeeds k_page_destination(?body,?f) &
+      succeeds k_destination_outcome(?f,?u,?o))],
+   ex f: succeeds k_page_destination(?body,?f) &
+    succeeds k_destination_outcome(?f,?u,?o))],
+ ex f: succeeds k_page_destination(?body,?f) &
+  succeeds k_destination_outcome(?f,?u,?o))
+).
+
+/* A page claiming the very address that was asked about has resolved nothing
+   either, so no outcome of a 200 ever names the shortened link as its own
+   destination. Over the recogniser read as an arbitrary relation (see
+   planner.pl, encoding 5), so this holds whatever it answers. */
+
+:- lemma(verdict:resolved:differs,
+all [c,u,body,o,e]: succeeds k_outcome_of(?c,?u,?body,?o) & ?o = resolved(?e)
+ => ?e <> ?u,
+assume(succeeds k_outcome_of(?c,?u,?body,?o) & ?o = resolved(?e),
+ [def succeeds k_outcome_of(?c,?u,?body,?o) by completion,
+  exist(b,
+   succeeds k_eq(?c,200,?b) & succeeds k_outcome_of_(?b,?c,?u,?body,?o),
+   [def succeeds k_outcome_of_(?b,?c,?u,?body,?o) by completion,
+    cases([
+      case(ex f: ?b = true & succeeds k_page_destination(?body,?f) &
+        succeeds k_destination_outcome(?f,?u,?o),
+       [exist(f,
+         ?b = true & succeeds k_page_destination(?body,?f) &
+          succeeds k_destination_outcome(?f,?u,?o),
+         [def succeeds k_destination_outcome(?f,?u,?o) by completion,
+          cases([
+            case(?f = none & ?o = unavailable(no_destination_in_page),
+             [unavailable(no_destination_in_page) = resolved(?e),
+              ?e <> ?u]),
+            case(ex [claimed,x]: ?f = destination(?claimed) &
+              succeeds k_permalink(?claimed,?x) &
+              succeeds k_resolved_or_same(?x,?u,?o),
+             [exist([claimed,x],
+               ?f = destination(?claimed) &
+                succeeds k_permalink(?claimed,?x) &
+                succeeds k_resolved_or_same(?x,?u,?o),
+               [def succeeds k_resolved_or_same(?x,?u,?o) by completion,
+                exist(g,
+                 succeeds k_eq(?x,?u,?g) & succeeds k_resolved_or_same_(?g,?x,?o),
+                 [succeeds k_resolved_or_same_(?g,?x,resolved(?e)),
+                  def succeeds k_resolved_or_same_(?g,?x,resolved(?e)) by
+                    completion,
+                  succeeds k_eq(?x,?u,false),
+                  def succeeds k_eq(?x,?u,false) by completion,
+                  ?x <> ?u,
+                  ?e <> ?u],
+                 ?e <> ?u)],
+               ?e <> ?u)])],
+           ?e <> ?u)],
+         ?e <> ?u)]),
+      case(?b = false & ?o = refused(?c),
+       [refused(?c) = resolved(?e),
+        ?e <> ?u])],
+     ?e <> ?u)],
+   ?e <> ?u)],
+ ?e <> ?u)
+).
+
+/* Nothing that never arrived, and nothing refused about the asker, ever
+   becomes an address in a post: both leave the link pending for a resolver
+   asking from elsewhere, and pending leaves the link as the post wrote it
+   (planner:pending:leave above). */
+
+:- lemma(verdict:unavailable:pending,
+all [r,a]: succeeds k_answer_of_outcome(unavailable(?r),?a) => ?a = pending,
+assume(succeeds k_answer_of_outcome(unavailable(?r),?a),
+ [def succeeds k_answer_of_outcome(unavailable(?r),?a) by completion],
+ ?a = pending)
+).
+
+:- bye(planner).

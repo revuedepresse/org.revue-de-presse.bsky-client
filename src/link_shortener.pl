@@ -8,6 +8,9 @@
     shortened_url/1,
     shortened_url_t/2,
     shortened_urls_in_text/2,
+    % exported for tests/proofs_bridge_test.pl: obligation A8 is about this
+    % relation, and a bridge cannot compare what it cannot call.
+    trim_trailing/2,
     urls_in_text/2
 ]).
 

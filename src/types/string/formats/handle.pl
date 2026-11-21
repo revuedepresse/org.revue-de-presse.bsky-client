@@ -25,6 +25,13 @@ leading nor trailing dots, no leading nor trailing hyphens,
 no leading digit on the final label, and a configurable
 disallowed-TLD list whose `.test` entry is only enforced in
 production.
+
+The character and membership rules are written in the reified
+style src/link_shortener.pl sets out: each is a predicate
+whose last argument is a truth value, and `if_/3` chooses
+between succeeding and throwing. No negation as failure, so
+each rule can be asked rather than only tried, and the throw
+sits at the one place that decides.
 */
 
 :- use_module(library(debug)).
@@ -42,7 +49,6 @@ production.
     environment/1
 ]).
 :- use_module(must_be_ground, [must_be_ground/1]).
-:- use_module(must_be_lowercase_alpha, [must_be_lowercase_alpha/1]).
 :- use_module(must_not_end_with, [must_not_end_with/2]).
 :- use_module(must_not_start_with, [must_not_start_with/2]).
 :- use_module(split_subject, [split_subject/3]).
@@ -86,29 +92,48 @@ with_labels_having_allowed_chars(Subject) :-
 % (case-insensitive), digit, or hyphen. Handles are not
 % case-sensitive and should be normalized to lowercase.
 has_only_allowed_chars(Subject) :-
-    maplist(must_be_allowed_char, Subject).
-has_only_allowed_chars(Subject) :-
-    \+ maplist(must_be_allowed_char, Subject),
-    throw(type_error('Subject must contain only allowed characters.')).
+    if_(all_allowed_chars_t(Subject),
+        true,
+        throw(type_error('Subject must contain only allowed characters.'))).
 
-% must_be_allowed_char(+Char).
-must_be_allowed_char(Char) :-
-    char_code('A', AlphaStartCode),
-    char_code('Z', AlphaEndCode),
+all_allowed_chars_t([], true).
+all_allowed_chars_t([Char|Chars], Truth) :-
+    if_(allowed_char_t(Char), all_allowed_chars_t(Chars, Truth), Truth = false).
 
-    char_code('0', DigitStartCode),
-    char_code('9', DigitEndCode),
-
-    char_code('-', HyphenCode),
-
+% Upper case is allowed here and lowered elsewhere, since a handle names
+% the same account whichever case it is written in. The hyphen is read as
+% its code like every other character: `-` is an operator atom Scryer
+% will not read in argument position even quoted.
+%
+% allowed_char_t(+Char, -Truth).
+allowed_char_t(Char, Truth) :-
     char_code(Char, Code),
+    if_(code_in_t(0x61, 0x7A, Code),            % a-z
+        Truth = true,
+        if_(code_in_t(0x41, 0x5A, Code),        % A-Z
+            Truth = true,
+            if_(code_in_t(0x30, 0x39, Code),    % 0-9
+                Truth = true,
+                =(0x2D, Code, Truth)))).        % hyphen
 
-    (   must_be_lowercase_alpha(Char)
-    ;   Code #>= AlphaStartCode, Code #=< AlphaEndCode
-    ;   Code #>= DigitStartCode, Code #=< DigitEndCode
-    ;   Code #= HyphenCode ).
+%% code_in_t(+Low, +High, +Value, -Truth)
+%
+% `true` when `Low =< Value =< High`. Serves both character
+% codes and the lengths the length rules compare.
+code_in_t(Low, High, Value, Truth) :-
+    zcompare(BelowOrder, Low, Value),
+    zcompare(AboveOrder, Value, High),
+    range_truth(BelowOrder, AboveOrder, Truth).
 
-
+range_truth(<, <, true).
+range_truth(<, =, true).
+range_truth(<, >, false).
+range_truth(=, <, true).
+range_truth(=, =, true).
+range_truth(=, >, false).
+range_truth(>, <, false).
+range_truth(>, =, false).
+range_truth(>, >, false).
 
 %% has_valid_length(+Subject)
 %
@@ -133,12 +158,7 @@ with_labels_having_valid_length(Subject) :-
 % label_has_valid_length(+Subject).
 label_has_valid_length(Subject) :-
     length(Subject, Length),
-    Length >= 1,
-    Length =< 63.
-label_has_valid_length(Subject) :-
-    length(Subject, Length),
-    \+ ( Length >= 1, Length =< 63 ),
-    throw(invalid_label_length).
+    if_(code_in_t(1, 63, Length), true, throw(invalid_label_length)).
 
 % The last segment (the "top level domain") can not start with a numeric digit
 %
@@ -256,7 +276,6 @@ select_disallowed_top_level_domains(Env, Base, Out) :-
     append([Base, ["test"]], Out).
 
 assert_top_level_domain_allowed(TopLevelDomain, Disallowed) :-
-    \+ member(TopLevelDomain, Disallowed).
-assert_top_level_domain_allowed(TopLevelDomain, Disallowed) :-
-    member(TopLevelDomain, Disallowed),
-    throw(disallowed_top_level_domain(TopLevelDomain)).
+    if_(memberd_t(TopLevelDomain, Disallowed),
+        throw(disallowed_top_level_domain(TopLevelDomain)),
+        true).

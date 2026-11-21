@@ -20,6 +20,20 @@
 :- use_module(library(si)).
 :- use_module(library(uuid)).
 
+:- use_module('repository_publisher_queries', [
+    all_clauses/3,
+    by_criteria_sql/1,
+    count_matching_records_sql/1,
+    count_sql/1,
+    insert_sql/1,
+    psql_all_clauses_sql/2,
+    psql_by_criteria_sql/3,
+    psql_count_matching_records_sql/3,
+    psql_insert_sql/6,
+    psql_select_by_did_and_name_sql/3,
+    query_max_id_sql/1,
+    select_by_did_and_name_sql/1
+]).
 :- use_module('repository_dcgs', [
     rows//1,
     to_json/3
@@ -64,9 +78,6 @@ passthrough (input = output) since the psql shell-out is
 stateless.
 */
 
-%% table(-Table)
-table("publishers_list").
-
 %% count(+Session, -Count)
 %
 % Total number of rows in `publishers_list`. Dispatches on PG_BACKEND.
@@ -78,10 +89,6 @@ count(pg_session(C, C), Count) :-
     pg_backend("psql"),
     count_sql(SQL),
     query_result(SQL, Count).
-
-count_sql(SQL) :-
-    table(Table),
-    append(["SELECT count(*) AS matching_records_count FROM public.", Table], SQL).
 
 %% query(+Session, -HeadersAndRows)
 %
@@ -101,33 +108,6 @@ listing_headers([
     "number__total_statuses"
 ]).
 
-%% all_clauses(-SQL, -Params, +Limit).
-all_clauses(SQL, [], "ALL") :-
-    all_clauses_template("ALL", SQL).
-all_clauses(SQL, [LimitChars], Limit) :-
-    integer_si(Limit),
-    number_chars(Limit, LimitChars),
-    all_clauses_template("$1", SQL).
-
-all_clauses_template(LimitClause, SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT ",
-            "r.name as string__name, ",
-            "r.screen_name as string__screen_name, ",
-            "r.list_id as string__list_id, ",
-            "r.public_id as string__public_id, ",
-            "r.total_members as number__total_members, ",
-            "r.total_statuses as number__total_statuses ",
-            "FROM public.", Table, " t ",
-            "ORDER BY t.id DESC, t.name ASC, t.screen_name ASC ",
-            "OFFSET 0 ",
-            "LIMIT ", LimitClause, ";"
-        ],
-        SQL
-    ).
-
 %% query(+Session, -Rows, +Headers, +Limit). Dispatches on PG_BACKEND.
 query(pg_session(C0, C), Rows, Headers, Limit) :-
     pg_backend("wire"),
@@ -139,37 +119,6 @@ query(pg_session(C, C), Rows, _Headers, Limit) :-
     psql_all_clauses_sql(SQL, Limit),
     once(query_result_from_file(SQL, true, TmpFile)),
     read_rows(TmpFile, Rows).
-
-%% psql_all_clauses_sql(-SQL, +Limit).
-%
-% Concat form of the listing SELECT for the psql backend. Limit is
-% either the chars "ALL" or an integer that gets number_chars/2 into
-% the SQL text.
-psql_all_clauses_sql(SQL, "ALL") :-
-    psql_all_clauses_template("ALL", SQL).
-psql_all_clauses_sql(SQL, Limit) :-
-    integer_si(Limit),
-    number_chars(Limit, LimitChars),
-    psql_all_clauses_template(LimitChars, SQL).
-
-psql_all_clauses_template(LimitClause, SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT ",
-            "r.name as string__name, ",
-            "r.screen_name as string__screen_name, ",
-            "r.list_id as string__list_id, ",
-            "r.public_id as string__public_id, ",
-            "r.total_members as number__total_members, ",
-            "r.total_statuses as number__total_statuses ",
-            "FROM public.", Table, " t ",
-            "ORDER BY t.id DESC, t.name ASC, t.screen_name ASC ",
-            "OFFSET 0 ",
-            "LIMIT ", LimitClause, ";"
-        ],
-        SQL
-    ).
 
 %% next_id(+Session, -NextId)
 %
@@ -194,18 +143,6 @@ coerce_no_records(V, V) :- dif(V, no_records_found).
 
 validate_id(N) :- integer_si(N).
 validate_id(N) :- \+ integer_si(N), throw(invalid_list_id(N)).
-
-query_max_id_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT COALESCE(r.id::bigint, 0) pk ",
-            "FROM ", Table, " r ",
-            "ORDER BY r.id DESC ",
-            "LIMIT 1;"
-        ],
-        SQL
-    ).
 
 %% by_criteria(+Session, +ListURI, +DID, -HeadersAndRows)
 %
@@ -236,35 +173,6 @@ rows_or_throw_on_miss([]) :-
     throw(cannot_read_rows_selection).
 rows_or_throw_on_miss([_|_]).
 
-%% psql_by_criteria_sql(+DID, +ListURI, -SQL).
-%
-% Concat form: caller-supplied DID and ListURI are inlined as
-% single-quoted SQL literals. Both are controlled identifiers
-% (URI / DID) so no encoding is needed; the psql `--csv`-era code
-% used the same convention. The trailing semicolon is omitted
-% because matching_criteria/2 appends "LIMIT 0;" then "LIMIT ALL;"
-% in its two-pass header/rows shape.
-%
-% Columns are COALESCEd to a single space because rows//1 merges
-% consecutive separators: an empty (NULL) field, e.g. a list
-% without total_members, would otherwise make the row unparsable.
-psql_by_criteria_sql(DID, ListURI, SQL) :-
-    table(Table),
-    append([
-        "SELECT ",
-        "COALESCE(NULLIF(r.name::text, ''), ' ') as string__name, ",
-        "COALESCE(NULLIF(r.screen_name::text, ''), ' ') as string__screen_name, ",
-        "COALESCE(NULLIF(r.list_id::text, ''), ' ') as string__list_id, ",
-        "COALESCE(NULLIF(r.public_id::text, ''), ' ') as string__public_id, ",
-        "COALESCE(NULLIF(r.total_members::text, ''), ' ') as number__total_members, ",
-        "COALESCE(NULLIF(r.total_statuses::text, ''), ' ') as number__total_statuses ",
-        "FROM public.", Table, " r ",
-        "WHERE r.created_at::date > '2024-12-31'::date ",
-        "AND r.screen_name = '", DID, "' ",
-        "AND r.name = '", ListURI, "' ",
-        "OFFSET 0 "
-    ], SQL).
-
 by_criteria_headers([
     "string__name",
     "string__screen_name",
@@ -273,23 +181,6 @@ by_criteria_headers([
     "number__total_members",
     "number__total_statuses"
 ]).
-
-by_criteria_sql(SQL) :-
-    table(Table),
-    append([
-        "SELECT ",
-        "r.name as string__name, ",
-        "r.screen_name as string__screen_name, ",
-        "r.list_id as string__list_id, ",
-        "r.public_id as string__public_id, ",
-        "r.total_members as number__total_members, ",
-        "r.total_statuses as number__total_statuses ",
-        "FROM public.", Table, " r ",
-        "WHERE r.created_at::date > '2024-12-31'::date ",
-        "AND r.screen_name = $1 ",
-        "AND r.name = $2 ",
-        "OFFSET 0;"
-    ], SQL).
 
 %% insert(+Session, +Row, -InsertionResult)
 %
@@ -321,32 +212,6 @@ insert_new_publisher(pg_session(C, C), ListId, ListURI, DID, ok) :-
     psql_insert_sql(NextIdChars, ListIdChars, PublicId, ListURI, DID, SQL),
     query_result(SQL, _Result).
 
-%% psql_insert_sql(+NextIdChars, +ListIdChars, +PublicId, +ListURI,
-%%                  +DID, -SQL).
-%
-% Concatenated INSERT for the psql backend. Identifiers (DID,
-% ListURI, PublicId, NextIdChars, ListIdChars) are inlined as
-% single-quoted SQL literals - same convention as the pre-69f3f97
-% client. No RETURNING; the caller treats success/failure via
-% query_result/2's ok | no_records_found contract.
-psql_insert_sql(NextIdChars, ListIdChars, PublicId, ListURI, DID, SQL) :-
-    table(Table),
-    append(
-        [
-            "INSERT INTO public.", Table, " (",
-            "id, list_id, public_id, name, screen_name, locked, created_at",
-            ") VALUES (",
-            "'", NextIdChars, "', ",
-            " ", ListIdChars, ", ",
-            "'", PublicId, "', ",
-            "'", ListURI, "', ",
-            "'", DID, "', ",
-            "false, NOW()",
-            ");"
-        ],
-        SQL
-    ).
-
 report_existing_publisher(pg_session(C0, C), ListURI, DID, ok) :-
     pg_backend("wire"),
     select_by_did_and_name_sql(SelectSQL),
@@ -358,45 +223,10 @@ report_existing_publisher(pg_session(C, C), ListURI, DID, ok) :-
     query_result(SelectSQL, ExistingId),
     log_existing_publisher(ExistingId).
 
-psql_select_by_did_and_name_sql(DID, ListURI, SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT r.id AS number__id ",
-            "FROM public.", Table, " r ",
-            "WHERE r.screen_name = '", DID, "' ",
-            "AND r.name = '", ListURI, "';"
-        ],
-        SQL
-    ).
-
 log_existing_publisher(no_records_found) :- log_info([no_publisher_record_found]).
 log_existing_publisher(ExistingId) :-
     dif(ExistingId, no_records_found),
     log_info([publisher_already_exists(ExistingId)]).
-
-insert_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "INSERT INTO public.", Table, " (",
-            "id, list_id, public_id, name, screen_name, locked, created_at",
-            ") VALUES ($1::bigint, $2::bigint, $3, $4, $5, false, NOW())"
-        ],
-        SQL
-    ).
-
-select_by_did_and_name_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT r.id AS number__id ",
-            "FROM public.", Table, " r ",
-            "WHERE r.screen_name = $1 ",
-            "AND r.name = $2;"
-        ],
-        SQL
-    ).
 
 coerce_chars(N, Chars) :- integer(N), number_chars(N, Chars).
 coerce_chars(A, Chars) :- \+ integer(A), atom(A), atom_chars(A, Chars).
@@ -427,21 +257,3 @@ count_matching_records(pg_session(C, C), row(ListURI, DID), Result) :-
     pg_backend("psql"),
     psql_count_matching_records_sql(ListURI, DID, SQL),
     query_result(SQL, Result).
-
-psql_count_matching_records_sql(ListURI, DID, SQL) :-
-    table(Table),
-    append([
-        "SELECT count(*) how_many_records ",
-        "FROM public.", Table, " r ",
-        "WHERE name = '", ListURI, "' ",
-        "AND screen_name = '", DID, "';"
-    ], SQL).
-
-count_matching_records_sql(SQL) :-
-    table(Table),
-    append([
-        "SELECT count(*) how_many_records ",
-        "FROM public.", Table, " r ",
-        "WHERE name = $1 ",
-        "AND screen_name = $2;"
-    ], SQL).

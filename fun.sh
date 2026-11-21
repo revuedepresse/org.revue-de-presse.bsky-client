@@ -579,6 +579,13 @@ function test() {
         ./tests/clean_text_test.pl \
         -g halt |
         tee ./test.log
+    # The LPTP proofs are about the mirrors under proofs/kernel/. If a mirror
+    # stops answering what the shipped module answers, every theorem beside it
+    # stops saying anything about this collector -- so the agreement is checked
+    # here, with the suite, rather than left to whoever remembers.
+    scryer-prolog ./tests/proofs_bridge_test.pl -g 'run_test' |
+        tee -a ./test.log
+
     # Scryer only reports a missing predicate when the call runs: check
     # imports and client.pl arities statically.
     python3 -I ./tests/client_arity_check.py . |

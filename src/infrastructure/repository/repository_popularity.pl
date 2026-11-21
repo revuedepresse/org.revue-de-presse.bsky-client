@@ -20,6 +20,22 @@
 :- use_module(library(si)).
 :- use_module(library(uuid)).
 
+:- use_module('repository_popularity_queries', [
+    all_clauses/3,
+    by_criteria_sql/1,
+    count_matching_records_sql/1,
+    count_sql/1,
+    insert_sql/1,
+    popularity_insert_sql/1,
+    psql_all_clauses_sql/2,
+    psql_by_criteria_sql/2,
+    psql_count_matching_records_sql/2,
+    psql_insert_sql/6,
+    psql_popularity_insert_sql/6,
+    psql_select_by_uri_sql/2,
+    query_max_id_sql/1,
+    select_by_uri_sql/1
+]).
 :- use_module('repository_dcgs', [
     rows//1,
     to_json/3
@@ -59,8 +75,6 @@ predicate takes a `pg_session(In, Out)` compound as its first
 argument; psql-path clauses thread the session as a passthrough.
 */
 
-table("status_popularity").
-
 count(pg_session(C0, C), Count) :-
     pg_backend("wire"),
     count_sql(SQL),
@@ -69,10 +83,6 @@ count(pg_session(C, C), Count) :-
     pg_backend("psql"),
     count_sql(SQL),
     query_result(SQL, Count).
-
-count_sql(SQL) :-
-    table(Table),
-    append(["SELECT COUNT(*) AS matching_records_count FROM public.", Table], SQL).
 
 query(Session, HeadersAndRows) :-
     listing_headers(Headers),
@@ -88,31 +98,6 @@ listing_headers([
     "number__string"
 ]).
 
-all_clauses(SQL, [], "ALL") :-
-    all_clauses_template("ALL", SQL).
-all_clauses(SQL, [LimitChars], Limit) :-
-    integer_si(Limit),
-    number_chars(Limit, LimitChars),
-    all_clauses_template("$1", SQL).
-
-all_clauses_template(LimitClause, SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT ",
-            "r.id as string__id, ",
-            "r.publication_id as string__id, ",
-            "r.total_favorites as number__likes, ",
-            "r.total_retweets as number__reposts, ",
-            "r.checked_at as number__string ",
-            "FROM public.", Table, " r ",
-            "ORDER BY status_id DESC ",
-            "OFFSET 0 ",
-            "LIMIT ", LimitClause, ";"
-        ],
-        SQL
-    ).
-
 query(pg_session(C0, C), Rows, Headers, Limit) :-
     pg_backend("wire"),
     once(all_clauses(SQL, Params, Limit)),
@@ -125,31 +110,6 @@ query(pg_session(C, C), Rows, _Headers, Limit) :-
     writeln(query:SQL, true),
     once(query_result_from_file(SQL, true, TmpFile)),
     read_rows(TmpFile, Rows).
-
-psql_all_clauses_sql(SQL, "ALL") :-
-    psql_all_clauses_template("ALL", SQL).
-psql_all_clauses_sql(SQL, Limit) :-
-    integer_si(Limit),
-    number_chars(Limit, LimitChars),
-    psql_all_clauses_template(LimitChars, SQL).
-
-psql_all_clauses_template(LimitClause, SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT ",
-            "r.id as string__id, ",
-            "r.publication_id as string__id, ",
-            "r.total_favorites as number__likes, ",
-            "r.total_retweets as number__reposts, ",
-            "r.checked_at as number__string ",
-            "FROM public.", Table, " r ",
-            "ORDER BY status_id DESC ",
-            "OFFSET 0 ",
-            "LIMIT ", LimitClause, ";"
-        ],
-        SQL
-    ).
 
 next_id(pg_session(C0, C), NextId) :-
     pg_backend("wire"),
@@ -172,18 +132,6 @@ coerce_no_records(V, V) :- dif(V, no_records_found).
 validate_id(N) :- integer_si(N).
 validate_id(N) :- \+ integer_si(N), throw(invalid_list_id(N)).
 
-query_max_id_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT COALESCE(r.status_id::bigint, 0) pk ",
-            "FROM ", Table, " r ",
-            "ORDER BY r.status_id DESC ",
-            "LIMIT 1;"
-        ],
-        SQL
-    ).
-
 by_criteria(pg_session(C0, C), record_id(RecordId), HeadersAndRows) :-
     pg_backend("wire"),
     chars_si(RecordId),
@@ -196,20 +144,6 @@ by_criteria(pg_session(C, C), record_id(RecordId), HeadersAndRows) :-
     psql_by_criteria_sql(RecordId, SQL),
     matching_criteria(SQL, HeadersAndRows).
 
-psql_by_criteria_sql(RecordId, SQL) :-
-    table(Table),
-    append([
-        "SELECT ",
-        "r.id as string__id, ",
-        "r.publication_id as string__id, ",
-        "r.total_favorites as number__likes, ",
-        "r.total_retweets as number__reposts, ",
-        "r.checked_at as number__string ",
-        "FROM public.", Table, " r ",
-        "WHERE r.publication_id = '", RecordId, "' ",
-        "OFFSET 0 "
-    ], SQL).
-
 by_criteria_headers([
     "string__id",
     "string__id",
@@ -217,20 +151,6 @@ by_criteria_headers([
     "number__reposts",
     "number__string"
 ]).
-
-by_criteria_sql(SQL) :-
-    table(Table),
-    append([
-        "SELECT ",
-        "r.id as string__id, ",
-        "r.publication_id as string__id, ",
-        "r.total_favorites as number__likes, ",
-        "r.total_retweets as number__reposts, ",
-        "r.checked_at as number__string ",
-        "FROM public.", Table, " r ",
-        "WHERE r.publication_id = $1 ",
-        "OFFSET 0;"
-    ], SQL).
 
 %% insert(+Session, +Row, -InsertionResult)
 insert(
@@ -262,24 +182,6 @@ insert_new_popularity(pg_session(C, C), RecordId, URI, Likes, RePosts, ok) :-
     psql_insert_sql(Id, RecordIdChars, URI, LikesChars, RePostsChars, SQL),
     query_result(SQL, _Result).
 
-psql_insert_sql(Id, RecordIdChars, URI, LikesChars, RePostsChars, SQL) :-
-    table(Table),
-    append(
-        [
-            "INSERT INTO public.", Table, " (",
-            "id, status_id, publication_id, total_favorites, total_retweets, checked_at",
-            ") VALUES (",
-            "'", Id, "', ",
-            "'", RecordIdChars, "', ",
-            "'", URI, "', ",
-            LikesChars, ", ",
-            RePostsChars, ", ",
-            "NOW()",
-            ");"
-        ],
-        SQL
-    ).
-
 report_existing_popularity(pg_session(C0, C), URI, ok) :-
     pg_backend("wire"),
     select_by_uri_headers(SelectHeaders),
@@ -292,53 +194,12 @@ report_existing_popularity(pg_session(C, C), URI, ok) :-
     matching_criteria(SelectSQL, Rows),
     writeln([popularity_rows|[Rows]], true).
 
-psql_select_by_uri_sql(URI, SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT ",
-            "r.publication_id as string__id, ",
-            "r.total_favorites as number__likes, ",
-            "r.total_retweets as number__reposts, ",
-            "r.checked_at as number__string ",
-            "FROM public.", Table, " r ",
-            "WHERE r.publication_id = '", URI, "' "
-        ],
-        SQL
-    ).
-
-insert_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "INSERT INTO public.", Table, " (",
-            "id, status_id, publication_id, total_favorites, total_retweets, checked_at",
-            ") VALUES ($1, $2, $3, $4::integer, $5::integer, NOW());"
-        ],
-        SQL
-    ).
-
 select_by_uri_headers([
     "string__id",
     "number__likes",
     "number__reposts",
     "number__string"
 ]).
-
-select_by_uri_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT ",
-            "r.publication_id as string__id, ",
-            "r.total_favorites as number__likes, ",
-            "r.total_retweets as number__reposts, ",
-            "r.checked_at as number__string ",
-            "FROM public.", Table, " r ",
-            "WHERE r.publication_id = $1;"
-        ],
-        SQL
-    ).
 
 %% insert_without_unicity_check(+Session, +Row, -InsertionResult)
 %
@@ -385,41 +246,12 @@ do_insert_without_unicity_check(
     query_result(SQL, Result),
     interpret_popularity_insert_psql(Result, InsertionResult).
 
-psql_popularity_insert_sql(Id, RecordIdChars, URI, LikesChars, RePostsChars, SQL) :-
-    table(Table),
-    append(
-        [
-            "INSERT INTO public.", Table, " (",
-            "id, status_id, publication_id, total_favorites, total_retweets, checked_at",
-            ") VALUES (",
-            "'", Id, "', ",
-            "'", RecordIdChars, "', ",
-            "'", URI, "', ",
-            LikesChars, ", ",
-            RePostsChars, ", ",
-            "NOW()",
-            ");"
-        ],
-        SQL
-    ).
-
 interpret_popularity_insert_psql(ok, ok).
 interpret_popularity_insert_psql(no_records_found, ok).
 interpret_popularity_insert_psql(Other, _) :-
     dif(Other, ok),
     dif(Other, no_records_found),
     throw(pg_error(Other)).
-
-popularity_insert_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "INSERT INTO public.", Table, " (",
-            "id, status_id, publication_id, total_favorites, total_retweets, checked_at",
-            ") VALUES ($1, $2, $3, $4::integer, $5::integer, NOW())"
-        ],
-        SQL
-    ).
 
 coerce_chars(N, Chars) :- integer(N), number_chars(N, Chars).
 coerce_chars(A, Chars) :- \+ integer(A), atom(A), atom_chars(A, Chars).
@@ -436,19 +268,3 @@ count_matching_records(pg_session(C, C), row(URI), Result) :-
     pg_backend("psql"),
     psql_count_matching_records_sql(URI, SQL),
     query_result(SQL, Result).
-
-count_matching_records_sql(SQL) :-
-    table(Table),
-    append([
-        "SELECT COUNT(*) how_many_records ",
-        "FROM public.", Table, " r ",
-        "WHERE r.publication_id = $1;"
-    ], SQL).
-
-psql_count_matching_records_sql(URI, SQL) :-
-    table(Table),
-    append([
-        "SELECT COUNT(*) how_many_records ",
-        "FROM public.", Table, " r ",
-        "WHERE r.publication_id = '", URI, "';"
-    ], SQL).
