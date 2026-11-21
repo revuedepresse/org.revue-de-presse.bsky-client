@@ -1,7 +1,7 @@
 # Machine-checked proofs of the link handling
 
-Twelve of the fourteen laws in `obligations.tsv` are proven and machine-
-checked; two are partial. The checker's own verdict is reproduced, not
+Eleven of the fourteen laws in `obligations.tsv` are proven and machine-
+checked; three are partial. The checker's own verdict is reproduced, not
 committed: `make check-proofs` writes it to `proofs/check.log`, which is
 generated and ignored, as are the `.gr` and `.thm` files LPTP compiles and
 the LaTeX it renders under `proofs/latex/`. Run it to see `recogniser o.k.`
@@ -31,8 +31,8 @@ opened is as silent as one that passed.
 `obligations.tsv` is the point of this directory today. It lists one row per
 law we intend to prove, written from the code paths that can lose links rather
 than from the proofs that exist, so a law nobody has approached is a visible
-open row instead of an absence. Twelve of the fourteen are proven and two
-are partial, each partial row saying in its own words what is missing. A
+open row instead of an absence. Eleven of the fourteen are proven and three
+are partial, each saying in its own words what is missing. A
 list of proofs
 could never have said that; neither can a test suite, because a test covers the
 one input written in it and an obligation is a statement about every input.

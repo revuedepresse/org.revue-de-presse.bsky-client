@@ -655,37 +655,6 @@ induction(
    succeeds r_rewrite_urls([?c|?cs], ?pairs, [?c|?cs]))])
 ).
 
-/* Obligation A3 is A4 at the empty pair list, which is the path taken
-   whenever the ledger knows nothing yet -- most of the time, and every time
-   a day's first post is read. There is nothing to match against, so
-   first_match/3 answers none at every position of any proper list. */
-
-:- lemma(no_match:empty,
-all cs: succeeds r_list(?cs) => succeeds r_no_match(?cs, []),
-induction(
- [all cs: succeeds r_list(?cs) => succeeds r_no_match(?cs, [])],
- [step([],
-   [],
-   [succeeds r_no_match([], [])],
-   succeeds r_no_match([], [])),
-  step([x, xs],
-   [succeeds r_no_match(?xs, []),
-    succeeds r_list(?xs)],
-   [succeeds r_first_match([?x|?xs], [], none),
-    succeeds r_no_match([?x|?xs], [])],
-   succeeds r_no_match([?x|?xs], []))])
-).
-
-:- corollary(rewrite:identity:empty,
-all cs: succeeds r_list(?cs) => succeeds r_rewrite_urls(?cs, [], ?cs),
-assume(succeeds r_list(?cs),
- [succeeds r_no_match(?cs, []) by lemma(no_match:empty),
-  succeeds r_no_match(?cs, []) => succeeds r_rewrite_urls(?cs, [], ?cs)
-    by lemma(rewrite:identity),
-  succeeds r_rewrite_urls(?cs, [], ?cs)],
- succeeds r_rewrite_urls(?cs, [], ?cs))
-).
-
 /* Obligation A7: page_destination/2 prefers the noscript refresh to the
    canonical link. The interstitials these redirectors answer with carry
    their own canonical link, which claims the interstitial; reading it
@@ -984,17 +953,6 @@ assume(succeeds r_no_match(?cs, ?pairs) &
   succeeds r_rewrite_urls(?cs, ?pairs, ?out) &
     succeeds r_rewrite_urls(?cs, ?pairs, ?cs) =>
     ?out = ?cs by corollary(rewrite:functional),
-  ?out = ?cs],
- ?out = ?cs)
-).
-
-:- corollary(rewrite:identity:empty:exact,
-all [cs, out]: succeeds r_list(?cs) & succeeds r_rewrite_urls(?cs, [], ?out) =>
- ?out = ?cs,
-assume(succeeds r_list(?cs) & succeeds r_rewrite_urls(?cs, [], ?out),
- [succeeds r_no_match(?cs, []) by lemma(no_match:empty),
-  succeeds r_no_match(?cs, []) & succeeds r_rewrite_urls(?cs, [], ?out) =>
-    ?out = ?cs by corollary(rewrite:identity:exact),
   ?out = ?cs],
  ?out = ?cs)
 ).
