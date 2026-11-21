@@ -23,6 +23,24 @@
 :- use_module(library(si)).
 :- use_module(library(uuid)).
 
+:- use_module('repository_status_queries', [
+    all_clauses/3,
+    by_criteria_sql/1,
+    by_hash_sql/1,
+    by_indexed_at_sql/1,
+    count_matching_records_sql/1,
+    count_sql/1,
+    psql_all_clauses_sql/2,
+    psql_by_criteria_sql/2,
+    psql_by_hash_sql/2,
+    psql_by_indexed_at_sql/3,
+    psql_count_matching_records_sql/2,
+    psql_status_insert_sql/8,
+    psql_status_lookup_by_hash_sql/2,
+    query_max_id_sql/1,
+    status_insert_sql/1,
+    status_lookup_by_hash_sql/1
+]).
 :- use_module('repository_dcgs', [
     rows//1,
     to_json/3
@@ -70,9 +88,6 @@ NOTHING RETURNING ust_id` and falls back to a follow-up SELECT on
 conflict so the caller always receives a usable `ust_id`.
 */
 
-%% table(-Table)
-table("weaving_status").
-
 %% count(+Session, -Count)
 %
 % Total number of rows. Dispatches on PG_BACKEND.
@@ -84,10 +99,6 @@ count(pg_session(C, C), Count) :-
     pg_backend("psql"),
     count_sql(SQL),
     query_result(SQL, Count).
-
-count_sql(SQL) :-
-    table(Table),
-    append(["SELECT count(*) AS matching_records_count FROM public.", Table], SQL).
 
 %% query(+Session, -HeadersAndRows)
 %
@@ -106,32 +117,6 @@ listing_headers([
     "boolean__is_published"
 ]).
 
-%% all_clauses(-SQL, -Params, +Limit).
-all_clauses(SQL, [], "ALL") :-
-    all_clauses_template("ALL", SQL).
-all_clauses(SQL, [LimitChars], Limit) :-
-    integer_si(Limit),
-    number_chars(Limit, LimitChars),
-    all_clauses_template("$1", SQL).
-
-all_clauses_template(LimitClause, SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT ",
-            "r.ust_id::bigint AS number__id, ",
-            "r.ust_full_name AS string__full_name, ",
-            "r.ust_avatar AS string__avatar, ",
-            "r.ust_status_id AS string__status_id, ",
-            "to_json(r.is_published) AS boolean__is_published ",
-            "FROM public.", Table, " r ",
-            "ORDER BY ust_id DESC ",
-            "OFFSET 0 ",
-            "LIMIT ", LimitClause, ";"
-        ],
-        SQL
-    ).
-
 %% query(+Session, -Rows, +Headers, +Limit). Dispatches on PG_BACKEND.
 query(pg_session(C0, C), Rows, Headers, Limit) :-
     pg_backend("wire"),
@@ -145,31 +130,6 @@ query(pg_session(C, C), Rows, _Headers, Limit) :-
     writeln(query:SQL, true),
     once(query_result_from_file(SQL, true, TmpFile)),
     read_rows(TmpFile, Rows).
-
-psql_all_clauses_sql(SQL, "ALL") :-
-    psql_all_clauses_template("ALL", SQL).
-psql_all_clauses_sql(SQL, Limit) :-
-    integer_si(Limit),
-    number_chars(Limit, LimitChars),
-    psql_all_clauses_template(LimitChars, SQL).
-
-psql_all_clauses_template(LimitClause, SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT ",
-            "r.ust_id::bigint AS number__id, ",
-            "r.ust_full_name AS string__full_name, ",
-            "r.ust_avatar AS string__avatar, ",
-            "r.ust_status_id AS string__status_id, ",
-            "to_json(r.is_published) AS boolean__is_published ",
-            "FROM public.", Table, " r ",
-            "ORDER BY ust_id DESC ",
-            "OFFSET 0 ",
-            "LIMIT ", LimitClause, ";"
-        ],
-        SQL
-    ).
 
 %% next_id(+Session, -NextId)
 %
@@ -195,18 +155,6 @@ coerce_no_records(V, V) :- dif(V, no_records_found).
 validate_id(N) :- integer_si(N).
 validate_id(N) :- \+ integer_si(N), throw(invalid_list_id(N)).
 
-query_max_id_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT COALESCE(r.ust_id::bigint, 0) pk ",
-            "FROM ", Table, " r ",
-            "ORDER BY r.ust_id DESC ",
-            "LIMIT 1;"
-        ],
-        SQL
-    ).
-
 %% by_criteria(+Session, +Criteria, -HeadersAndRows)
 by_criteria(pg_session(C0, C), handle(Handle)-uri(URI), HeadersAndRows) :-
     pg_backend("wire"),
@@ -222,20 +170,6 @@ by_criteria(pg_session(C, C), handle(Handle)-uri(URI), HeadersAndRows) :-
     psql_by_criteria_sql(Hash, SQL),
     matching_criteria(SQL, HeadersAndRows).
 
-psql_by_criteria_sql(Hash, SQL) :-
-    table(Table),
-    append([
-        "SELECT ",
-        "r.ust_id::bigint AS number__id, ",
-        "r.ust_full_name AS string__full_name, ",
-        "r.ust_avatar AS string__avatar, ",
-        "r.ust_status_id AS string__status_id, ",
-        "to_json(r.is_published) AS boolean__is_published ",
-        "FROM public.", Table, " r ",
-        "WHERE r.ust_hash = '", Hash, "' ",
-        "OFFSET 0 "
-    ], SQL).
-
 log_if_invalid_unique_identifier(Handle, URI) :-
     catch(
         once(( chars_si(Handle), chars_si(URI) )),
@@ -250,20 +184,6 @@ by_criteria_headers([
     "string__status_id",
     "boolean__is_published"
 ]).
-
-by_criteria_sql(SQL) :-
-    table(Table),
-    append([
-        "SELECT ",
-        "r.ust_id::bigint AS number__id, ",
-        "r.ust_full_name AS string__full_name, ",
-        "r.ust_avatar AS string__avatar, ",
-        "r.ust_status_id AS string__status_id, ",
-        "to_json(r.is_published) AS boolean__is_published ",
-        "FROM public.", Table, " r ",
-        "WHERE r.ust_hash = $1 ",
-        "OFFSET 0;"
-    ], SQL).
 
 %% insert(+Session, +Row, -InsertionResult, -InsertedRecordId).
 %
@@ -304,31 +224,6 @@ insert(
     query_result(SQL, Result),
     interpret_psql_status_insert(Result, Hash, InsertionResult, InsertedRecordId).
 
-psql_status_insert_sql(Hash, Handle, EncodedText, Avatar, EncodedPayload, URI, CreatedAt, SQL) :-
-    table(Table),
-    append(
-        [
-            "INSERT INTO public.", Table, " (",
-            "ust_hash, ust_name, ust_full_name, ust_text, ust_avatar, ",
-            "ust_api_document, ust_status_id, ust_access_token, is_published, ust_created_at",
-            ") VALUES (",
-            "'", Hash, "', ",
-            "'", Handle, "', ",
-            "'", Handle, "', ",
-            "'", EncodedText, "', ",
-            "'", Avatar, "', ",
-            "'", EncodedPayload, "', ",
-            "'", URI, "', ",
-            "'dummy_access_token', ",
-            "true, ",
-            "'", CreatedAt, "'",
-            ") ",
-            "ON CONFLICT (ust_hash) DO NOTHING ",
-            "RETURNING ust_id::text;"
-        ],
-        SQL
-    ).
-
 interpret_psql_status_insert(no_records_found, Hash, duplicate(Hash), UstIdChars) :-
     writeln([status_duplicate_skipped|[Hash]], true),
     psql_status_lookup_by_hash_sql(Hash, LookupSQL),
@@ -341,27 +236,6 @@ interpret_psql_status_insert(Result, _Hash, new(UstIdChars), UstIdChars) :-
 
 coerce_ust_id_to_chars(N, Chars) :- integer(N), number_chars(N, Chars).
 coerce_ust_id_to_chars(Cs, Cs) :- \+ integer(Cs), Cs \= no_records_found.
-
-psql_status_lookup_by_hash_sql(Hash, SQL) :-
-    table(Table),
-    append([
-        "SELECT ust_id::text FROM public.", Table,
-        " WHERE ust_hash = '", Hash, "';"
-    ], SQL).
-
-status_insert_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "INSERT INTO public.", Table, " (",
-            "ust_hash, ust_name, ust_full_name, ust_text, ust_avatar, ",
-            "ust_api_document, ust_status_id, ust_access_token, is_published, ust_created_at",
-            ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::boolean, $10) ",
-            "ON CONFLICT (ust_hash) DO NOTHING ",
-            "RETURNING ust_id::text"
-        ],
-        SQL
-    ).
 
 %% interpret_status_insert(+Session, +Reply, +Hash, -InsertionResult, -InsertedRecordId).
 %
@@ -383,10 +257,6 @@ extract_lookup_ust_id(data([[UstIdChars|_]|_]), UstIdChars) :-
 extract_lookup_ust_id(Reply, _) :-
     \+ ( Reply = data([[Chars|_]|_]), chars_si(Chars) ),
     throw(status_lookup_after_conflict_returned(Reply)).
-
-status_lookup_by_hash_sql(SQL) :-
-    table(Table),
-    append(["SELECT ust_id::text FROM public.", Table, " WHERE ust_hash = $1"], SQL).
 
 %% id_hash(+Session, +UniqueIdentifier, -RecordId, -Result).
 id_hash(Session, UniqueIdentifier, RecordId, Result) :-
@@ -423,27 +293,6 @@ by_hash(pg_session(C, C), Hash, Assoc) :-
     matching_criteria(SQL, HeadersAndRows),
     extract_first_or_throw(HeadersAndRows, Assoc).
 
-psql_by_hash_sql(Hash, SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT ",
-            "r.ust_id as number__id, ",
-            "r.ust_name as string__name, ",
-            "r.ust_hash as string__hash, ",
-            "r.ust_full_name as string__full_name, ",
-            "r.ust_text as string__text, ",
-            "r.ust_avatar as string__avatar, ",
-            "r.ust_status_id as string__status_id, ",
-            "r.is_published as boolean__is_published, ",
-            "r.ust_created_at as string__created_at ",
-            "FROM public.", Table, " r ",
-            "WHERE r.ust_hash = '", Hash, "' ",
-            "OFFSET 0 "
-        ],
-        SQL
-    ).
-
 extract_first_or_throw([], _) :- throw(no_records_found).
 extract_first_or_throw([Row|Rest], Row) :-
     writeln([selection_result_by_hash|[[Row|Rest]]]).
@@ -459,35 +308,6 @@ by_hash_headers([
     "boolean__is_published",
     "string__created_at"
 ]).
-
-by_hash_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT ",
-            "r.ust_id as number__id, ",
-            "r.ust_name as string__name, ",
-            "r.ust_hash as string__hash, ",
-            "r.ust_full_name as string__full_name, ",
-            "r.ust_text as string__text, ",
-            "r.ust_avatar as string__avatar, ",
-            "r.ust_status_id as string__status_id, ",
-            "r.is_published as boolean__is_published, ",
-            "r.ust_created_at as string__created_at ",
-            "FROM public.", Table, " r ",
-            "WHERE r.ust_hash = $1 ",
-            "OFFSET 0;"
-        ],
-        SQL
-    ).
-
-psql_count_matching_records_sql(Hash, SQL) :-
-    table(Table),
-    append([
-        "SELECT count(*) how_many_records ",
-        "FROM public.", Table, " r ",
-        "WHERE ust_hash = '", Hash, "';"
-    ], SQL).
 
 %% exists_by_uri_t(+Session, +Handle, +URI, ?T).
 %
@@ -516,14 +336,6 @@ interpret_count_reply(data([[CountChars|_]|_]), Count) :-
 interpret_count_reply(error(Err), _) :-
     throw(pg_error(Err)).
 
-count_matching_records_sql(SQL) :-
-    table(Table),
-    append([
-        "SELECT count(*) how_many_records ",
-        "FROM public.", Table, " r ",
-        "WHERE ust_hash = $1;"
-    ], SQL).
-
 %% by_indexed_at(+Session, +Criteria, -HeadersAndRows)
 by_indexed_at(pg_session(C0, C), indexed_at(IndexedAt)-handle(Handle), HeadersAndRows) :-
     pg_backend("wire"),
@@ -548,21 +360,6 @@ by_indexed_at(pg_session(C, C), indexed_at(IndexedAt)-handle(Handle), HeadersAnd
     psql_by_indexed_at_sql(Handle, IndexedAtDate, SQL),
     matching_criteria(SQL, HeadersAndRows).
 
-psql_by_indexed_at_sql(Handle, IndexedAtDate, SQL) :-
-    table(Table),
-    append([
-        "SELECT ",
-        "r.ust_id::bigint AS number__id, ",
-        "r.ust_full_name AS string__full_name, ",
-        "r.ust_avatar AS string__avatar, ",
-        "r.ust_status_id AS string__status_id, ",
-        "to_json(r.is_published) AS boolean__is_published ",
-        "FROM public.", Table, " r ",
-        "WHERE r.ust_name = '", Handle, "' ",
-        "AND r.ust_created_at::timestamp = '", IndexedAtDate, "'::timestamp ",
-        "OFFSET 0 "
-    ], SQL).
-
 capture_pre_wire_call(Handle, IndexedAt, IndexedAtDate, SQL) :-
     Path = "/tmp/segv-investigation/last-by-indexed-at.pl",
     open(Path, write, Stream, [type(text)]),
@@ -583,18 +380,3 @@ by_indexed_at_headers([
     "string__status_id",
     "boolean__is_published"
 ]).
-
-by_indexed_at_sql(SQL) :-
-    table(Table),
-    append([
-        "SELECT ",
-        "r.ust_id::bigint AS number__id, ",
-        "r.ust_full_name AS string__full_name, ",
-        "r.ust_avatar AS string__avatar, ",
-        "r.ust_status_id AS string__status_id, ",
-        "to_json(r.is_published) AS boolean__is_published ",
-        "FROM public.", Table, " r ",
-        "WHERE r.ust_name = $1 ",
-        "AND r.ust_created_at::timestamp = $2::timestamp ",
-        "OFFSET 0;"
-    ], SQL).

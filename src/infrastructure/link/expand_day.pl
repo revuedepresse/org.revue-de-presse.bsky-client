@@ -24,6 +24,10 @@
     link_expander_pace/1,
     link_expansion_batch/1
 ]).
+:- use_module('../../link_expansion', [
+    expansion_decisions/4,
+    plan_of/2
+]).
 :- use_module('../../link_shortener', [shortened_url_t/2]).
 :- use_module('../../stream', [writeln/2]).
 
@@ -47,6 +51,12 @@ tried was shut out after twenty. This runs once, in the quiet before the
 
 A service that refuses is recorded `blocked` and left alone — for a
 resolver asking from elsewhere, not for the next run of this one.
+
+Which links a run asks about is not decided here either: src/link_expansion.pl
+holds that rule, and this pass hands it the day's links and its batch size and
+performs the questions it gets back. The same relation answers for the ingest
+path, where the allowance comes from the ledger instead, so there is one place
+to read — and one place to test — what stops a burst.
 */
 
 %% expand_day_links(+Day)
@@ -58,24 +68,29 @@ expand_day_links(Day) :-
     close_pg_connection(C).
 
 %% expand_day_links(+Session, +Day)
+%
+% The planner is handed no answers: `links_of_day/3` already leaves out
+% every address the ledger can answer, so each link it lists is one to ask
+% about. A link a service blocked is among them on purpose — a block was
+% about one burst at one moment, never a verdict on the link — and asking
+% again a day later, one request every five seconds, is the asking it was
+% refused for doing eight hundred times in a row.
+%
+% The plan's `note/1` list is dropped rather than written: the day pass takes
+% its links from the rows, so tomorrow's run finds them again by itself, and
+% a pending row for each would count against the ingest path's hourly
+% allowance for nothing.
 expand_day_links(pg_session(C0, C), Day) :-
     links_of_day(pg_session(C0, C1), day(Day), Urls),
     tfilter(shortened_url_t, Urls, Shortened),
     length(Shortened, Pending),
     link_expansion_batch(Batch),
-    take(Batch, Shortened, Asked),
+    expansion_decisions(Shortened, [], Batch, Decisions),
+    plan_of(Decisions, plan(_, ask(Asked), note(_))),
     length(Asked, Count),
     format("expanding ~d of ~d shortened links for ~s~n", [Count, Pending, Day]),
     ask_each(Asked, pg_session(C1, C), Day, 0-0),
     format("done~n", []).
-
-take(0, _, []).
-take(N, [], []) :-
-    N > 0.
-take(N, [X|Xs], [X|Taken]) :-
-    N > 0,
-    Left is N - 1,
-    take(Left, Xs, Taken).
 
 %% ask_each(+Urls, +Session, +Day, +Resolved-Refused)
 %

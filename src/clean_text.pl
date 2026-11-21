@@ -4,8 +4,9 @@
 ]).
 
 :- use_module(library(charsio)).
+:- use_module(library(clpz)).
 :- use_module(library(lists)).
-:- use_module(library(si)).
+:- use_module(library(reif)).
 
 /**
 Strips upstream encoding artefacts from raw text before it crosses the
@@ -29,38 +30,124 @@ Two predicates are exported:
 
 Both predicates take and return Prolog char lists (use atom_chars/2 to
 adapt from atoms and back).
+
+Written in the reified style src/link_shortener.pl sets out: conditions
+are predicates whose last argument is a truth value, chosen with `if_/3`,
+and a read that may not match hands back a tagged term (`escape/2`,
+`hex/2`, `digit/2`, `inner/1`, `found/1`, `none`) the caller dispatches
+on by pattern. No cuts, no if-then-else, no negation as failure: each
+stage stays a relation, which is what lets it be proven on its own.
+
+Every stage walks the text once and rebuilds it, so a stage that matches
+nothing is the identity on its input.
 */
+
+% -- reified character primitives ------------------------------------------
+
+%% code_in_t(+Low, +High, +Value, -Truth)
+%
+% `true` when `Low =< Value =< High`. Characters are only ever spoken
+% about by code here: several of the ones that matter (`-`, `,`, `<`,
+% `/`) are operator atoms Scryer will not read in argument position even
+% quoted, so comparing codes is the only shape that works everywhere.
+code_in_t(Low, High, Value, Truth) :-
+    zcompare(BelowOrder, Low, Value),
+    zcompare(AboveOrder, Value, High),
+    range_truth(BelowOrder, AboveOrder, Truth).
+
+range_truth(<, <, true).
+range_truth(<, =, true).
+range_truth(<, >, false).
+range_truth(=, <, true).
+range_truth(=, =, true).
+range_truth(=, >, false).
+range_truth(>, <, false).
+range_truth(>, =, false).
+range_truth(>, >, false).
+
+code_t(Expected, Char, Truth) :-
+    char_code(Char, Code),
+    =(Expected, Code, Truth).
+
+backslash_t(Char, Truth) :- code_t(0x5C, Char, Truth).
+
+quote_t(Char, Truth) :- code_t(0x22, Char, Truth).
+
+marker_x_t(Char, Truth) :- code_t(0x78, Char, Truth).
+
+%% first_found(+Key, +Pairs, -Result)
+%
+% `found(Value)` for the first `Key-Value` pair whose key matches, else
+% `none`.
+first_found(_, [], none).
+first_found(Key, [K-V|Pairs], Result) :-
+    if_(Key = K, Result = found(V), first_found(Key, Pairs, Result)).
 
 %% repair_mojibake(+Chars, -Repaired)
 %
 % Detect the Ã/Â + UTF-8-continuation sniff; if present and every char is
 % within Latin-1 (code =< 0xFF), reinterpret the codes as UTF-8 bytes.
-% Any failure (invalid UTF-8 sequence, non-Latin-1 char, no sniff) leaves
-% the input unchanged.
+% Anything else (no sniff, a char beyond Latin-1, a byte sequence the
+% decoder refuses) leaves the input unchanged: the text was not mojibake
+% after all, and a half-repair would be worse than none.
 repair_mojibake([], []).
-repair_mojibake([H|T], Out) :-
-    Chars = [H|T],
-    (   has_mojibake_sniff(Chars),
-        all_latin1(Chars),
-        chars_to_codes(Chars, Bytes),
-        catch(chars_utf8bytes(Decoded, Bytes), _, fail)
-    ->  Out = Decoded
-    ;   Out = Chars
-    ).
+repair_mojibake([C|Cs], Out) :-
+    if_(mojibake_t([C|Cs]),
+        repaired_or_original([C|Cs], Out),
+        Out = [C|Cs]).
 
-has_mojibake_sniff([C1,C2|_]) :-
-    char_code(C1, K1),
-    ( K1 =:= 0xC2 ; K1 =:= 0xC3 ),
-    char_code(C2, K2),
-    K2 >= 0x80, K2 =< 0xBF, !.
-has_mojibake_sniff([_,B|Rest]) :-
-    has_mojibake_sniff([B|Rest]).
+% Both halves of the sniff have to hold: the sequence alone says the text
+% may be mojibake, the Latin-1 bound says it can still be read back as
+% bytes. A string holding anything above 0xFF is already valid UTF-8.
+mojibake_t(Chars, Truth) :-
+    if_(mojibake_sequence_t(Chars), all_latin1_t(Chars, Truth), Truth = false).
 
-all_latin1([]).
-all_latin1([C|Cs]) :-
-    char_code(C, K),
-    K =< 0xFF,
-    all_latin1(Cs).
+mojibake_sequence_t([], false).
+mojibake_sequence_t([_], false).
+mojibake_sequence_t([C1,C2|Cs], Truth) :-
+    if_(mojibake_pair_t(C1, C2),
+        Truth = true,
+        mojibake_sequence_t([C2|Cs], Truth)).
+
+mojibake_pair_t(Lead, Next, Truth) :-
+    if_(latin1_lead_t(Lead), utf8_continuation_t(Next, Truth), Truth = false).
+
+latin1_lead_t(Char, Truth) :-
+    char_code(Char, Code),
+    memberd_t(Code, [0xC2, 0xC3], Truth).
+
+utf8_continuation_t(Char, Truth) :-
+    char_code(Char, Code),
+    code_in_t(0x80, 0xBF, Code, Truth).
+
+all_latin1_t([], true).
+all_latin1_t([C|Cs], Truth) :-
+    if_(latin1_t(C), all_latin1_t(Cs, Truth), Truth = false).
+
+latin1_t(Char, Truth) :-
+    char_code(Char, Code),
+    code_in_t(0, 0xFF, Code, Truth).
+
+repaired_or_original(Chars, Out) :-
+    chars_to_codes(Chars, Bytes),
+    utf8_decoding(Bytes, Decoding),
+    decoded_or_original(Decoding, Chars, Out).
+
+% The decoder may refuse these bytes either way round - by failing or by
+% throwing - and neither is an error here, so both are read as "not
+% mojibake": findall/3 turns a refusal into an empty list, catch/3 turns
+% a throw into one.
+utf8_decoding(Bytes, Decoding) :-
+    catch(findall(Chars, chars_utf8bytes(Chars, Bytes), Decodings),
+          _,
+          Decodings = []),
+    first_decoding(Decodings, Decoding).
+
+first_decoding([], undecodable).
+first_decoding([Chars|_], decoded(Chars)).
+
+decoded_or_original(decoded(Decoded), _, Decoded).
+decoded_or_original(undecodable, Chars, Chars).
 
 chars_to_codes([], []).
 chars_to_codes([C|Cs], [K|Ks]) :-
@@ -73,9 +160,9 @@ chars_to_codes([C|Cs], [K|Ks]) :-
 % before 2-hex (otherwise `\x202f` is consumed as `\x20` plus literal
 % `2f`); strip-backslashes must run last so escape decoders can still
 % see their leading `\`.
-clean_text([], []) :- !.
-clean_text(Input, Output) :-
-    repair_mojibake(Input, S1),
+clean_text([], []).
+clean_text([C|Cs], Output) :-
+    repair_mojibake([C|Cs], S1),
     strip_surrounding_quotes(S1, S2),
     decode_backslash_letter(S2, S3),
     decode_hex_4digit(S3, S4),
@@ -91,9 +178,25 @@ clean_text(Input, Output) :-
 %
 % Drop a single pair of wrapping ASCII double quotes. The JS version
 % only handles the symmetric case; we mirror that.
-strip_surrounding_quotes(['"'|Rest], Inner) :-
-    append(Inner, ['"'], Rest), !.
-strip_surrounding_quotes(Chars, Chars).
+strip_surrounding_quotes(Chars, Out) :-
+    quoted_inner(Chars, Quoted),
+    unquoted(Quoted, Chars, Out).
+
+% `inner(Inner)` when a leading quote is answered by a trailing one,
+% `none` otherwise - a lone quote at either end belongs to the text.
+quoted_inner([], none).
+quoted_inner([C|Cs], Quoted) :-
+    if_(quote_t(C), closing_quote(Cs, Quoted), Quoted = none).
+
+closing_quote([], none).
+closing_quote([C|Cs], Quoted) :-
+    reverse([C|Cs], [Last|ReversedInner]),
+    if_(quote_t(Last),
+        ( reverse(ReversedInner, Inner), Quoted = inner(Inner) ),
+        Quoted = none).
+
+unquoted(inner(Inner), _, Inner).
+unquoted(none, Chars, Chars).
 
 %% decode_backslash_letter(+Chars, -Out)
 %
@@ -101,14 +204,30 @@ strip_surrounding_quotes(Chars, Chars).
 % leaks: \n -> LF, \' -> ', \" -> ". A trailing lone backslash is left
 % for strip_backslashes/2 to clean up.
 decode_backslash_letter([], []).
-decode_backslash_letter(['\\','n'|Rest], ['\n'|Out]) :- !,
-    decode_backslash_letter(Rest, Out).
-decode_backslash_letter(['\\','\''|Rest], ['\''|Out]) :- !,
-    decode_backslash_letter(Rest, Out).
-decode_backslash_letter(['\\','"'|Rest], ['"'|Out]) :- !,
-    decode_backslash_letter(Rest, Out).
-decode_backslash_letter([C|Rest], [C|Out]) :-
-    decode_backslash_letter(Rest, Out).
+decode_backslash_letter([C|Cs], Out) :-
+    if_(backslash_t(C),
+        ( backslash_escape(Cs, Escaped), escaped_step(Escaped, C, Cs, Out) ),
+        ( Out = [C|Tail], decode_backslash_letter(Cs, Tail) )).
+
+% Escape char code - decoded char code. Written as codes because the
+% character written is not the character meant: `n` stands for a line
+% feed, the two quotes for themselves.
+backslash_escapes([0x6E-0x0A, 0x27-0x27, 0x22-0x22]).
+
+backslash_escape([], none).
+backslash_escape([C|_], Escaped) :-
+    char_code(C, Code),
+    backslash_escapes(Escapes),
+    first_found(Code, Escapes, Escaped).
+
+% An escape consumes the backslash and the char after it; anything else
+% keeps the backslash and resumes at that char, which is where a
+% trailing lone backslash ends up.
+escaped_step(found(Code), _, [_|Cs], [Decoded|Tail]) :-
+    char_code(Decoded, Code),
+    decode_backslash_letter(Cs, Tail).
+escaped_step(none, Backslash, Cs, [Backslash|Tail]) :-
+    decode_backslash_letter(Cs, Tail).
 
 %% decode_hex_4digit(+Chars, -Out)
 %
@@ -116,108 +235,217 @@ decode_backslash_letter([C|Rest], [C|Out]) :-
 % 0x2007, 0x202F) become a regular space; controls (< 0x20 or in the
 % 0x7F..0x9F band) are dropped; everything else becomes its character.
 decode_hex_4digit([], []).
-decode_hex_4digit(['\\','x',H1,H2,H3,H4|Rest0], Out) :-
-    hex_digit(H1, V1),
-    hex_digit(H2, V2),
-    hex_digit(H3, V3),
-    hex_digit(H4, V4),
-    !,
-    Code is V1 * 0x1000 + V2 * 0x100 + V3 * 0x10 + V4,
-    drop_optional_backslash(Rest0, Rest),
-    decoded_4digit_chars(Code, Chars),
-    append(Chars, OutRest, Out),
-    decode_hex_4digit(Rest, OutRest).
-decode_hex_4digit([C|Rest], [C|Out]) :-
-    decode_hex_4digit(Rest, Out).
+decode_hex_4digit([C|Cs], Out) :-
+    if_(backslash_t(C),
+        ( x_escape(four_hex, Cs, Escape), hex_4digit_step(Escape, C, Cs, Out) ),
+        ( Out = [C|Tail], decode_hex_4digit(Cs, Tail) )).
 
-decoded_4digit_chars(0xA0, [' ']) :- !.
-decoded_4digit_chars(0x2007, [' ']) :- !.
-decoded_4digit_chars(0x202F, [' ']) :- !.
-decoded_4digit_chars(Code, []) :- Code < 0x20, !.
-decoded_4digit_chars(Code, []) :- Code >= 0x7F, Code < 0xA0, !.
-decoded_4digit_chars(Code, [Char]) :-
-    catch(char_code(Char, Code), _, fail), !.
-decoded_4digit_chars(_, []).
+hex_4digit_step(escape(Code, Rest), _, _, Out) :-
+    decoded_4digit_chars(Code, Chars),
+    append(Chars, Tail, Out),
+    decode_hex_4digit(Rest, Tail).
+hex_4digit_step(none, Backslash, Cs, [Backslash|Tail]) :-
+    decode_hex_4digit(Cs, Tail).
+
+decoded_4digit_chars(Code, Chars) :-
+    if_(memberd_t(Code, [0xA0, 0x2007, 0x202F]),
+        Chars = [' '],
+        if_(control_code_t(Code),
+            Chars = [],
+            char_of_code(Code, Chars))).
+
+% The NBSP family stands where a space was meant; a control character
+% stands for nothing a reader can see, so it goes rather than becoming a
+% glyph the renderer has to guess at.
+control_code_t(Code, Truth) :-
+    if_(code_in_t(0, 0x1F, Code),
+        Truth = true,
+        code_in_t(0x7F, 0x9F, Code, Truth)).
+
+% A surrogate half, or any other code char_code/2 refuses, has no
+% character to become: dropped, like the controls above.
+char_of_code(Code, Chars) :-
+    catch(findall(Char, char_code(Char, Code), Found), _, Found = []),
+    first_char(Found, Chars).
+
+first_char([], []).
+first_char([Char|_], [Char]).
 
 %% decode_hex_2digit_x(+Chars, -Out)
 %
 % \xHH followed by an optional `\`. NBSP (0xA0) -> space; printable
 % ASCII (0x20..0x7E) -> char; everything else dropped.
 decode_hex_2digit_x([], []).
-decode_hex_2digit_x(['\\','x',H1,H2|Rest0], Out) :-
-    hex_digit(H1, V1),
-    hex_digit(H2, V2),
-    !,
-    Code is V1 * 0x10 + V2,
-    drop_optional_backslash(Rest0, Rest),
+decode_hex_2digit_x([C|Cs], Out) :-
+    if_(backslash_t(C),
+        ( x_escape(two_hex, Cs, Escape), hex_2digit_x_step(Escape, C, Cs, Out) ),
+        ( Out = [C|Tail], decode_hex_2digit_x(Cs, Tail) )).
+
+hex_2digit_x_step(escape(Code, Rest), _, _, Out) :-
     decoded_2digit_chars(Code, Chars),
-    append(Chars, OutRest, Out),
-    decode_hex_2digit_x(Rest, OutRest).
-decode_hex_2digit_x([C|Rest], [C|Out]) :-
-    decode_hex_2digit_x(Rest, Out).
+    append(Chars, Tail, Out),
+    decode_hex_2digit_x(Rest, Tail).
+hex_2digit_x_step(none, Backslash, Cs, [Backslash|Tail]) :-
+    decode_hex_2digit_x(Cs, Tail).
 
 %% decode_hex_2digit_bare(+Chars, -Out)
 %
 % Same as the `\x` form but without the `x`. CSS-style: `\2f\` -> `/`.
 decode_hex_2digit_bare([], []).
-decode_hex_2digit_bare(['\\',H1,H2|Rest0], Out) :-
-    hex_digit(H1, V1),
-    hex_digit(H2, V2),
-    !,
-    Code is V1 * 0x10 + V2,
-    drop_optional_backslash(Rest0, Rest),
-    decoded_2digit_chars(Code, Chars),
-    append(Chars, OutRest, Out),
-    decode_hex_2digit_bare(Rest, OutRest).
-decode_hex_2digit_bare([C|Rest], [C|Out]) :-
-    decode_hex_2digit_bare(Rest, Out).
+decode_hex_2digit_bare([C|Cs], Out) :-
+    if_(backslash_t(C),
+        ( bare_escape(Cs, Escape), hex_2digit_bare_step(Escape, C, Cs, Out) ),
+        ( Out = [C|Tail], decode_hex_2digit_bare(Cs, Tail) )).
 
-decoded_2digit_chars(0xA0, [' ']) :- !.
-decoded_2digit_chars(Code, [Char]) :-
-    Code >= 0x20, Code < 0x7F, !,
-    char_code(Char, Code).
-decoded_2digit_chars(_, []).
+hex_2digit_bare_step(escape(Code, Rest), _, _, Out) :-
+    decoded_2digit_chars(Code, Chars),
+    append(Chars, Tail, Out),
+    decode_hex_2digit_bare(Rest, Tail).
+hex_2digit_bare_step(none, Backslash, Cs, [Backslash|Tail]) :-
+    decode_hex_2digit_bare(Cs, Tail).
+
+decoded_2digit_chars(Code, Chars) :-
+    if_(Code = 0xA0,
+        Chars = [' '],
+        if_(code_in_t(0x20, 0x7E, Code),
+            ( char_code(Char, Code), Chars = [Char] ),
+            Chars = [])).
+
+%% x_escape(:Reader, +Chars, -Escape)
+%
+% `escape(Code, Rest)` when Chars opens with `x` followed by the digits
+% Reader accepts, `none` otherwise. The caller has already consumed the
+% backslash; Rest has the closing `\` these escapes may carry consumed
+% too, since it belongs to the escape and not to the text.
+x_escape(_, [], none).
+x_escape(Reader, [C|Cs], Escape) :-
+    if_(marker_x_t(C),
+        ( call(Reader, Cs, Hex), hex_escape(Hex, Escape) ),
+        Escape = none).
+
+%% bare_escape(+Chars, -Escape)
+%
+% The same read without the `x` marker. `x` is not a hex digit, so a `\x`
+% form can never be mistaken for one of these.
+bare_escape(Chars, Escape) :-
+    two_hex(Chars, Hex),
+    hex_escape(Hex, Escape).
+
+hex_escape(none, none).
+hex_escape(hex(Code, Rest0), escape(Code, Rest)) :-
+    drop_optional_backslash(Rest0, Rest).
+
+%% four_hex(+Chars, -Result) and two_hex(+Chars, -Result)
+%
+% `hex(Code, Rest)` when that many hex digits open Chars, else `none`.
+% Written as two then two so a half-read four-digit escape says `none`
+% rather than silently standing for its first two digits - which is the
+% whole reason the 4-hex stage runs before the 2-hex ones.
+four_hex(Chars, Result) :-
+    two_hex(Chars, High),
+    four_hex_high(High, Result).
+
+four_hex_high(none, none).
+four_hex_high(hex(High, Rest), Result) :-
+    two_hex(Rest, Low),
+    four_hex_low(Low, High, Result).
+
+four_hex_low(none, _, none).
+four_hex_low(hex(Low, Rest), High, hex(Code, Rest)) :-
+    Code #= High * 0x100 + Low.
+
+two_hex(Chars, Result) :-
+    hex_head(Chars, First),
+    two_hex_first(First, Result).
+
+two_hex_first(none, none).
+two_hex_first(digit(High, Rest), Result) :-
+    hex_head(Rest, Second),
+    two_hex_second(Second, High, Result).
+
+two_hex_second(none, _, none).
+two_hex_second(digit(Low, Rest), High, hex(Code, Rest)) :-
+    Code #= High * 0x10 + Low.
+
+%% hex_head(+Chars, -Result)
+%
+% `digit(Value, Rest)` for a leading hex digit, else `none`.
+hex_head([], none).
+hex_head([C|Cs], Result) :-
+    char_code(C, Code),
+    hex_digit_value(Code, Value),
+    hex_head_value(Value, Cs, Result).
+
+hex_head_value(none, _, none).
+hex_head_value(digit_value(Value), Cs, digit(Value, Cs)).
+
+hex_digit_value(Code, Result) :-
+    if_(code_in_t(0x30, 0x39, Code),                % 0-9
+        ( Value #= Code - 0x30, Result = digit_value(Value) ),
+        if_(code_in_t(0x61, 0x66, Code),            % a-f
+            ( Value #= Code - 0x57, Result = digit_value(Value) ),
+            if_(code_in_t(0x41, 0x46, Code),        % A-F
+                ( Value #= Code - 0x37, Result = digit_value(Value) ),
+                Result = none))).
 
 %% strip_decimal_4digit(+Chars, -Out)
 %
 % `\NNNN` (four decimal digits) optionally followed by `\` -> dropped.
 strip_decimal_4digit([], []).
-strip_decimal_4digit(['\\',D1,D2,D3,D4|Rest0], Out) :-
-    decimal_digit(D1),
-    decimal_digit(D2),
-    decimal_digit(D3),
-    decimal_digit(D4),
-    !,
+strip_decimal_4digit([C|Cs], Out) :-
+    if_(backslash_t(C),
+        ( decimal_run([_,_,_,_], Cs, Run), decimal_step(Run, C, Cs, Out) ),
+        ( Out = [C|Tail], strip_decimal_4digit(Cs, Tail) )).
+
+decimal_step(decimals(Rest0), _, _, Out) :-
     drop_optional_backslash(Rest0, Rest),
     strip_decimal_4digit(Rest, Out).
-strip_decimal_4digit([C|Rest], [C|Out]) :-
-    strip_decimal_4digit(Rest, Out).
+decimal_step(none, Backslash, Cs, [Backslash|Tail]) :-
+    strip_decimal_4digit(Cs, Tail).
+
+%% decimal_run(+Places, +Chars, -Result)
+%
+% `decimals(Rest)` when Chars opens with as many decimal digits as
+% Places has elements, else `none`. Places counts down as a list rather
+% than as an integer: a list bottoms out on `[]`, which makes the two
+% clauses mutually exclusive by their heads alone.
+decimal_run([], Chars, decimals(Chars)).
+decimal_run([_|Places], Chars, Result) :-
+    decimal_head(Chars, Head),
+    decimal_run_head(Head, Places, Result).
+
+decimal_run_head(none, _, none).
+decimal_run_head(digit(Rest), Places, Result) :-
+    decimal_run(Places, Rest, Result).
+
+decimal_head([], none).
+decimal_head([C|Cs], Result) :-
+    char_code(C, Code),
+    if_(code_in_t(0x30, 0x39, Code), Result = digit(Cs), Result = none).
 
 %% strip_zero_width(+Chars, -Out)
 %
 % Drops invisible joiners and variation selectors. Set matches the JS
 % character class: U+200B, U+200C, U+200D, U+2060, U+FE0E, U+FE0F.
 strip_zero_width([], []).
-strip_zero_width([C|Rest], Out) :-
-    char_code(C, K),
-    is_zero_width(K), !,
-    strip_zero_width(Rest, Out).
-strip_zero_width([C|Rest], [C|Out]) :-
-    strip_zero_width(Rest, Out).
+strip_zero_width([C|Cs], Out) :-
+    if_(zero_width_t(C),
+        strip_zero_width(Cs, Out),
+        ( Out = [C|Tail], strip_zero_width(Cs, Tail) )).
 
-is_zero_width(0x200B).
-is_zero_width(0x200C).
-is_zero_width(0x200D).
-is_zero_width(0x2060).
-is_zero_width(0xFE0E).
-is_zero_width(0xFE0F).
+zero_width_t(Char, Truth) :-
+    char_code(Char, Code),
+    memberd_t(Code, [0x200B, 0x200C, 0x200D, 0x2060, 0xFE0E, 0xFE0F], Truth).
 
 %% strip_backslashes(+Chars, -Out)
+%
+% Runs last in the pipeline: every escape has had its chance to claim its
+% backslash, so what is left stands for nothing.
 strip_backslashes([], []).
-strip_backslashes(['\\'|Rest], Out) :- !,
-    strip_backslashes(Rest, Out).
-strip_backslashes([C|Rest], [C|Out]) :-
-    strip_backslashes(Rest, Out).
+strip_backslashes([C|Cs], Out) :-
+    if_(backslash_t(C),
+        strip_backslashes(Cs, Out),
+        ( Out = [C|Tail], strip_backslashes(Cs, Tail) )).
 
 %% collapse_whitespace(+Chars, -Out)
 %
@@ -225,57 +453,54 @@ strip_backslashes([C|Rest], [C|Out]) :-
 % the JS regex `[ \t]{2,}` -> ' '; does not touch newlines, since the
 % rendering side decides what to do with them.
 collapse_whitespace([], []).
-collapse_whitespace([C|Rest], [' '|Out]) :-
-    is_space_or_tab(C),
-    Rest = [C2|_],
-    is_space_or_tab(C2), !,
-    skip_space_tab(Rest, Rest1),
-    collapse_whitespace(Rest1, Out).
-collapse_whitespace([C|Rest], [C|Out]) :-
-    collapse_whitespace(Rest, Out).
+collapse_whitespace([C|Cs], Out) :-
+    if_(blank_run_t([C|Cs]),
+        ( Out = [' '|Tail],
+          skip_blanks(Cs, Rest),
+          collapse_whitespace(Rest, Tail) ),
+        ( Out = [C|Tail], collapse_whitespace(Cs, Tail) )).
 
-skip_space_tab([C|Rest], Out) :-
-    is_space_or_tab(C), !,
-    skip_space_tab(Rest, Out).
-skip_space_tab(Chars, Chars).
+% Two blanks in a row say nothing one space does not. A single blank is
+% left exactly as it stands, tab included: on its own it may be what the
+% author typed.
+blank_run_t([], false).
+blank_run_t([C|Cs], Truth) :-
+    if_(blank_t(C), leading_blank_t(Cs, Truth), Truth = false).
 
-is_space_or_tab(' ').
-is_space_or_tab('\t').
+leading_blank_t([], false).
+leading_blank_t([C|_], Truth) :- blank_t(C, Truth).
+
+skip_blanks([], []).
+skip_blanks([C|Cs], Out) :-
+    if_(blank_t(C), skip_blanks(Cs, Out), Out = [C|Cs]).
+
+blank_t(Char, Truth) :-
+    char_code(Char, Code),
+    memberd_t(Code, [0x20, 0x09], Truth).
 
 %% trim_whitespace(+Chars, -Out)
 %
-% Drop leading and trailing whitespace (space, tab, CR, LF).
+% Drop leading and trailing whitespace (space, tab, CR, LF). The trailing
+% end is the leading end of the reverse, so one relation does both.
 trim_whitespace(Chars, Out) :-
-    drop_leading_ws(Chars, Mid),
-    reverse(Mid, Rev),
-    drop_leading_ws(Rev, RevTrimmed),
-    reverse(RevTrimmed, Out).
+    drop_leading_whitespace(Chars, Mid),
+    reverse(Mid, Reversed),
+    drop_leading_whitespace(Reversed, ReversedTrimmed),
+    reverse(ReversedTrimmed, Out).
 
-drop_leading_ws([C|Rest], Out) :-
-    is_ws(C), !,
-    drop_leading_ws(Rest, Out).
-drop_leading_ws(Chars, Chars).
+drop_leading_whitespace([], []).
+drop_leading_whitespace([C|Cs], Out) :-
+    if_(whitespace_t(C), drop_leading_whitespace(Cs, Out), Out = [C|Cs]).
 
-is_ws(' ').
-is_ws('\t').
-is_ws('\n').
-is_ws('\r').
+whitespace_t(Char, Truth) :-
+    char_code(Char, Code),
+    memberd_t(Code, [0x20, 0x09, 0x0A, 0x0D], Truth).
 
 %% drop_optional_backslash(+Chars, -Out)
 %
-% Consume one `\` if present; otherwise leave the list alone.
-drop_optional_backslash(['\\'|Rest], Rest) :- !.
-drop_optional_backslash(Chars, Chars).
-
-%% hex_digit(+Char, -Value)
-hex_digit(C, V) :-
-    char_code(C, K),
-    hex_value(K, V).
-
-hex_value(K, V) :- K >= 0x30, K =< 0x39, !, V is K - 0x30.
-hex_value(K, V) :- K >= 0x61, K =< 0x66, !, V is K - 0x57.
-hex_value(K, V) :- K >= 0x41, K =< 0x46, V is K - 0x37.
-
-decimal_digit(C) :-
-    char_code(C, K),
-    K >= 0x30, K =< 0x39.
+% Consume one `\` if present; otherwise leave the list alone. The hex
+% forms are written both ways upstream (`\xa0` and `\xa0\`), so the
+% closing backslash is part of the escape when it is there.
+drop_optional_backslash([], []).
+drop_optional_backslash([C|Cs], Out) :-
+    if_(backslash_t(C), Out = Cs, Out = [C|Cs]).

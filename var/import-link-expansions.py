@@ -4,8 +4,10 @@ The collector never resolves a shortened link itself (see
 src/infrastructure/link/unfurl.pl): it records what it has not seen as
 `pending`. A resolver driving a real browser answers that worklist out of
 band and leaves a file behind — either a JSON object of
-{short_url: expanded_url}, or JSON lines carrying `url` plus `final` or
-`status`. This turns such a file into SQL for `publication_link`.
+{short_url: expanded_url}, or JSON lines carrying `url` plus `status` and the
+address found, named `final` by a resolver that followed the redirect or
+`target` by one that read the address the page declares for itself (what
+src/link_shortener.pl's destination_url/2 does). This turns such a file into SQL for `publication_link`.
 
   python3 -I var/import-link-expansions.py findings.jsonl > upserts.sql
 
@@ -42,10 +44,26 @@ def permalink(url):
                        urlencode(kept), fragment))
 
 
+# A path a shortener writes when its own template had nothing to interpolate.
+# `https://www.youtube.com/undefined` is not an address that ever worked; it is
+# a JavaScript value that reached a URL. Eight l.humanite.fr links declare
+# exactly that, and a redirect landing there has lost its article as surely as
+# one landing on a home page.
+PLACEHOLDER_SEGMENTS = {'undefined', 'null', 'NaN', 'none', '[object Object]'}
+
+
 def leads_nowhere(short, final):
-    """A redirect that lands on a home page has lost the article it pointed
-    to; storing it would replace a working link with a vaguer one."""
-    return urlsplit(final).path in ('', '/') and urlsplit(short).path not in ('', '/')
+    """A redirect that has lost the article it pointed to: it lands on a home
+    page, or on a path the shortener failed to fill in. Storing either would
+    replace a link that may yet be fixed upstream with one that is certainly
+    broken."""
+    if urlsplit(short).path in ('', '/'):
+        return False
+    path = urlsplit(final).path
+    if path in ('', '/'):
+        return True
+    return any(segment in PLACEHOLDER_SEGMENTS
+               for segment in path.strip('/').split('/'))
 
 
 def quote(value):
@@ -79,7 +97,10 @@ def statement(row):
     short = row.get('url')
     if not short:
         return None
-    final = row.get('final')
+    # `final` from a resolver that followed the redirect, `target` from one
+    # that read what the page declares for itself. A record carrying neither
+    # says nothing about the link.
+    final = row.get('final') or row.get('target')
     code = row.get('status') if isinstance(row.get('status'), int) else None
     if final:
         final = permalink(final)

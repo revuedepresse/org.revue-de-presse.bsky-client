@@ -11,6 +11,16 @@
 :- use_module(library(dif)).
 :- use_module(library(lists)).
 
+:- use_module('repository_publication_link_queries', [
+    attempts_sql/1,
+    expansion_sql/1,
+    links_of_day_sql/1,
+    lookup_sql/1,
+    pending_sql/1,
+    refusal_sql/1,
+    rewrite_publication_sql/1,
+    rewrite_status_sql/1
+]).
 :- use_module('../pg/client', [
     execute/3,
     pg_query_or_throw/4
@@ -34,8 +44,6 @@ fall-back the ledger is skipped entirely: it is an optimisation, and
 without it a link is simply left as the post wrote it.
 */
 
-table("publication_link").
-
 %% expansion_of(+Session, +short_url(Url), -Found)
 expansion_of(pg_session(C0, C), short_url(Url), Found) :-
     pg_backend("wire"),
@@ -44,18 +52,6 @@ expansion_of(pg_session(C0, C), short_url(Url), Found) :-
     interpret_lookup(Reply, Found).
 expansion_of(pg_session(C, C), short_url(_), absent) :-
     pg_backend("psql").
-
-lookup_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT status, coalesce(expanded_url, '') ",
-            "FROM public.", Table, " ",
-            "WHERE short_url = $1 ",
-            "LIMIT 1"
-        ],
-        SQL
-    ).
 
 interpret_lookup(data([]), absent).
 interpret_lookup(data([[Status, Expanded|_]|_]), Found) :-
@@ -86,18 +82,6 @@ record_pending(pg_session(C0, C), short_url(Url), ok) :-
 record_pending(pg_session(C, C), short_url(_), skipped) :-
     pg_backend("psql").
 
-pending_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "INSERT INTO public.", Table, " ",
-            "(short_url, status, attempts, first_seen_at, last_attempt_at) ",
-            "VALUES ($1, 'pending', 0, now()::text, NULL) ",
-            "ON CONFLICT (short_url) DO NOTHING"
-        ],
-        SQL
-    ).
-
 %% record_expansion(+Session, +short_url(Url), +expanded(Expanded), -Outcome)
 record_expansion(pg_session(C0, C), short_url(Url), expanded(Expanded), ok) :-
     pg_backend("wire"),
@@ -106,23 +90,6 @@ record_expansion(pg_session(C0, C), short_url(Url), expanded(Expanded), ok) :-
     writeln([link_resolved|[Url]], true).
 record_expansion(pg_session(C, C), short_url(_), expanded(_), skipped) :-
     pg_backend("psql").
-
-expansion_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "INSERT INTO public.", Table, " ",
-            "(short_url, expanded_url, status, http_status, attempts, first_seen_at, last_attempt_at) ",
-            "VALUES ($1, $2, 'resolved', 200, 1, now()::text, now()::text) ",
-            "ON CONFLICT (short_url) DO UPDATE SET ",
-            "expanded_url = EXCLUDED.expanded_url, ",
-            "status = 'resolved', ",
-            "http_status = EXCLUDED.http_status, ",
-            "attempts = public.", Table, ".attempts + 1, ",
-            "last_attempt_at = EXCLUDED.last_attempt_at"
-        ],
-        SQL
-    ).
 
 %% record_refusal(+Session, +short_url(Url), +http_status(Code), -Outcome)
 %
@@ -149,22 +116,6 @@ refusal_status(Code, "blocked") :-
     dif(Code, 404),
     dif(Code, 410).
 
-refusal_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "INSERT INTO public.", Table, " ",
-            "(short_url, status, http_status, attempts, first_seen_at, last_attempt_at) ",
-            "VALUES ($1, $2, $3::integer, 1, now()::text, now()::text) ",
-            "ON CONFLICT (short_url) DO UPDATE SET ",
-            "status = EXCLUDED.status, ",
-            "http_status = EXCLUDED.http_status, ",
-            "attempts = public.", Table, ".attempts + 1, ",
-            "last_attempt_at = EXCLUDED.last_attempt_at"
-        ],
-        SQL
-    ).
-
 %% attempts_since(+Session, +minutes(Minutes), -Count)
 %
 % How many links have been asked about in the last Minutes. The ledger is
@@ -179,18 +130,6 @@ attempts_since(pg_session(C0, C), minutes(Minutes), Count) :-
     interpret_count(Reply, Count).
 attempts_since(pg_session(C, C), minutes(_), 0) :-
     pg_backend("psql").
-
-attempts_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT count(*)::text ",
-            "FROM public.", Table, " ",
-            "WHERE last_attempt_at IS NOT NULL ",
-            "AND last_attempt_at::timestamptz > now() - ($1 || ' minutes')::interval"
-        ],
-        SQL
-    ).
 
 interpret_count(data([[Chars|_]|_]), Count) :-
     number_chars(Count, Chars).
@@ -214,27 +153,6 @@ links_of_day(pg_session(C0, C), day(Day), Urls) :-
     interpret_links(Reply, Urls).
 links_of_day(pg_session(C, C), day(_), []) :-
     pg_backend("psql").
-
-links_of_day_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT DISTINCT match[1] AS url ",
-            "FROM public.publication p ",
-            "CROSS JOIN LATERAL regexp_matches( ",
-            "  convert_from(decode(p.text, 'base64'), 'UTF8'), ",
-            "  'https?://[^\\s\"]+', 'g' ",
-            ") AS match ",
-            "WHERE p.published_at::date = $1::date ",
-            "AND NOT EXISTS ( ",
-            "  SELECT 1 FROM public.", Table, " l ",
-            "  WHERE l.short_url = match[1] ",
-            "  AND l.status IN ('resolved', 'dead') ",
-            ") ",
-            "ORDER BY 1"
-        ],
-        SQL
-    ).
 
 interpret_links(data(Rows), Urls) :-
     maplist(first_column, Rows, Urls).
@@ -262,33 +180,6 @@ rewrite_links_of_day(pg_session(C0, C), day(Day), short_url(Short)-expanded(Expa
     writeln([link_rewritten|[Short, Rows]], true).
 rewrite_links_of_day(pg_session(C, C), day(_), _, 0) :-
     pg_backend("psql").
-
-rewrite_publication_sql(SQL) :-
-    append(
-        [
-            "UPDATE public.publication ",
-            "SET text = encode(convert_to(replace( ",
-            "  convert_from(decode(text, 'base64'), 'UTF8'), $2, $3 ",
-            "), 'UTF8'), 'base64') ",
-            "WHERE published_at::date = $1::date ",
-            "AND position($2 in convert_from(decode(text, 'base64'), 'UTF8')) > 0 ",
-            "RETURNING 1"
-        ],
-        SQL
-    ).
-
-rewrite_status_sql(SQL) :-
-    append(
-        [
-            "UPDATE public.weaving_status ",
-            "SET ust_text = encode(convert_to(replace( ",
-            "  convert_from(decode(ust_text, 'base64'), 'UTF8'), $2, $3 ",
-            "), 'UTF8'), 'base64') ",
-            "WHERE ust_created_at::date = $1::date ",
-            "AND position($2 in convert_from(decode(ust_text, 'base64'), 'UTF8')) > 0"
-        ],
-        SQL
-    ).
 
 interpret_rewrite(data(Rows), Count) :-
     length(Rows, Count).

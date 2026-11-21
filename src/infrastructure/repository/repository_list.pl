@@ -21,6 +21,21 @@
 :- use_module(library(si)).
 :- use_module(library(uuid)).
 
+:- use_module('repository_list_queries', [
+    all_clauses/3,
+    by_list_uri_sql/1,
+    count_matching_records_sql/1,
+    count_sql/1,
+    insert_event_sql/1,
+    psql_all_clauses_sql/2,
+    psql_by_list_uri_sql/2,
+    psql_count_matching_records_sql/2,
+    psql_insert_event_sql/5,
+    psql_select_payload_sql/2,
+    query_event_max_id_sql/1,
+    query_max_id_sql/1,
+    select_payload_sql/1
+]).
 :- use_module('repository_dcgs', [
     rows//1,
     to_json/3
@@ -67,12 +82,6 @@ passthrough (input = output) since the psql shell-out is
 stateless.
 */
 
-%% table(-Table)
-table("publishers_list").
-
-%% event_table(-EventTable).
-event_table("publishers_list_collected_event").
-
 %% count(+Session, -Count)
 %
 % Total number of rows in `publishers_list`. Dispatches on PG_BACKEND.
@@ -84,10 +93,6 @@ count(pg_session(C, C), Count) :-
     pg_backend("psql"),
     count_sql(SQL),
     query_result(SQL, Count).
-
-count_sql(SQL) :-
-    table(Table),
-    append(["SELECT count(*) AS matching_records_count FROM public.", Table], SQL).
 
 %% query(+Session, -HeadersAndRows)
 %
@@ -106,36 +111,6 @@ headers([
     "string__created_at"
 ]).
 
-%% all_clauses(-SQL, -Params, +Limit).
-%
-% Builds the listing SQL. Limit is either the chars "ALL" (kept as
-% literal SQL — PostgreSQL cannot bind keywords) or an integer (bound
-% as $1).
-all_clauses(SQL, [], "ALL") :-
-    all_clauses_template("ALL", SQL).
-all_clauses(SQL, [LimitChars], Limit) :-
-    integer_si(Limit),
-    number_chars(Limit, LimitChars),
-    all_clauses_template("$1", SQL).
-
-all_clauses_template(LimitClause, SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT ",
-            "t.name::text AS string__name, ",
-            "COALESCE(t.screen_name::text, ' ') AS string__username, ",
-            "COALESCE(t.list_id::bigint, 0) AS number__list_id, ",
-            "t.public_id::uuid AS string__public_id, ",
-            "t.created_at AS string__created_at ",
-            "FROM public.", Table, " t ",
-            "ORDER BY t.public_id DESC, t.name ASC, t.screen_name ASC ",
-            "OFFSET 0 ",
-            "LIMIT ", LimitClause, ";"
-        ],
-        SQL
-    ).
-
 %% query(+Session, -Rows, +Headers, +Limit). Dispatches on PG_BACKEND.
 query(pg_session(C0, C), Rows, Headers, Limit) :-
     pg_backend("wire"),
@@ -147,36 +122,6 @@ query(pg_session(C, C), Rows, _Headers, Limit) :-
     psql_all_clauses_sql(SQL, Limit),
     once(query_result_from_file(SQL, true, TmpFile)),
     read_rows(TmpFile, Rows).
-
-%% psql_all_clauses_sql(-SQL, +Limit).
-%
-% Concat form of the listing SELECT for the psql backend. Limit is
-% either the chars "ALL" or an integer that gets number_chars/2 into
-% the SQL text.
-psql_all_clauses_sql(SQL, "ALL") :-
-    psql_all_clauses_template("ALL", SQL).
-psql_all_clauses_sql(SQL, Limit) :-
-    integer_si(Limit),
-    number_chars(Limit, LimitChars),
-    psql_all_clauses_template(LimitChars, SQL).
-
-psql_all_clauses_template(LimitClause, SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT ",
-            "t.name::text AS string__name, ",
-            "COALESCE(t.screen_name::text, ' ') AS string__username, ",
-            "COALESCE(t.list_id::bigint, 0) AS number__list_id, ",
-            "t.public_id::uuid AS string__public_id, ",
-            "t.created_at AS string__created_at ",
-            "FROM public.", Table, " t ",
-            "ORDER BY t.public_id DESC, t.name ASC, t.screen_name ASC ",
-            "OFFSET 0 ",
-            "LIMIT ", LimitClause, ";"
-        ],
-        SQL
-    ).
 
 %% next_id(+Session, -NextId)
 %
@@ -222,30 +167,6 @@ coerce_no_records(V, V) :- dif(V, no_records_found).
 
 validate_id(N) :- integer_si(N).
 validate_id(N) :- \+ integer_si(N), throw(invalid_list_id(N)).
-
-query_max_id_sql(SQL) :-
-    table(Table),
-    append(
-        [
-            "SELECT COALESCE(r.id::bigint, 0) pk ",
-            "FROM ", Table, " r ",
-            "ORDER BY r.id DESC ",
-            "LIMIT 1;"
-        ],
-        SQL
-    ).
-
-query_event_max_id_sql(SQL) :-
-    event_table(EventTable),
-    append(
-        [
-            "SELECT COALESCE(e.list_id::bigint, 0) list ",
-            "FROM public.", EventTable, " e ",
-            "ORDER BY list DESC ",
-            "LIMIT 1;"
-        ],
-        SQL
-    ).
 
 %% by_list_uri_or_throw(+Session, +MainListAtUri, -Assoc)
 %
@@ -312,25 +233,6 @@ rows_or_throw_on_miss([]) :-
     throw(cannot_read_rows_selected_by(list_id)).
 rows_or_throw_on_miss([_|_]).
 
-%% psql_by_list_uri_sql(+ListURI, -SQL).
-%
-% Concat form: ListURI is inlined as a single-quoted SQL literal,
-% same convention as the pre-69f3f97 client. Trailing semicolon is
-% omitted because matching_criteria/2 appends "LIMIT 0;" then
-% "LIMIT ALL;" in its two-pass header/rows shape.
-psql_by_list_uri_sql(ListURI, SQL) :-
-    event_table(EventTable),
-    append([
-        "SELECT ",
-        "payload AS string__payload, ",
-        "list_id AS number__list_id, ",
-        "list_name AS string__list_name ",
-        "FROM public.", EventTable, " e ",
-        "WHERE e.occurred_at::date > '2024-12-31'::date ",
-        "AND e.list_name = '", ListURI, "' ",
-        "OFFSET 0 "
-    ], SQL).
-
 read_rows_or_throw(TmpFile, Rows) :- read_rows(TmpFile, Rows).
 read_rows_or_throw(_, _) :- throw(cannot_read_rows_selected_by(list_id)).
 
@@ -339,19 +241,6 @@ by_list_uri_headers([
     "number__list_id",
     "string__list_name"
 ]).
-
-by_list_uri_sql(SQL) :-
-    event_table(EventTable),
-    append([
-        "SELECT ",
-        "payload AS string__payload, ",
-        "list_id AS number__list_id, ",
-        "list_name AS string__list_name ",
-        "FROM public.", EventTable, " e ",
-        "WHERE e.occurred_at::date > '2024-12-31'::date ",
-        "AND e.list_name = $1 ",
-        "OFFSET 0 LIMIT ALL;"
-    ], SQL).
 
 %% count_matching_records(+Session, +ListName, -Result). Dispatches on PG_BACKEND.
 count_matching_records(pg_session(C0, C), ListName, Result) :-
@@ -362,22 +251,6 @@ count_matching_records(pg_session(C, C), ListName, Result) :-
     pg_backend("psql"),
     psql_count_matching_records_sql(ListName, SQL),
     query_result(SQL, Result).
-
-psql_count_matching_records_sql(ListName, SQL) :-
-    event_table(EventTable),
-    append([
-        "SELECT count(*) how_many_records ",
-        "FROM public.", EventTable, " ",
-        "WHERE list_name = '", ListName, "';"
-    ], SQL).
-
-count_matching_records_sql(SQL) :-
-    event_table(EventTable),
-    append([
-        "SELECT count(*) how_many_records ",
-        "FROM public.", EventTable, " ",
-        "WHERE list_name = $1;"
-    ], SQL).
 
 %% insert(+Session, +Row, -InsertionResult)
 %
@@ -410,30 +283,6 @@ insert_new(pg_session(C, C), ListName, Payload, ok) :-
     psql_insert_event_sql(NextPrimaryKey, NextIdChars, ListName, Payload, SQL),
     query_result(SQL, _Result).
 
-%% psql_insert_event_sql(+NextPrimaryKey, +NextIdChars, +ListName,
-%%                       +Payload, -SQL).
-%
-% Concatenated INSERT for the psql backend. Identifiers are inlined
-% as single-quoted SQL literals, the same convention as the
-% pre-69f3f97 client. No RETURNING; the caller treats success/failure
-% via query_result/2's ok | no_records_found contract.
-psql_insert_event_sql(NextPrimaryKey, NextIdChars, ListName, Payload, SQL) :-
-    event_table(EventTable),
-    append(
-        [
-            "INSERT INTO public.", EventTable, " (",
-            "id, list_id, list_name, payload, occurred_at, started_at, ended_at",
-            ") VALUES (",
-            "'", NextPrimaryKey, "', ",
-            " ", NextIdChars, ", ",
-            "'", ListName, "', ",
-            "'", Payload, "', ",
-            "NOW(), NOW(), NOW()",
-            ");"
-        ],
-        SQL
-    ).
-
 report_existing(pg_session(C0, C), ListName, ok) :-
     pg_backend("wire"),
     select_payload_sql(SelectSQL),
@@ -445,18 +294,6 @@ report_existing(pg_session(C, C), ListName, ok) :-
     query_result(SelectSQL, SelectionResult),
     log_existing_payload(SelectionResult).
 
-psql_select_payload_sql(ListName, SQL) :-
-    event_table(EventTable),
-    append(
-        [
-            "SELECT l.payload AS payload ",
-            "FROM public.", EventTable, " l ",
-            "WHERE l.list_name = '", ListName, "' ",
-            "ORDER BY l.occurred_at DESC LIMIT 1;"
-        ],
-        SQL
-    ).
-
 log_existing_payload(no_records_found) :-
     log_info([no_existing_list_payload]).
 log_existing_payload(SelectionResult) :-
@@ -466,26 +303,3 @@ log_existing_payload(SelectionResult) :-
     chars_utf8bytes(DecodedChars, DecodedBytes),
     stored_payload_json_chars(DecodedChars, JSONChars),
     log_info([JSONChars]).
-
-insert_event_sql(SQL) :-
-    event_table(EventTable),
-    append(
-        [
-            "INSERT INTO public.", EventTable, " (",
-            "id, list_id, list_name, payload, occurred_at, started_at, ended_at",
-            ") VALUES ($1, $2, $3, $4, NOW(), NOW(), NOW())"
-        ],
-        SQL
-    ).
-
-select_payload_sql(SQL) :-
-    event_table(EventTable),
-    append(
-        [
-            "SELECT l.payload AS payload ",
-            "FROM public.", EventTable, " l ",
-            "WHERE l.list_name = $1 ",
-            "ORDER BY l.occurred_at DESC LIMIT 1;"
-        ],
-        SQL
-    ).

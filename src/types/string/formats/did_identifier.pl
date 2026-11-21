@@ -15,20 +15,25 @@ ASCII-only character set, mandatory `did:` prefix, three
 colon-separated segments (`did:<method>:<identifier>`), allowed
 characters, allowed percent-encoded codes, and a small allow
 list of supported methods (`web`, `plc`).
+
+Written in the reified style src/link_shortener.pl sets out:
+every rule is a predicate whose last argument is a truth
+value, and `if_/3` chooses between succeeding and throwing the
+error that names what was wrong. No negation as failure, so a
+rule can be asked rather than only tried, and no `once/1`:
+each rule has one answer, so there is no second one to cut
+away.
 */
 
 :- use_module(library(clpz)).
-:- use_module(library(dif)).
 :- use_module(library(lists)).
-:- use_module(library(si)).
+:- use_module(library(reif)).
 :- use_module('../../../logger', [log_info/1]).
 :- use_module(has_only_ascii_chars, [has_only_ascii_chars/1]).
 :- use_module(must_be_chars, [must_be_chars/1]).
 :- use_module(must_be_ground, [must_be_ground/1]).
-:- use_module(must_be_lowercase_alpha, [must_be_lowercase_alpha/1]).
 :- use_module(must_not_end_with, [must_not_end_with/2]).
 :- use_module(must_start_with, [must_start_with/2]).
-:- use_module(same_si, [same_si/2]).
 :- use_module(split_subject, [split_subject/3]).
 
 %% is_valid_did_identifier(+Subject)
@@ -54,31 +59,30 @@ is_valid_did_identifier(Subject) :-
 % `%`, `_`. Throws `type_error/1` on the first disallowed
 % character.
 has_only_allowed_chars(Subject) :-
-    once(has_only_allowed_chars_check(Subject)).
+    if_(all_allowed_chars_t(Subject),
+        true,
+        throw(type_error('Subject must contain only allowed characters.'))).
 
-has_only_allowed_chars_check(Subject) :-
-    maplist(did_identifier:must_be_allowed_char, Subject).
-has_only_allowed_chars_check(Subject) :-
-    \+ maplist(did_identifier:must_be_allowed_char, Subject),
-    throw(type_error('Subject must contain only allowed characters.')).
+all_allowed_chars_t([], true).
+all_allowed_chars_t([Char|Chars], Truth) :-
+    if_(allowed_char_t(Char), all_allowed_chars_t(Chars, Truth), Truth = false).
 
-% must_be_allowed_char(+Char).
-must_be_allowed_char(Char) :-
-    char_code('A', AlphaStartCode),
-    char_code('Z', AlphaEndCode),
-    char_code('0', DigitStartCode),
-    char_code('9', DigitEndCode),
-    char_code(':', ColonCode),
-    char_code('.', DotCode),
-    char_code('-', HyphenCode),
-    char_code('%', PercentSignCode),
-    char_code('_', UnderscoreCode),
+% Characters are read as their codes rather than compared
+% against literals: three of the punctuation marks the
+% alphabet allows (`:`, `.`, `-`) are operator atoms Scryer
+% will not read in argument position even quoted.
+%
+% allowed_char_t(+Char, -Truth).
+allowed_char_t(Char, Truth) :-
     char_code(Char, Code),
-    (   must_be_lowercase_alpha(Char)
-    ;   Code #>= AlphaStartCode, Code #=< AlphaEndCode
-    ;   Code #>= DigitStartCode, Code #=< DigitEndCode
-    ;   member(Code, [ColonCode,DotCode,HyphenCode,PercentSignCode,UnderscoreCode])
-    ).
+    if_(code_in_t(0x61, 0x7A, Code),            % a-z
+        Truth = true,
+        if_(code_in_t(0x41, 0x5A, Code),        % A-Z
+            Truth = true,
+            if_(code_in_t(0x30, 0x39, Code),    % 0-9
+                Truth = true,
+                % : . - % _
+                memberd_t(Code, [0x3A, 0x2E, 0x2D, 0x25, 0x5F], Truth)))).
 
 %% must_have_valid_identifier_format(+Subject)
 %
@@ -88,10 +92,13 @@ must_be_allowed_char(Char) :-
 must_have_valid_identifier_format(Subject) :-
     split_subject(Subject, ':', Segments),
     length(Segments, SegmentsLength),
-    once(assert_segments_at_least_3(SegmentsLength)),
-    once(assert_segments_at_most_3(SegmentsLength)),
+    assert_segments_at_least_3(SegmentsLength),
+    assert_segments_at_most_3(SegmentsLength),
     nth0(2, Segments, Identifier),
-    assert_identifier_chars(Identifier),
+    % The identifier's alphabet is the subject's alphabet, and
+    % has_only_allowed_chars/1 already throws on a character
+    % outside it, so there is nothing left to assert here.
+    has_only_allowed_chars(Identifier),
     catch(
         must_not_end_with(Subject, '%'),
         _E,
@@ -99,112 +106,75 @@ must_have_valid_identifier_format(Subject) :-
     ),
     must_have_valid_percent_encoding(Identifier).
 
-assert_segments_at_least_3(N) :- N >= 3.
-assert_segments_at_least_3(N) :- N < 3, throw(error_not_enough_segments).
+assert_segments_at_least_3(N) :-
+    if_(at_least_t(3, N), true, throw(error_not_enough_segments)).
 
-assert_segments_at_most_3(N) :- N =< 3.
-assert_segments_at_most_3(N) :- N > 3, throw(error_too_many_segments).
-
-assert_identifier_chars(Identifier) :- once(assert_identifier_chars_check(Identifier)).
-
-assert_identifier_chars_check(Identifier) :- has_only_allowed_chars(Identifier).
-assert_identifier_chars_check(Identifier) :-
-    \+ has_only_allowed_chars(Identifier),
-    throw(error_identifier_must_have_allowed_chars).
+assert_segments_at_most_3(N) :-
+    if_(at_most_t(3, N), true, throw(error_too_many_segments)).
 
 must_have_at_least_n_characters(N, Subject) :-
     length(Subject, NChars),
-    NChars #>= N.
-must_have_at_least_n_characters(N, Subject) :-
-    length(Subject, NChars),
-    NChars #< N,
-    throw(error_must_have_at_least_n_characters(N)).
+    if_(at_least_t(N, NChars),
+        true,
+        throw(error_must_have_at_least_n_characters(N))).
 
 %% must_have_valid_percent_encoding(+Subject)
 %
 % Split `Subject` on `%`, then verify that each segment that
 % follows a `%` is at least two characters long and that the
 % leading two characters form an allowed hex code.
+%
+% The lengths are all checked before any code is, so a subject
+% carrying both faults is reported as the truncated escape it
+% is rather than as an unknown code.
 must_have_valid_percent_encoding(Subject) :-
     split_subject(Subject, '%', Segments),
     Subject = [FirstChar|_Rest],
-    apply_min_length(FirstChar, Segments),
-    apply_encoding_validation(FirstChar, Segments).
+    encoded_segments(FirstChar, Segments, Encoded),
+    maplist(must_have_at_least_n_characters(2), Encoded),
+    maplist(must_be_valid_percent_encoding, Encoded).
 
-apply_min_length(FirstChar, Segments) :-
-    starts_with_percent(FirstChar),
-    maplist(must_have_at_least_n_characters(2), Segments).
-apply_min_length(FirstChar, Segments) :-
-    \+ starts_with_percent(FirstChar),
-    Segments = [_|SegmentsMinusFirst],
-    maplist(must_have_at_least_n_characters(2), SegmentsMinusFirst).
+% Splitting on `%` yields one segment more than there are
+% escapes: the text that precedes the first `%`. That text
+% carries no code to check — unless the subject opens with the
+% `%` itself, in which case the first segment is the empty
+% string before it and is read as an escape like the rest.
+encoded_segments(FirstChar, Segments, Encoded) :-
+    if_(percent_t(FirstChar),
+        Encoded = Segments,
+        ( Segments = [_Leading|Rest], Encoded = Rest )).
 
-apply_encoding_validation(FirstChar, Segments) :-
-    starts_with_percent(FirstChar),
-    maplist(must_be_valid_percent_encoding, Segments).
-apply_encoding_validation(FirstChar, Segments) :-
-    \+ starts_with_percent(FirstChar),
-    Segments = [_|SegmentsMinusFirst],
-    maplist(must_be_valid_percent_encoding, SegmentsMinusFirst).
-
-starts_with_percent(FirstChar) :- catch(same_si(FirstChar, '%'), _E, fail).
+percent_t(Char, Truth) :-
+    char_code(Char, Code),
+    =(0x25, Code, Truth).
 
 % must_be_valid_percent_encoding(+Segment).
 must_be_valid_percent_encoding(Segment) :-
     length(Segment, N),
     assert_percent_pair_length(N),
-    Segment = [FirstChar|[SecondChar|_]],
-    append([[FirstChar],[SecondChar]], Code),
-    assert_percent_code_allowed(Code).
+    Segment = [FirstChar,SecondChar|_Rest],
+    assert_percent_code_allowed([FirstChar,SecondChar]).
 
-assert_percent_pair_length(N) :- N #>= 2.
 assert_percent_pair_length(N) :-
-    N #< 2,
-    throw(error_percent_encoding_must_have_two_hex_chars).
+    if_(at_least_t(2, N),
+        true,
+        throw(error_percent_encoding_must_have_two_hex_chars)).
 
-allowed_percent_code("3A").
-allowed_percent_code("2F").
-allowed_percent_code("3F").
-allowed_percent_code("23").
-allowed_percent_code("5B").
-allowed_percent_code("5D").
-allowed_percent_code("2A").
-allowed_percent_code("2B").
-allowed_percent_code("2C").
-allowed_percent_code("3B").
-allowed_percent_code("3D").
-allowed_percent_code("3a").
-allowed_percent_code("2f").
-allowed_percent_code("3f").
-allowed_percent_code("5b").
-allowed_percent_code("5d").
-allowed_percent_code("2a").
-allowed_percent_code("2b").
-allowed_percent_code("2c").
-allowed_percent_code("3b").
-allowed_percent_code("3d").
-allowed_percent_code("21").
-allowed_percent_code("24").
-allowed_percent_code("25").
-allowed_percent_code("26").
-allowed_percent_code("27").
-allowed_percent_code("28").
-allowed_percent_code("29").
-allowed_percent_code("20").
-allowed_percent_code("40").
+% The codes a DID identifier may escape, in both the upper and
+% the lower case the spec allows for the hex digits.
+allowed_percent_codes([
+    "3A", "2F", "3F", "23", "5B", "5D", "2A", "2B", "2C", "3B", "3D",
+    "3a", "2f", "3f", "5b", "5d", "2a", "2b", "2c", "3b", "3d",
+    "21", "24", "25", "26", "27", "28", "29", "20", "40"
+]).
 
-assert_percent_code_allowed(Code) :- allowed_percent_code(Code).
 assert_percent_code_allowed(Code) :-
-    \+ allowed_percent_code(Code),
-    throw(error_invalid_percent_encoding).
+    allowed_percent_codes(Codes),
+    if_(memberd_t(Code, Codes), true, throw(error_invalid_percent_encoding)).
 
 must_not_be_empty(Subject) :-
     length(Subject, N),
-    dif_si(N, 0).
-must_not_be_empty(Subject) :-
-    length(Subject, N),
-    \+ dif_si(N, 0),
-    throw(error_must_not_be_empty).
+    if_(N = 0, throw(error_must_not_be_empty), true).
 
 %% must_have_valid_method_format(+Subject)
 %
@@ -218,10 +188,24 @@ must_have_valid_method_format(Subject) :-
     nth0(1, Segments, Method),
     assert_method_lowercase_alpha(Method).
 
-assert_method_lowercase_alpha(Method) :- must_have_lowercase_alpha_chars_only(Method).
+% A method written in any upper case is a different name, not
+% a variant of the same one, so the case is a format error
+% rather than something to normalise.
 assert_method_lowercase_alpha(Method) :-
-    \+ must_have_lowercase_alpha_chars_only(Method),
-    throw(error_method_must_be_lowercase_alpha_only).
+    must_be_ground(Method),
+    if_(all_lowercase_alpha_t(Method),
+        true,
+        throw(error_method_must_be_lowercase_alpha_only)).
+
+all_lowercase_alpha_t([], true).
+all_lowercase_alpha_t([Char|Chars], Truth) :-
+    if_(lowercase_alpha_t(Char),
+        all_lowercase_alpha_t(Chars, Truth),
+        Truth = false).
+
+lowercase_alpha_t(Char, Truth) :-
+    char_code(Char, Code),
+    code_in_t(0x61, 0x7A, Code, Truth).         % a-z
 
 % must_be_supported_method(+Subject).
 must_be_supported_method(Subject) :-
@@ -231,15 +215,45 @@ must_be_supported_method(Subject) :-
     nth0(1, Segments, Method),
     assert_method_supported(Method).
 
-supported_method("web").
-supported_method("plc").
+supported_methods(["web", "plc"]).
 
-assert_method_supported(Method) :- supported_method(Method).
 assert_method_supported(Method) :-
-    \+ supported_method(Method),
-    throw(error_method_must_be_supported).
+    supported_methods(Methods),
+    if_(memberd_t(Method, Methods),
+        true,
+        throw(error_method_must_be_supported)).
 
-% must_have_lowercase_alpha_chars_only(+Subject).
-must_have_lowercase_alpha_chars_only(Subject) :-
-    must_be_ground(Subject),
-    maplist(must_be_lowercase_alpha, Subject).
+%% code_in_t(+Low, +High, +Value, -Truth)
+%
+% `true` when `Low =< Value =< High`.
+code_in_t(Low, High, Value, Truth) :-
+    zcompare(BelowOrder, Low, Value),
+    zcompare(AboveOrder, Value, High),
+    range_truth(BelowOrder, AboveOrder, Truth).
+
+range_truth(<, <, true).
+range_truth(<, =, true).
+range_truth(<, >, false).
+range_truth(=, <, true).
+range_truth(=, =, true).
+range_truth(=, >, false).
+range_truth(>, <, false).
+range_truth(>, =, false).
+range_truth(>, >, false).
+
+%% at_least_t(+Bound, +Value, -Truth) and at_most_t(+Bound, +Value, -Truth)
+%
+% `true` when Value is on the allowed side of Bound, Bound
+% itself included. One truth table serves both: each compares
+% the pair the way round that puts the smaller term first.
+at_least_t(Bound, Value, Truth) :-
+    zcompare(Order, Bound, Value),
+    within_truth(Order, Truth).
+
+at_most_t(Bound, Value, Truth) :-
+    zcompare(Order, Value, Bound),
+    within_truth(Order, Truth).
+
+within_truth(<, true).
+within_truth(=, true).
+within_truth(>, false).

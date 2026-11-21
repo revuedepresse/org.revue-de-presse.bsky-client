@@ -3,8 +3,6 @@
     resolve_remote/2
 ]).
 
-:- use_module(library(dif)).
-:- use_module(library(reif)).
 :- use_module(library(http/http_open)).
 :- use_module(library(lists)).
 
@@ -15,12 +13,14 @@
     record_pending/3,
     record_refusal/4
 ]).
-:- use_module('../../link_shortener', [
-    page_destination/2,
-    permalink/2,
-    rewrite_urls/3,
-    shortened_urls_in_text/2
+:- use_module('../../link_expansion', [
+    answer_of_outcome/2,
+    answer_of_status/2,
+    budget_left/3,
+    expansion_plan/5,
+    outcome_of/4
 ]).
+:- use_module('../../link_shortener', [shortened_urls_in_text/2]).
 :- use_module('../../configuration', [
     link_expander_user_agent/1,
     link_expansion/1
@@ -34,12 +34,23 @@
 Replaces the shortened links in a post with the addresses they lead to,
 at the moment the post is collected.
 
+This module performs; it decides nothing. What the ledger knows, what is
+worth asking about and what to put in the text are a function of data, and
+that function is src/link_expansion.pl: a run reads the ledger, hands the
+planner the answers it got, performs the questions the plan returns, and
+records what came back. The three were once one predicate, and
+the rule that should have held a burst back — twelve links an hour, counted
+from the ledger — lived inside an effect where nothing could check it. One
+run asked some eight hundred times in a row and 812 live links were written
+off as refusals.
+
 A link the ledger has never seen is asked for once, by us, under our own
 name. `http_open/3` follows the redirects inside the Rust builtin and
 never hands back the address it arrived at, so the destination is read
 from what the page claims for itself — `<link rel="canonical">`, else
 `<meta property="og:url">` — and reduced to a permalink before it is
-stored.
+stored. Reading that reply is itself a relation and lives with the planner;
+what is left here is the request.
 
 The redirectors most French publishers use — `l.mediapart.fr`,
 `l.humanite.fr`, `l.reporterre.net`, `www.altereco.media` and some twenty
@@ -52,16 +63,11 @@ the destination is in it. Services that redirect outright
 are followed by http_open/3 and claim themselves through their canonical
 link.
 
-A service that does refuse is recorded `refused` on that single attempt
-and never asked again; a resolver driving a real browser can answer those
-out of band and write back to this same table.
-
-One request per distinct link, ever — and no more than a handful per hour
-across the whole deployment. On 2026-11-15 a first run met some eight
-hundred links it had never seen and asked for all of them back to back; the
-service stopped answering and 812 live links were written off. A link is
-asked about once, and a run spends at most what budget/1 allows; the rest
-stay pending for the resolver that works from elsewhere.
+One request per distinct link, ever — and no more than twelve an hour across
+the whole deployment, counted from the ledger rather than from this run, so
+that two runs cannot each spend the allowance. What there is no budget for is
+noted pending: a resolver driving a real browser answers those out of band
+and writes back to this same table.
 
 A link the ledger has refused or declared dead is left exactly as the post
 wrote it: a reader still gets a working link, and no service is asked twice.
@@ -104,14 +110,27 @@ ensure_bound(pg_session(In, Out)) :-
 ensure_bound(pg_session(_, Out)) :-
     nonvar(Out).
 
+%% expand_known(+Session, +Text, -Expanded)
+%
+% The whole shape of the ingest pass: count what the window has already
+% spent, read the ledger for the links this post carries, plan, ask, record,
+% then plan once more with the answers just learnt beside the ones read.
+%
+% The second plan is what rewrites the text, and it rewrites the original:
+% one pass over it, substitutions in the order the links appear, whether the
+% address came from the ledger or from the service a moment ago.
 expand_known(pg_session(C0, C), Text, Expanded) :-
     shortened_urls_in_text(Text, Shortened),
-    budget(Budget),
+    budget(Allowance),
     window_minutes(Minutes),
     attempts_since(pg_session(C0, C1), minutes(Minutes), Spent),
-    remaining(Budget, Spent, Remaining),
-    expansion_pairs(pg_session(C1, C), Shortened, Remaining, Pairs),
-    rewrite_urls(Text, Pairs, Expanded).
+    budget_left(Allowance, Spent, Budget),
+    known_answers(pg_session(C1, C2), Shortened, Known),
+    expansion_plan(Text, Known, Budget, plan(_, ask(Ask), note(Note)), _),
+    ask_each(Ask, pg_session(C2, C3), Learnt),
+    note_each(Note, pg_session(C3, C)),
+    append(Known, Learnt, Answers),
+    expansion_plan(Text, Answers, 0, _, Expanded).
 
 %% budget(-Links) and window_minutes(-Minutes)
 %
@@ -122,62 +141,83 @@ expand_known(pg_session(C0, C), Text, Expanded) :-
 budget(12).
 window_minutes(60).
 
-remaining(Budget, Spent, Remaining) :-
-    Left is Budget - Spent,
-    max_zero(Left, Remaining).
-
-max_zero(Left, 0) :- Left =< 0.
-max_zero(Left, Left) :- Left > 0.
-
-expansion_pairs(pg_session(C, C), [], _, []).
-expansion_pairs(pg_session(C0, C), [Url|Urls], Remaining, Pairs) :-
+%% known_answers(+Session, +Urls, -Known)
+%
+% What the ledger has to say about each address, in the planner's
+% vocabulary. An address it has never seen contributes no pair at all: the
+% planner asks about exactly the links nothing is known about, which is why
+% a token shared by a hundred posts costs one question.
+known_answers(pg_session(C, C), [], []).
+known_answers(pg_session(C0, C), [Url|Urls], Known) :-
     expansion_of(pg_session(C0, C1), short_url(Url), Found),
-    pairs_for(Found, pg_session(C1, C2), Url, Remaining, Left, Pairs, Rest),
-    expansion_pairs(pg_session(C2, C), Urls, Left, Rest).
+    found_answer(Found, Url, Known, Rest),
+    known_answers(pg_session(C1, C), Urls, Rest).
 
-%% pairs_for(+Found, +Session, +Url, -Pairs, -Rest)
+%% found_answer(+Found, +Url, -Known, -Rest)
 %
-% Known destination: the pair goes in front of whatever the other links
-% contribute. Known but unresolved, or refused, or dead: nothing to
-% substitute. Never seen: noted for the resolver, and nothing to
-% substitute yet.
-pairs_for(present(expanded(Expanded)), pg_session(C, C), Url, Remaining, Remaining, [Url-Expanded|Rest], Rest).
-pairs_for(present(Status), pg_session(C, C), _, Remaining, Remaining, Rest, Rest) :-
-    dif(Status, expanded(_)).
-pairs_for(absent, pg_session(C0, C), Url, Remaining, Left, Pairs, Rest) :-
-    ask_or_note(Remaining, pg_session(C0, C), Url, Outcome),
-    spent(Remaining, Left),
-    substitution(Outcome, Url, Pairs, Rest).
+% The ledger answers `present(expanded(Url))`, `present(Status)` with the
+% status as the text of its column, or `absent`. A row's status is text on
+% the wire and a marker to the planner; the two are told apart here, at the
+% boundary where the row is read, and nowhere else.
+found_answer(present(Row), Url, [Url-Answer|Rest], Rest) :-
+    ledger_answer(Row, Answer).
+found_answer(absent, _, Rest, Rest).
 
-%% ask_or_note(+Remaining, +Session, +Url, -Outcome)
+% `expanded/1`, a non-empty status, and a column that came back empty are
+% three distinct principal functors, so no clause needs a cut or a `dif/2`
+% to keep the others out.
+ledger_answer(expanded(Expanded), expanded(Expanded)).
+ledger_answer([C|Cs], Answer) :-
+    answer_of_status([C|Cs], Answer).
+ledger_answer([], pending).
+
+%% ask_each(+Urls, +Session, -Learnt)
 %
-% With budget left, the service is asked and the answer recorded. Without,
-% the link is noted as pending and nobody is disturbed: a run that meets
-% eight hundred new links must not ask eight hundred times.
-ask_or_note(0, pg_session(C0, C), Url, over_budget) :-
-    record_pending(pg_session(C0, C), short_url(Url), _).
-ask_or_note(Remaining, pg_session(C0, C), Url, Outcome) :-
-    Remaining > 0,
+% One request per address the plan asked for, the answer written to the
+% ledger and handed back as the planner's, so the text can be rewritten
+% from everything known by the time the post is stored.
+% The line before the request is what makes a hang attributable. Every
+% other line here is written once an answer is in hand -- link_refused from
+% the ledger, link_unresolved below -- so a request that never returns
+% writes nothing, and the run simply falls quiet. watched_scryer then kills
+% it at WORKER_IDLE_TIMEOUT with 124 and the log holds no clue which
+% address it was waiting on, because `http_open/3` offers no timeout to
+% bound the wait with: its options are method, data, size, headers,
+% request_headers and status_code, and nothing else.
+%
+% A run went quiet for the full idle limit mid-feed while its two
+% sibling jobs kept logging into the same file. The silence could not be
+% placed, since those three jobs write untagged lines to one log and only
+% the ones carrying a URI can be attributed to a run at all.
+%
+% Saying which address is about to be asked for both restarts that clock
+% before each wait -- the pace between requests no longer accumulates into
+% silence -- and names the address a stall died waiting on.
+ask_each([], pg_session(C, C), []).
+ask_each([Url|Urls], pg_session(C0, C), [Url-Answer|Learnt]) :-
+    writeln([link_asking|[Url]], true),
     resolve_remote(Url, Outcome),
-    remember(Outcome, pg_session(C0, C), Url).
+    remember(Outcome, pg_session(C0, C1), Url),
+    answer_of_outcome(Outcome, Answer),
+    ask_each(Urls, pg_session(C1, C), Learnt).
 
-spent(0, 0).
-spent(Remaining, Left) :-
-    Remaining > 0,
-    Left is Remaining - 1.
-
-%% substitution(+Outcome, +Url, -Pairs, -Rest)
-substitution(resolved(Expanded), Url, [Url-Expanded|Rest], Rest).
-substitution(refused(_), _, Rest, Rest).
-substitution(unavailable(_), _, Rest, Rest).
-substitution(over_budget, _, Rest, Rest).
+%% note_each(+Urls, +Session)
+%
+% The links the window had no budget for. Nobody is disturbed about them: a
+% run that meets eight hundred new links notes them for the resolver that
+% works from elsewhere and stores the post as written.
+note_each([], pg_session(C, C)).
+note_each([Url|Urls], pg_session(C0, C)) :-
+    record_pending(pg_session(C0, C1), short_url(Url), _),
+    note_each(Urls, pg_session(C1, C)).
 
 %% remember(+Outcome, +Session, +Url)
 %
-% A refusal is final: the service answered, and not with a destination.
-% An unavailable answer — a timeout, a name that does not resolve, a page
-% claiming no address of its own — says nothing about the link, so it
-% stays pending for the browser resolver rather than being written off.
+% A refusal is final only in that the service answered: whether the answer
+% is about the link is refusal_status/2's to say, in the ledger. An
+% unavailable answer — a timeout, a name that does not resolve, a page
+% claiming no address of its own — says nothing at all, so it stays pending
+% for the browser resolver rather than being written off.
 remember(resolved(Expanded), pg_session(C0, C), Url) :-
     record_expansion(pg_session(C0, C), short_url(Url), expanded(Expanded), _).
 remember(refused(Code), pg_session(C0, C), Url) :-
@@ -205,6 +245,10 @@ attempt(Url, Outcome) :-
          ; Outcome = unavailable(no_answer)
          )).
 
+%% fetch(+Url, -Outcome)
+%
+% The request, and nothing else: what the status code and the body mean is
+% outcome_of/4's, where it can be read without a service to ask.
 fetch(Url, Outcome) :-
     user_agent(UserAgent),
     http_open(Url, Stream, [
@@ -213,26 +257,6 @@ fetch(Url, Outcome) :-
     ]),
     read_stream(Stream, Body),
     outcome_of(Code, Url, Body, Outcome).
-
-outcome_of(200, Url, Body, Outcome) :-
-    page_destination(Body, Found),
-    destination_outcome(Found, Url, Outcome).
-outcome_of(Code, _, _, refused(Code)) :-
-    dif(Code, 200).
-
-%% destination_outcome(+Found, +Url, -Outcome)
-%
-% A page that claims no address of its own, or claims the one just asked
-% for, has not resolved anything.
-destination_outcome(none, _, unavailable(no_destination_in_page)).
-destination_outcome(destination(Claimed), Url, Outcome) :-
-    permalink(Claimed, Expanded),
-    resolved_or_same(Expanded, Url, Outcome).
-
-resolved_or_same(Expanded, Url, Outcome) :-
-    if_(Expanded = Url,
-        Outcome = unavailable(no_destination_in_page),
-        Outcome = resolved(Expanded)).
 
 %% user_agent(-Header)
 %
