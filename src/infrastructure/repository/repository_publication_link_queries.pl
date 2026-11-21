@@ -117,15 +117,41 @@ attempts_sql(SQL) :-
 % The test that tells the two generations of row apart. Named so that the
 % decode and the re-encode cannot drift into disagreeing about which rows
 % are which.
+%
+% The alphabet alone is not a test: a one-word post with no punctuation is
+% spelled entirely in base64 characters, passes it, and decodes to bytes
+% `convert_from` rejects -- which raises, taking the whole day's rewrite
+% with it. Two further conditions narrow it to what the encoder actually
+% writes: base64 of a quoted term is a whole number of quartets, and begins
+% with the quartet for `"` or for `[`, which is to say `I` or `W`.
+%
+% Newlines belong in the alphabet because `encode(..., 'base64')` wraps at
+% 76 characters, and rows written before that wrap was stripped carry them.
+% Leaving them out read those rows as plain text and skipped them, which is
+% the one case where skipping is not harmless: `chars_base64/3` fails on a
+% newline, so a wrapped row is one the worker cannot read until it is
+% rewritten unwrapped.
+%
+% What remains uncovered: a post that is a single base64-spelled token, of a
+% length divisible by four, beginning with `I` or `W`, whose bytes are not
+% valid UTF-8. Closing that needs a decode that returns rather than raises,
+% which in Postgres means a function, which means a migration.
 base64_column(Column, SQL) :-
-    append([Column, " ~ '^[A-Za-z0-9+/=]+$'"], SQL).
+    append(
+        [
+            "(", Column, " ~ E'^[A-Za-z0-9+/=\\n]+$' ",
+            "AND length(replace(", Column, ", chr(10), '')) % 4 = 0 ",
+            "AND left(", Column, ", 1) IN ('I', 'W'))"
+        ],
+        SQL
+    ).
 
 decoded_column(Column, SQL) :-
     base64_column(Column, Test),
     append(
         [
             "CASE WHEN ", Test, " ",
-            "THEN convert_from(decode(", Column, ", 'base64'), 'UTF8') ",
+            "THEN convert_from(decode(replace(", Column, ", chr(10), ''), 'base64'), 'UTF8') ",
             "ELSE ", Column, " END"
         ],
         SQL
