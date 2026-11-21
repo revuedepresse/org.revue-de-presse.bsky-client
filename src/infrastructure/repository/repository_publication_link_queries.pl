@@ -157,24 +157,43 @@ decoded_column(Column, SQL) :-
         SQL
     ).
 
+% The order is the fairness rule, because the caller takes the first
+% `link_expansion_batch/1` of this list and asks about those. Ordered by
+% address, that batch is ordered by host: a day with three hundred
+% l.leparisien.fr links and eight others spends the whole batch on
+% leparisien, asks it three hundred times in a row, and never reaches the
+% others at all. One publisher reads that as a burst however patient the
+% pace between requests is.
+%
+% So the rows are numbered within each host and ordered by that number
+% first: the first link of every host, then the second of every host, and
+% so on. A batch then spreads across as many publishers as the day has, no
+% host is asked twice before every other has been asked once, and a host
+% with thousands of links can no longer crowd out a host with two.
 links_of_day_sql(SQL) :-
     table(Table),
     decoded_column("p.text", Decoded),
     append(
         [
-            "SELECT DISTINCT match[1] AS url ",
-            "FROM public.publication p ",
-            "CROSS JOIN LATERAL regexp_matches( ",
-            "  ", Decoded, ", ",
-            "  'https?://[^\\s\"]+', 'g' ",
-            ") AS match ",
-            "WHERE p.published_at::date = $1::date ",
-            "AND NOT EXISTS ( ",
-            "  SELECT 1 FROM public.", Table, " l ",
-            "  WHERE l.short_url = match[1] ",
-            "  AND l.status IN ('resolved', 'dead') ",
-            ") ",
-            "ORDER BY 1"
+            "SELECT url FROM ( ",
+            "  SELECT DISTINCT match[1] AS url, ",
+            "         row_number() OVER ( ",
+            "           PARTITION BY split_part(match[1], '/', 3) ",
+            "           ORDER BY match[1] ",
+            "         ) AS turn ",
+            "  FROM public.publication p ",
+            "  CROSS JOIN LATERAL regexp_matches( ",
+            "    ", Decoded, ", ",
+            "    'https?://[^\\s\"]+', 'g' ",
+            "  ) AS match ",
+            "  WHERE p.published_at::date = $1::date ",
+            "  AND NOT EXISTS ( ",
+            "    SELECT 1 FROM public.", Table, " l ",
+            "    WHERE l.short_url = match[1] ",
+            "    AND l.status IN ('resolved', 'dead') ",
+            "  ) ",
+            ") rotated ",
+            "ORDER BY turn, url"
         ],
         SQL
     ).
