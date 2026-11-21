@@ -176,8 +176,26 @@ ledger_answer([], pending).
 % One request per address the plan asked for, the answer written to the
 % ledger and handed back as the planner's, so the text can be rewritten
 % from everything known by the time the post is stored.
+% The line before the request is what makes a hang attributable. Every
+% other line here is written once an answer is in hand -- link_refused from
+% the ledger, link_unresolved below -- so a request that never returns
+% writes nothing, and the run simply falls quiet. watched_scryer then kills
+% it at WORKER_IDLE_TIMEOUT with 124 and the log holds no clue which
+% address it was waiting on, because `http_open/3` offers no timeout to
+% bound the wait with: its options are method, data, size, headers,
+% request_headers and status_code, and nothing else.
+%
+% A run went quiet for the full idle limit mid-feed while its two
+% sibling jobs kept logging into the same file. The silence could not be
+% placed, since those three jobs write untagged lines to one log and only
+% the ones carrying a URI can be attributed to a run at all.
+%
+% Saying which address is about to be asked for both restarts that clock
+% before each wait -- the pace between requests no longer accumulates into
+% silence -- and names the address a stall died waiting on.
 ask_each([], pg_session(C, C), []).
 ask_each([Url|Urls], pg_session(C0, C), [Url-Answer|Learnt]) :-
+    writeln([link_asking|[Url]], true),
     resolve_remote(Url, Outcome),
     remember(Outcome, pg_session(C0, C1), Url),
     answer_of_outcome(Outcome, Answer),
