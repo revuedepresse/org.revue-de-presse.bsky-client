@@ -100,14 +100,46 @@ attempts_sql(SQL) :-
         SQL
     ).
 
+%% decoded_column(+Column, -SQL)
+%
+% The text of a column that may or may not be base64.
+%
+% `publication.text` and `weaving_status.ust_text` hold two generations of
+% rows: the legacy ones are plain text (publications up to 22 July 2023,
+% and the bulk of weaving_status), while everything the worker has written
+% is base64 of the quoted term. `decode(Plain, 'base64')` does not return
+% something odd on a plain row, it raises, and SQL gives no promise about
+% the order two conditions in a WHERE are evaluated in — so a guard sitting
+% beside the decode is not a guard at all. CASE is the one construct whose
+% evaluation order is defined, which is why the test lives inside it.
+%% base64_column(+Column, -SQL)
+%
+% The test that tells the two generations of row apart. Named so that the
+% decode and the re-encode cannot drift into disagreeing about which rows
+% are which.
+base64_column(Column, SQL) :-
+    append([Column, " ~ '^[A-Za-z0-9+/=]+$'"], SQL).
+
+decoded_column(Column, SQL) :-
+    base64_column(Column, Test),
+    append(
+        [
+            "CASE WHEN ", Test, " ",
+            "THEN convert_from(decode(", Column, ", 'base64'), 'UTF8') ",
+            "ELSE ", Column, " END"
+        ],
+        SQL
+    ).
+
 links_of_day_sql(SQL) :-
     table(Table),
+    decoded_column("p.text", Decoded),
     append(
         [
             "SELECT DISTINCT match[1] AS url ",
             "FROM public.publication p ",
             "CROSS JOIN LATERAL regexp_matches( ",
-            "  convert_from(decode(p.text, 'base64'), 'UTF8'), ",
+            "  ", Decoded, ", ",
             "  'https?://[^\\s\"]+', 'g' ",
             ") AS match ",
             "WHERE p.published_at::date = $1::date ",
@@ -121,29 +153,44 @@ links_of_day_sql(SQL) :-
         SQL
     ).
 
+%% rewrite_publication_sql(-SQL)
+%
+% Re-encoding is wrapped in `replace(..., chr(10), '')` because Postgres
+% `encode(..., 'base64')` wraps its output every 76 characters, and the
+% reader on the other side is `chars_base64/3`, which fails outright on a
+% newline. Without that strip, a rewritten row is a row the worker can no
+% longer read.
 rewrite_publication_sql(SQL) :-
+    decoded_column("text", Decoded),
+    base64_column("text", Encoded),
     append(
         [
             "UPDATE public.publication ",
-            "SET text = encode(convert_to(replace( ",
-            "  convert_from(decode(text, 'base64'), 'UTF8'), $2, $3 ",
-            "), 'UTF8'), 'base64') ",
+            "SET text = CASE WHEN ", Encoded, " ",
+            "THEN replace(encode(convert_to(replace( ",
+            "  ", Decoded, ", $2, $3 ",
+            "), 'UTF8'), 'base64'), chr(10), '') ",
+            "ELSE replace(text, $2, $3) END ",
             "WHERE published_at::date = $1::date ",
-            "AND position($2 in convert_from(decode(text, 'base64'), 'UTF8')) > 0 ",
+            "AND position($2 in ", Decoded, ") > 0 ",
             "RETURNING 1"
         ],
         SQL
     ).
 
 rewrite_status_sql(SQL) :-
+    decoded_column("ust_text", Decoded),
+    base64_column("ust_text", Encoded),
     append(
         [
             "UPDATE public.weaving_status ",
-            "SET ust_text = encode(convert_to(replace( ",
-            "  convert_from(decode(ust_text, 'base64'), 'UTF8'), $2, $3 ",
-            "), 'UTF8'), 'base64') ",
+            "SET ust_text = CASE WHEN ", Encoded, " ",
+            "THEN replace(encode(convert_to(replace( ",
+            "  ", Decoded, ", $2, $3 ",
+            "), 'UTF8'), 'base64'), chr(10), '') ",
+            "ELSE replace(ust_text, $2, $3) END ",
             "WHERE ust_created_at::date = $1::date ",
-            "AND position($2 in convert_from(decode(ust_text, 'base64'), 'UTF8')) > 0"
+            "AND position($2 in ", Decoded, ") > 0"
         ],
         SQL
     ).
