@@ -1,6 +1,12 @@
 # Machine-checked proofs of the link handling
 
-This directory is a frame, not a result. It holds no proof yet.
+Twelve of the fourteen laws in `obligations.tsv` are proven and machine-
+checked; two are partial. The checker's own verdict is reproduced, not
+committed: `make check-proofs` writes it to `proofs/check.log`, which is
+generated and ignored, as are the `.gr` and `.thm` files LPTP compiles and
+the LaTeX it renders under `proofs/latex/`. Run it to see `recogniser o.k.`
+and
+`planner o.k.` for yourself.
 
 LPTP (Stärk's Logic Program Theorem Prover, running on Scryer Prolog via
 [contrib-lptp], branch `lptp_and_scryer-prolog`) machine-checks theorems about
@@ -25,7 +31,9 @@ opened is as silent as one that passed.
 `obligations.tsv` is the point of this directory today. It lists one row per
 law we intend to prove, written from the code paths that can lose links rather
 than from the proofs that exist, so a law nobody has approached is a visible
-open row instead of an absence. All fourteen rows are open. A list of proofs
+open row instead of an absence. Twelve of the fourteen are proven and two
+are partial, each partial row saying in its own words what is missing. A
+list of proofs
 could never have said that; neither can a test suite, because a test covers the
 one input written in it and an obligation is a statement about every input.
 
@@ -78,8 +86,7 @@ to be written where no tool can read it as a guarantee.
   that is neither http nor https. Nothing reaches it that way today —
   `shortened_urls_in_text/2` only ever passes it what `urls_in_text/2` found,
   and that is always http(s) — but `tfilter/3` over a failing condition fails
-  the whole scan, and a post would then be stored with no expansion at all. A condition that fails instead of answering false makes the
-  whole scan fail, and the post is then stored with no expansion at all. What
+  the whole scan, and the post is then stored with no expansion at all. What
   is proven today is that there is at most one verdict and that it is true or
   false; that there is always one needs groundness reasoning these proofs do
   not set up.
